@@ -22,7 +22,15 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from mcp_admin_core.app import create_app
 
+from .bootstrap import ensure_seeded
 from .routers import health, logs, tokens
+
+# BEFORE create_app(), and before anything touches the config store: a bare
+# container starts on an empty volume, where mcp_admin_core's product-agnostic
+# defaults leave `mcp_server.command` and `mcp_auth_token` empty — no MCP child
+# is ever spawned and the proxy 403s every request, while /healthz still
+# answers 200 and the login page still renders. See bootstrap.py.
+ensure_seeded()
 
 # The SPA fallback (``@app.get("/{path:path}")``, registered last by the
 # factory) matches *everything*, so a typo'd or removed API path answered 200
