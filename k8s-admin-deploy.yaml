@@ -1,0 +1,163 @@
+# Podman MCP Admin console — k3s deployment
+# =========================================
+# Deployed ALONGSIDE the existing `podman-mcp` Deployment, not instead of it.
+# That is a deliberate choice with a consequence worth stating plainly:
+#
+#   * podman-mcp.woowtech.io/private_f1c360…/mcp   — the connector you use today.
+#     Served by the standalone `podman-mcp` Deployment. Untouched by this file.
+#   * podman-admin.woowtech.io                     — this console.
+#     It supervises its OWN MCP child on 127.0.0.1:8000 and proxies it at
+#     /private_<its own token>/mcp/.
+#
+# So the Tokens and Tools pages in this console govern the console's child, NOT
+# the connector you already have wired up. Two independent tokens. Do not expect
+# a toggle here to change the behaviour of the existing endpoint — it will not.
+#
+# Both pods mount the same rootless Podman socket, so both are root-equivalent
+# for uid 1000 on that node. That is the cost of running them side by side.
+#
+# Apply:
+#   kubectl apply -f k8s-admin-deploy.yaml
+#
+# Requires the image to exist first — see the repo README. Build and push from a
+# machine that can reach ghcr.io:
+#   podman build -t ghcr.io/woowtech/woow-podman-mcp-admin:0.1.0 .
+#   podman push  ghcr.io/woowtech/woow-podman-mcp-admin:0.1.0
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: podman-mcp-admin
+  namespace: podman-mcp
+type: Opaque
+stringData:
+  # Signs the admin GUI JWT. Replace before applying:
+  #   python3 -c "import secrets; print(secrets.token_hex(32))"
+  # If this changes, every existing console session is invalidated (which is the
+  # point) — it is NOT the connector token and rotating it does not break MCP.
+  JWT_SECRET: "REPLACE_WITH_RANDOM_HEX"
+  # First-boot admin password. Omit the key entirely to have one generated and
+  # printed once in the pod log; set it here to choose your own.
+  ADMIN_PASSWORD: "REPLACE_OR_DELETE_THIS_KEY"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podman-mcp-admin
+  namespace: podman-mcp
+  labels:
+    app.kubernetes.io/name: podman-mcp-admin
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: podman-mcp-admin
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: podman-mcp-admin-data
+  namespace: podman-mcp
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 128Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podman-mcp-admin
+  namespace: podman-mcp
+  labels:
+    app.kubernetes.io/name: podman-mcp-admin
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the PVC is ReadWriteOnce and two replicas would
+  # both spawn an MCP child against the same socket and the same config file.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: podman-mcp-admin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: podman-mcp-admin
+    spec:
+      # k8s auto-injects PODMAN_MCP_ADMIN_PORT=tcp://<clusterIP>:8080 for a
+      # Service of this name. Anything reading PODMAN_MCP_* as config would get
+      # a URL where it expects an integer. Switch the whole mechanism off.
+      enableServiceLinks: false
+      # The socket is a hostPath: the pod MUST land on the node that owns it.
+      nodeSelector:
+        kubernetes.io/hostname: woowtech-ai-coder-asus-tuf-gaming-f15-fx507zu4-fx507zu4
+      securityContext:
+        # Must match the owner of /run/user/1000/podman/podman.sock, or the
+        # bind mount is visible but not connectable (EACCES) and every tool
+        # call fails with something that reads like a bug.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: admin
+          image: ghcr.io/woowtech/woow-podman-mcp-admin:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MCP_ADMIN_CONFIG
+              value: /data/config.json
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: podman-mcp-admin, key: JWT_SECRET }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: podman-mcp-admin
+                  key: ADMIN_PASSWORD
+                  optional: true
+            - name: JWT_EXPIRY_HOURS
+              value: "12"
+            - name: NAMESPACE
+              value: podman-mcp
+            # Seeds config.json on first boot; afterwards the GUI owns them.
+            - name: PODMAN_URI
+              value: unix:///run/podman/podman.sock
+            - name: PODMAN_API_VERSION
+              value: v5.0.0
+            - name: PODMAN_MCP_PROFILE
+              value: safe
+            - name: PODMAN_MCP_MAX_CHARS
+              value: "20000"
+          # The console is reachable the moment uvicorn binds; the MCP child it
+          # supervises takes another 10-15s. /healthz answers from the console
+          # itself, so readiness here means "GUI usable", not "connector live".
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 120
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          volumeMounts:
+            - { mountPath: /run/podman/podman.sock, name: podman-sock }
+            - { mountPath: /data, name: data }
+      volumes:
+        - name: podman-sock
+          hostPath:
+            path: /run/user/1000/podman/podman.sock
+            type: Socket
+        - name: data
+          persistentVolumeClaim:
+            claimName: podman-mcp-admin-data
