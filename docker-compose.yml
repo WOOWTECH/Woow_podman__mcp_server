@@ -1,0 +1,75 @@
+# Woow Podman MCP Admin — local / self-hosted compose stack
+# =========================================================
+# One service, one container, three logical components:
+#
+#   1. the FastMCP server (Podman tool surface) — spawned as a loopback child
+#   2. the MCP admin console web GUI            — uvicorn on :8080
+#   3. the encrypted proxy / admin-core         — reverse proxy at
+#                                                 /private_{token}/mcp/
+#
+# Bring it up:
+#   PODMAN_SOCK=/run/user/$(id -u)/podman/podman.sock \
+#   JWT_SECRET=$(openssl rand -hex 32) \
+#   docker compose up --build
+#
+# Then open http://localhost:8080, log in with the admin password printed in the
+# first-boot logs (or the ADMIN_PASSWORD you set), rotate the MCP token on the
+# Tokens page, and point Claude's connector at
+#   http://localhost:8080/private_{mcp_auth_token}/mcp/
+#
+# THE SOCKET MOUNT IS THE WHOLE SECURITY BOUNDARY
+# -----------------------------------------------
+# Anything that can talk to the Podman socket can start a privileged container
+# and therefore own the host account. Two rules:
+#   * mount the ROOTLESS socket (/run/user/<uid>/podman/podman.sock), never
+#     /run/podman/podman.sock from the root service;
+#   * run the container as that same uid/gid, otherwise the bind mount is
+#     readable but the socket is not connectable (EACCES) and every tool call
+#     fails with a permission error that looks like a bug.
+#
+# Enable the socket first if it is not already running:
+#   systemctl --user enable --now podman.socket
+
+services:
+  podman-mcp-admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/woowtech/woow-podman-mcp-admin:latest
+    container_name: podman-mcp-admin
+    # Must match the owner of the rootless socket below.
+    user: "${PODMAN_UID:-1000}:${PODMAN_GID:-1000}"
+    ports:
+      - "8080:8080"
+    environment:
+      # Signs the admin GUI JWT. MUST be a stable random value in prod,
+      # otherwise every restart invalidates existing sessions.
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET, e.g. openssl rand -hex 32}"
+      JWT_EXPIRY_HOURS: "${JWT_EXPIRY_HOURS:-12}"
+      # First-boot admin password. Omit it and one is generated and logged once.
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      # Where the file-backed ConfigStore persists (tool switches, connection,
+      # mcp_auth_token). Lives on the named volume below.
+      MCP_ADMIN_CONFIG: "/data/config.json"
+      # The Podman connection. These are also editable from the GUI once it is
+      # up; the env values seed config.json on first boot.
+      PODMAN_URI: "unix:///run/podman/podman.sock"
+      PODMAN_API_VERSION: "${PODMAN_API_VERSION:-v5.0.0}"
+      # Safety profile: readonly (13 tools) | safe (18) | full (23).
+      # `safe` excludes prune/remove/kill-class operations.
+      PODMAN_MCP_PROFILE: "${PODMAN_MCP_PROFILE:-safe}"
+      PODMAN_MCP_MAX_CHARS: "${PODMAN_MCP_MAX_CHARS:-20000}"
+    volumes:
+      # The host's ROOTLESS podman socket. Override PODMAN_SOCK if yours differs.
+      - "${PODMAN_SOCK:-/run/user/1000/podman/podman.sock}:/run/podman/podman.sock"
+      - podman_mcp_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  podman_mcp_data:
