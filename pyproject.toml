@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "woow-podman-mcp-server"
+version = "0.1.0"
+description = "FastMCP server + admin console exposing a Podman host (libpod REST API) as MCP tools"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "WOOWTECH" }]
+keywords = ["mcp", "podman", "containers", "libpod", "fastmcp", "claude"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+# Component 1 — the FastMCP server — has a minimal dependency footprint so the
+# k3s deployment can `pip install .` quickly at pod start.
+#
+# ``mcp`` is pinned below 2.0: the 2.x line removed ``mcp.server.fastmcp``
+# entirely, and an unpinned install silently upgraded into it and died at import
+# with ``ModuleNotFoundError``.  Raise this ceiling only together with the
+# import rewrite it implies.
+dependencies = [
+    "mcp>=1.27,<2",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# Component 2/3 — the admin console (mcp_admin_core + podman_mcp_admin). Only
+# needed when running the Web GUI / encrypted proxy, not for the bare MCP server.
+admin = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pyjwt>=2.9",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=2.1",
+]
+# Phase 2 adds pydantic-settings-backed profiles; declared here so the extra
+# name is stable even while `server.py` still reads os.environ directly.
+settings = [
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+]
+# Test / dev tooling.
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+dev = [
+    "woow-podman-mcp-server[admin,test]",
+    "ruff>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/WOOWTECH/Woow_podman__mcp_server"
+Repository = "https://github.com/WOOWTECH/Woow_podman__mcp_server"
+
+[project.scripts]
+woow-podman-mcp-server = "woow_podman_mcp_server.server:main"
+
+# Two wheels are produced from this repo: the MCP server package and the thin
+# Podman-specific admin layer. The product-agnostic `mcp_admin_core` ships as a
+# separate wheel via `mcp_admin_core.pyproject.toml`, but is also included here
+# so `pip install .[admin]` yields a runnable console from a single checkout.
+[tool.hatch.build.targets.wheel]
+packages = [
+    "woow_podman_mcp_server",
+    "podman_mcp_admin",
+    "mcp_admin_core",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/woow_podman_mcp_server",
+    "/podman_mcp_admin",
+    "/mcp_admin_core",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+    "/pytest.ini",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
