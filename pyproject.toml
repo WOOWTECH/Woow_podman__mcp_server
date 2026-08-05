@@ -18,7 +18,7 @@ classifiers = [
 ]
 
 # Component 1 — the FastMCP server — has a minimal dependency footprint so the
-# k3s deployment can `pip install .` quickly at pod start.
+# image build stays small and `pip install .` is quick.
 #
 # ``mcp`` is pinned below 2.0: the 2.x line removed ``mcp.server.fastmcp``
 # entirely, and an unpinned install silently upgraded into it and died at import
