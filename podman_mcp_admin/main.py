@@ -18,12 +18,20 @@ load-bearing gotcha preserved from the reference).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from mcp_admin_core.app import create_app
 
 from .bootstrap import ensure_seeded
 from .routers import health, logs, tokens
+
+# The SPA bundle ships inside this package (Dockerfile copies the built Vite
+# dist into ``podman_mcp_admin/static/``). ``create_app`` otherwise defaults to
+# ``Path.cwd() / "static"`` which is ``/app/static`` under the shipped image
+# and does not exist — so the SPA catch-all never registers and ``/`` 404s.
+_STATIC_DIR = Path(__file__).parent / "static"
 
 # BEFORE create_app(), and before anything touches the config store: a bare
 # container starts on an empty volume, where mcp_admin_core's product-agnostic
@@ -92,6 +100,7 @@ async def api_not_found(request: Request, rest: str) -> JSONResponse:
 
 app = create_app(
     title="Podman MCP Admin",
+    static_dir=_STATIC_DIR,
     extra_routers=[
         tokens.router,
         health.router,
