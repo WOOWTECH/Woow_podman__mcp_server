@@ -1,0 +1,6 @@
+# Normalise line endings so a Windows checkout does not rewrite every file.
+* text=auto eol=lf
+
+# Never touch these.
+*.png binary
+*.pem binary
