@@ -31,9 +31,13 @@ window onto the host's one Podman.
 systemctl --user enable --now podman.socket
 
 # 2. Build the image (needs a machine that can reach your registry).
+#    --format docker is load-bearing: podman builds OCI by default, and the
+#    OCI image spec has no healthcheck field, so the Dockerfile's HEALTHCHECK
+#    is silently dropped. The container then reports no health status at all
+#    and `podman ps` shows an empty STATUS column instead of healthy/unhealthy.
 git clone https://github.com/WOOWTECH/Woow_podman__mcp_server.git
 cd Woow_podman__mcp_server
-podman build -t podman-mcp-admin:0.1.0 .
+podman build --format docker -t podman-mcp-admin:0.1.0 .
 
 # 3. Run it, bind-mounting the host socket in.
 podman run -d --name podman-mcp-admin \
