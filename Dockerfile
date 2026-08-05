@@ -92,6 +92,12 @@ VOLUME ["/data"]
 EXPOSE 8080
 
 # Basic liveness: the admin app exposes an unauthenticated /healthz.
+#
+# REQUIRES `podman build --format docker`. Podman defaults to the OCI image
+# format, which has no healthcheck field, so this instruction is silently
+# discarded on a default build — no error, no warning in the usual output, and
+# the resulting container reports no health state at all. Verify after building:
+#   podman inspect -f '{{.Config.Healthcheck.Test}}' <image>
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"
 
