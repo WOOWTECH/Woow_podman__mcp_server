@@ -9,7 +9,7 @@ from typing import AsyncGenerator, Sequence
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth.middleware import AuthMiddleware, login_router
@@ -96,8 +96,43 @@ def create_app(
 
     # -- Health endpoint (before SPA fallback) ---------------------------------
     @app.get("/healthz", tags=["system"])
-    async def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+    async def healthz() -> JSONResponse:
+        """Liveness for the container, not just for uvicorn.
+
+        This used to be a bare ``return {"status": "ok"}`` — a literal that
+        never looked at anything. It reported healthy in the exact situation
+        the probe exists to catch: the console bound its port and served the
+        login page while the supervised MCP child was dead and every
+        ``/private_{token}/…`` request came back ``Connection refused``. A
+        container whose connector is down is not healthy, and a probe that
+        says otherwise is worse than no probe at all — it converts an outage
+        into false confidence.
+
+        ``is_ready()`` is the right signal rather than ``is_running``: a child
+        that is alive but not yet accepting connections on its port cannot
+        serve the connector either. The Dockerfile's ``--start-period`` covers
+        the boot window so this does not flap on startup.
+        """
+        manager = get_process_manager()
+        try:
+            ready = await manager.is_ready()
+        except Exception as exc:  # never let the probe itself 500
+            logger.warning("healthz: readiness probe raised: %s", exc)
+            ready = False
+
+        if ready:
+            return JSONResponse({"status": "ok", "mcp_child": "ready"})
+        return JSONResponse(
+            {
+                "status": "degraded",
+                "mcp_child": "not_ready",
+                "detail": (
+                    "The admin console is up but the supervised MCP child is "
+                    "not accepting connections, so the connector URL is down."
+                ),
+            },
+            status_code=503,
+        )
 
     # -- Static files + SPA fallback (must be last) ----------------------------
     if static_dir is None:
