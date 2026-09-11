@@ -1,0 +1,6 @@
+# /data/config.json: admin password, connector token, tool switches.
+# VolumeName= is the name the old README's `podman run` used, so an existing deployment
+# adopts its connector token and admin password unchanged.
+[Volume]
+VolumeName=podman_mcp_data
+Label=io.woowtech.app=podman-mcp-admin
