@@ -283,7 +283,7 @@ Registration，拿到 HTML 後失敗，出現 *"Couldn't register with … 's si
 ## 測試
 
 ```bash
-pytest               # 22 個測試，不需網路，不需 Podman
+pytest               # 33 個測試，不需網路，不需 Podman
 tests/dryrun.sh      # 渲染單元並用 podman 4.9.3 產生器 + systemd-analyze 檢查
 tests/smoke.sh       # 在已安裝的主機上：健康狀態、只聽 loopback、登入、MCP initialize、錯誤 token 回 403
 ```

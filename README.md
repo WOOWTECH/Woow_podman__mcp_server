@@ -319,7 +319,7 @@ front of it yourself. For an authenticated remote transport, prefer an SSH tunne
 ## Tests
 
 ```bash
-pytest               # 22 tests, no network, no Podman required
+pytest               # 33 tests, no network, no Podman required
 tests/dryrun.sh      # renders the units and checks them with the podman 4.9.3 generator + systemd-analyze
 tests/smoke.sh       # on an installed host: health, loopback-only, login, MCP initialize, wrong-token 403
 ```
