@@ -109,10 +109,6 @@ ql_assert_match PODMAN_MCP_MAX_CHARS "$(ql_env_get PODMAN_MCP_MAX_CHARS)" '[1-9]
 ql_assert_match JWT_EXPIRY_HOURS "$(ql_env_get JWT_EXPIRY_HOURS)" '[1-9][0-9]*'
 # Quadlet splits Environment= on blanks and systemd would expand "$NAME": keep the regex simple.
 ql_assert_match PODMAN_MCP_NAME_ALLOW "$(ql_env_get PODMAN_MCP_NAME_ALLOW)" '[^[:space:]"'"'"'\\]*'
-if [[ $DRY != 1 ]] && ! cmp -s -- "$envsrc" "$ENV_FILE"; then
-  install -m 600 -- "$envsrc" "$ENV_FILE" || ql_die "cannot update $ENV_FILE"
-  ql_info "saved the new settings in $ENV_FILE"
-fi
 
 # ---- 3. legacy guards ------------------------------------------------------------------------
 for u in "${LEGACY_UNITS[@]}"; do
@@ -121,10 +117,11 @@ for u in "${LEGACY_UNITS[@]}"; do
   fi
 done
 ql_check_container_collision "$CONTAINER" "$UNIT"
-if [[ $(systemctl --user is-active "$UNIT" 2>/dev/null || true) != active ]] && command -v ss >/dev/null 2>&1; then
-  if ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
-    ql_die "port $PORT is already in use on this host (ss -ltnp 'sport = :$PORT'); pick another with --port"
-  fi
+# The port must be free, unless our running container is the one already publishing it.
+published=$(sed -n 's/^PublishPort=//p' "$QDIR/$CONTAINER.container" 2>/dev/null || true)
+if [[ $published != "$BIND:$PORT:8080" || $(systemctl --user is-active "$UNIT" 2>/dev/null || true) != active ]] \
+  && command -v ss >/dev/null 2>&1 && ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
+  ql_die "port $PORT is already in use on this host (ss -ltnp 'sport = :$PORT'); pick another with --port"
 fi
 
 # ---- 4. render the units and validate them against the podman 4.9.3 generator -------------
@@ -136,6 +133,12 @@ for f in "$WORK/out"/*; do
   u=$(ql_unit_for "$f")
   [[ -z $u ]] || ql_check_unit_shadow "$u" "$APP"
 done
+
+# Every check passed: only now do new --port/--bind/--set values reach the env file.
+if [[ $DRY != 1 ]] && ! cmp -s -- "$envsrc" "$ENV_FILE"; then
+  install -m 600 -- "$envsrc" "$ENV_FILE" || ql_die "cannot update $ENV_FILE"
+  ql_info "saved the new settings in $ENV_FILE"
+fi
 
 # ---- 5. image and secrets, before any unit changes -------------------------------------------
 built=0
