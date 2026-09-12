@@ -46,6 +46,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: podman build --format docker
         run: |
+          set -euo pipefail
           sudo apt-get update && sudo apt-get install -y podman
-          podman build --format docker -t "localhost/woow-podman-mcp-admin:$(cat VERSION)" .
-          podman inspect -f '{{.Config.Healthcheck.Test}}' "localhost/woow-podman-mcp-admin:$(cat VERSION)"
+          img="localhost/woow-podman-mcp-admin:$(cat VERSION)"
+          podman build --format docker -t "$img" .
+          # The HEALTHCHECK is what supervises the container, so assert the built image really
+          # carries one. Plain `podman inspect` hands the template podman's ImageData, whose
+          # .Config is the OCI v1.ImageConfig and has no Healthcheck field (podman 4.9.3 then
+          # exits 125). The healthcheck is a top-level field of the `image inspect` view, and
+          # `json` renders it as "null" instead of tripping over the nil pointer.
+          hc=$(podman image inspect -f '{{json .HealthCheck}}' "$img")
+          echo "healthcheck: $hc"
+          [ "$hc" != "null" ] || { echo "FAIL the image declares no HEALTHCHECK"; exit 1; }
