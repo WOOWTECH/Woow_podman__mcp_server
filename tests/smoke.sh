@@ -71,8 +71,12 @@ check "POST /api/auth/login with a wrong password -> 401" \
 # MCP connector: the token stays in a variable; the URL goes to curl on stdin, not argv
 token=$(cfg_json 'cfg.get("mcp_auth_token", "")' 2>/dev/null || true)
 init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"woow-smoke","version":"1"}}}'
+# No trailing slash: the proxy forwards everything after /private_<token>/ verbatim and the
+# MCP child is mounted at --path /mcp, so /mcp is the path the stack serves and /mcp/ is an
+# alias it answers with a 307. curl has no -L here on purpose -- one request, one status code,
+# so the wrong-token check below really reads 403 and not the end of a redirect chain.
 mcp_code() { # mcp_code <token>
-  printf 'url = "%s/private_%s/mcp/"\n' "$BASE" "$1" \
+  printf 'url = "%s/private_%s/mcp"\n' "$BASE" "$1" \
     | curl -s -o /dev/null -w '%{http_code}' -m 15 -K - -X POST \
       -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
       --data "$init" 2>/dev/null || true
