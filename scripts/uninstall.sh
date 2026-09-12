@@ -21,6 +21,7 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 # ---- per-repo settings -----------------------------------------------------------------
 APP=podman-mcp-admin
 DATA_VOLUMES=(podman_mcp_data)                  # exported before --purge deletes them
+UNIT=podman-mcp-admin.service
 BACKUP_DIR=$HOME/backups/$APP
 IMAGE_REPO=localhost/woow-podman-mcp-admin
 # ------------------------------------------------------------------------------------------
@@ -49,6 +50,10 @@ if ((purge)); then
     [[ $answer == "$APP" ]] || ql_die "aborted; nothing was deleted"
   fi
   if [[ $DRY != 1 ]]; then
+    # The volumes are deleted a few lines below, so there is nothing to keep running: stop
+    # the writer first and the export is consistent instead of "may be inconsistent".
+    systemctl --user stop "$UNIT" 2>/dev/null \
+      || ql_warn "could not stop $UNIT; the final export may be inconsistent"
     for v in "${DATA_VOLUMES[@]}"; do
       if podman volume exists "$v"; then ql_backup_volume "$v" "$BACKUP_DIR" >/dev/null; fi
     done

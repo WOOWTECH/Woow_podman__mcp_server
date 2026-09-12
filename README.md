@@ -210,6 +210,7 @@ previous image tag (install never deletes image tags) and exits 1. The version l
 ```bash
 scripts/backup.sh                       # -> ~/backups/podman-mcp-admin/<timestamp>/
 scripts/backup.sh --include-secrets     # also the three podman secrets, in secrets.env (0600)
+scripts/backup.sh --stop               # stop the container around the export and start it again
 scripts/restore.sh ~/backups/podman-mcp-admin/<timestamp>     # asks first; --yes to skip
 ```
 

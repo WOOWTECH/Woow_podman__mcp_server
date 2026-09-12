@@ -188,6 +188,7 @@ scripts/upgrade.sh
 ```bash
 scripts/backup.sh                       # -> ~/backups/podman-mcp-admin/<時間戳>/
 scripts/backup.sh --include-secrets     # 另外把三個 podman secret 存到 secrets.env（0600）
+scripts/backup.sh --stop               # 匯出前先停容器，匯出完再啟動
 scripts/restore.sh ~/backups/podman-mcp-admin/<時間戳>     # 會先詢問；--yes 略過
 ```
 
