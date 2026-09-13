@@ -233,27 +233,68 @@ stacks use it. The env file stays in `~/.config/podman-mcp-admin/`; delete it yo
 
 ## Migrating an existing deployment
 
-For a host that runs the container from the old README (`podman run … podman-mcp-admin`, a
-`podman generate systemd` unit or a hand-written `podman-podman-mcp-admin.service`):
+For a host that runs the container from the old README - a hand-made `podman run …
+podman-mcp-admin` plus a hand-written `podman-podman-mcp-admin.service` (or a
+`podman generate systemd` unit). This is woowtechopenclaw today. One script does it:
 
-1. Check the tunnel: the ingress for the console hostname must target `localhost:<port>` or
-   `127.0.0.1:<port>` on this host. If it targets the host's LAN IP, plan `--bind <LAN IP>`.
-2. Back up: `podman volume export podman_mcp_data -o ~/podman_mcp_data-pre-quadlet.tar` (0600),
-   and keep a copy of the old unit file.
-3. Stop and disable the old unit, and move it out of the way if its name is
-   `podman-mcp-admin.service` (it would shadow the Quadlet unit):
-   `systemctl --user disable --now podman-podman-mcp-admin.service`.
-4. Keep the old container for rollback, stopped and renamed:
-   `podman stop podman-mcp-admin && podman rename podman-mcp-admin podman-mcp-admin-legacy-$(date +%Y%m%d)`.
-5. `scripts/install.sh`. It adopts `podman_mcp_data`, so the connector token and the admin password
-   stay the same; only the console session (new `JWT_SECRET`) needs a fresh login.
-6. `config.json` keeps the API version from its first boot. If `tests/smoke.sh` passes but tool
-   calls answer 404, set the connection's API version to the daemon's
-   (`podman version --format '{{.Server.APIVersion}}'`) on the settings page.
-7. Rotate the admin password (it sat in the old container's environment and probably in shell
-   history) and consider rotating the connector token.
+```bash
+scripts/migrate-legacy.sh --dry-run        # checks + a render; changes nothing
+scripts/migrate-legacy.sh --prepare-only   # env file, secrets, image, backup; no downtime
+scripts/migrate-legacy.sh                  # the cutover (seconds)
+scripts/migrate-legacy.sh --status         # what it recorded
+scripts/migrate-legacy.sh --rollback       # back to the legacy deployment
+```
 
-Rollback: `scripts/uninstall.sh`, rename the legacy container back, re-enable the old unit.
+**What it does not guess.** The pre-flight refuses rather than assumes: no container, a
+container already managed by Quadlet or by a foreign unit, a stopped one, a `/data` that is not
+the named volume `podman_mcp_data`, a mount the Quadlet unit does not reproduce, added
+capabilities or `--privileged`, a busy port, units already installed, or a plain
+`podman-mcp-admin.service` that shadows the generated one and does not belong to this app.
+
+**What it adopts.** `podman_mcp_data` where it is - so the connector token and the admin
+password in `/data/config.json` are unchanged - plus `JWT_SECRET` and `ADMIN_PASSWORD` out of
+the legacy container's environment into podman secrets (values pass through a pipe, never
+through argv or the journal), and `PODMAN_MCP_PROFILE`, `PODMAN_MCP_NAME_ALLOW`,
+`PODMAN_MCP_MAX_CHARS`, `JWT_EXPIRY_HOURS` and the publish port into the env file. Even the
+console session survives, because `JWT_SECRET` is adopted rather than regenerated.
+
+After the cutover it re-reads the volume's `CreatedAt` and the inode of its mountpoint and of
+`config.json` and compares them with the values recorded before. A Quadlet `.volume` adopts by
+*name*; that is only worth trusting if the name still resolves to the same directory. A
+mismatch fails the migration and rolls it back.
+
+**Exposure is narrowed on purpose.** openclaw's container publishes `0.0.0.0:8080` - the
+rootless podman socket, reachable from the LAN. The new unit publishes `127.0.0.1:8080` unless
+you pass `--keep-exposure` or `--bind <addr>`, and the script says so loudly either way. Check
+the tunnel ingress first: `cf-tunnel-webgui` runs with host networking there, so an ingress to
+`localhost:8080` keeps working after the narrowing; an ingress that names the LAN IP does not.
+
+**API version.** openclaw's container carries `PODMAN_API_VERSION=v5.0.0` against a 4.9.3
+daemon. `/data/config.json` froze whatever the first boot saw, so this usually only matters for
+a fresh config, but the migration still prefers the daemon's own version and says so;
+`--api-version v5.0.0` keeps the legacy value.
+
+**Rollback shape (STANDARD 7a).** How the legacy container is kept is asked of the host, never
+of its name: `ql_rollback_strategy` answers `rename` (rename it and leave it stopped) or
+`capture` (`ql_capture_container` into the backup directory, then a plain `podman rm` - never
+`podman rm -v`, which would delete the volume). `capture` is chosen only where this user's
+`podman-restart.service` is enabled *and* the container's restart policy is exactly `always`,
+because such a container revives at the next boot and fights the Quadlet container for its
+name, its port and the socket. woowtechopenclaw has the unit enabled but the container is
+`unless-stopped`, so it takes the rename path there today - a fact about the host, which is why
+the script asks instead of hardcoding. The capture is taken in `--prepare-only`, before any
+downtime, so a container that cannot be replayed is refused while the console still serves.
+
+**Backup.** `~/backups/podman-mcp-admin/migrate-<timestamp>/` holds the volume export, the full
+`podman inspect`, the legacy unit file, a `precheck.txt` and, on the capture path, the rollback
+copy - all listed in `SHA256SUMS` (`cd <dir> && sha256sum -c SHA256SUMS`). The directory is
+`0700` and the files `0600`: the inspect carries the container's environment.
+
+**Afterwards.** Rotate the admin password and the connector token: both sat in the legacy
+container's environment and probably in shell history. Once the soak period is over, remove the
+renamed legacy container and the old unit file.
+
+---
 
 ## Docker and compose
 
@@ -336,7 +377,11 @@ VERSION                     image tag; must match quadlet/podman-mcp-admin.conta
 quadlet/                    podman-mcp-admin.container, podman-mcp.volume, podman-mcp.network, render-vars
 config/                     podman-mcp-admin.env.example
 scripts/                    install, upgrade, uninstall, backup, restore, show-connector; lib/quadlet-lib.sh (vendored)
+scripts/migrate-legacy.sh   hand-made `podman run` deployment -> these units, with --prepare-only and --rollback
+scripts/app.sh              the facts and helpers migrate-legacy.sh and tests/rollback-model.sh share
 tests/                      pytest suite, dryrun.sh (+ dryrun.local.sh, fixtures/), smoke.sh
+tests/rollback-model.sh     shim-driven: both rollback shapes of STANDARD 7a, and the migration pre-flight
+tests/shims/                podman and systemctl doubles (no container is created)
 verification/               in-container client for manual checks against a live deployment
 ```
 

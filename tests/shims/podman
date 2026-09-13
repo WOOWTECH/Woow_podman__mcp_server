@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+# Test double for podman. Never touches real containers. State lives under $SHIM_STATE:
+#   containers/<name>/label    PODMAN_SYSTEMD_UNIT label     containers/<name>/states  inspect sequence
+#   containers/<name>/env      one KEY=VALUE per line (repo-local extension, `.Config.Env`)
+#   secrets/<name>             secret data                    secret-labels/<name>
+#   vol-created/<name>         CreatedAt of a volume (repo-local extension, see `volume inspect`)
+#   volumes/<name>/            volume contents                vol-owner/<name>          io.woowtech.* label
+#   networks/<name>            network exists                 images/<ref-with-/:-as-_>
+#   ps_ids, mounts, volume_users                              calls                     every call, one per line
+#   image-ids/<ref-with-/:-as-_>                              image id for `podman image inspect`
+# A container directory may also carry the per-container facts the capture/recreate helpers
+# read (all optional, empty when absent): policy retries id image image_id netmode pod
+# autoremove project service sizerw createcommand.argv0 mounts networks ports labels.
+# `podman create` writes them itself, so a capture -> rm -> recreate round trip works here.
+# Its argument parser knows the arity of the flags the tests use (--name --restart -v --volume
+# --net --network --label -e --env -p --publish --requires --healthcheck-command); the first
+# bare token after them is the image, as in real podman.
+# Env: SHIM_PODMAN_VERSION, SHIM_DEFAULT_HEALTHY=1 (inspect of an unknown container -> healthy),
+#      SHIM_INSPECT_RC (a Mounts inspect prints its rows, then errors with this exit code),
+#      SHIM_IMAGES_ALL=1 (every image exists), SHIM_HC_RC (podman healthcheck run exit code),
+#      SHIM_COMMIT_RC (podman commit exit code), SHIM_CREATE_RC (podman create exit code).
+set -u
+S=${SHIM_STATE:?SHIM_STATE is not set}
+printf 'podman %s\n' "$*" >>"$S/calls"
+[[ ${1:-} == --version ]] && { echo "podman version ${SHIM_PODMAN_VERSION:-4.9.3}"; exit 0; }
+cmd=${1:-}
+shift || true
+imgkey() { printf '%s' "${1//[\/:@]/_}"; }
+case $cmd in
+  container)
+    sub=$1; shift
+    case $sub in
+      exists) [[ -d $S/containers/$1 ]]; exit ;;
+    esac
+    exit 0 ;;
+  inspect)
+    fmt='' size=0
+    iargs=()
+    while (($#)); do
+      case $1 in
+        --format | -f) fmt=$2; shift 2 ;;
+        --size) size=1; shift ;;
+        *) iargs+=("$1"); shift ;;
+      esac
+    done
+    set -- "${iargs[@]:-}"
+    [[ $size == 1 ]] || true
+    # Real podman wraps --format in an implicit {{range .}}: inside the template "." is one
+    # object but "$" is still the whole inspect array, so {{$.Field}} always dies. Reject it
+    # here too, or a template that podman refuses would pass the tests (it did: the mount
+    # guard used {{$.Name}} and never returned a single row).
+    case $fmt in
+      *'{{$.'*)
+        echo "Error: template: inspect:1: executing \"inspect\" at <\$.>: can't evaluate field in type []interface {}" >&2
+        exit 125 ;;
+    esac
+    cname=${1:-}
+    cf() { cat "$S/containers/$cname/$1" 2>/dev/null || true; }
+    case $fmt in
+      # per-container capture templates. They are matched before the guard's *Mounts* rule,
+      # which is the whole-host one, so a marker unique to each is used.
+      *.ImageName*)
+        [[ -d $S/containers/$cname ]] || { echo "Error: no such object: $cname" >&2; exit 125; }
+        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$(cf id)" "$(cf image_id)" "$(cf image)" \
+          "$(cf policy)" "$(cf retries)" "$(cf pod)" "$(cf autoremove)" "$(cf netmode)" \
+          "$(cf label)" "$(cf project)" "$(cf service)"
+        exit 0 ;;
+      # real podman appends a newline AFTER the whole template output, so the text following
+      # the last NUL is that newline and not an argument. Reproduce it, or the lib's reader
+      # would look correct here and pick up a stray argument on a real host.
+      *CreateCommand*) cat "$S/containers/$cname/createcommand.argv0" 2>/dev/null; echo; exit 0 ;;
+      *.Destination*) cf mounts; exit 0 ;;
+      # REPO-LOCAL EXTENSION (fold back into lib/tests/shims when syncing): the container
+      # environment. scripts/migrate-legacy.sh adopts JWT_SECRET / ADMIN_PASSWORD out of the
+      # legacy container's env into podman secrets, and carries the non-secret settings into
+      # the env file, so the double has to be able to answer this template.
+      *Config.Env*) cf env; exit 0 ;;
+      *Aliases*) cf networks; exit 0 ;;
+      *NetworkSettings.Ports*) cf ports; exit 0 ;;
+      *NetworkSettings.Networks*) cut -d'|' -f1 <"$S/containers/$cname/networks" 2>/dev/null; exit 0 ;;
+      *SizeRw*) cf sizerw; echo; exit 0 ;;
+      *RestartPolicy.Name*)
+        [[ -d $S/containers/$cname ]] || { echo "Error: no such object: $cname" >&2; exit 125; }
+        cf policy; echo; exit 0 ;;
+      *Config.Image*) cf image; echo; exit 0 ;;
+      *Mounts*)
+        # SHIM_INSPECT_RC: podman failing part-way (a container stopped between `ps -q` and
+        # here). Real podman still prints the objects it did read, then errors and exits 125.
+        if [[ ${SHIM_INSPECT_RC:-0} != 0 ]]; then
+          cat "$S/mounts" 2>/dev/null
+          echo "Error: no such object: c9" >&2
+          exit "$SHIM_INSPECT_RC"
+        fi
+        cat "$S/mounts" 2>/dev/null; exit 0 ;;
+    esac
+    name=$1
+    if [[ $fmt == *State.Status* ]]; then
+      f=$S/containers/$name/states
+      if [[ -f $f ]]; then
+        line=$(head -n1 "$f")
+        (($(wc -l <"$f") > 1)) && sed -i 1d "$f"
+        [[ $line == absent ]] && { echo "Error: no such container $name" >&2; exit 125; }
+        echo "$line"; exit 0
+      fi
+      if [[ ${SHIM_DEFAULT_HEALTHY:-0} == 1 ]]; then echo "running|hc|healthy|2026-09-12T00:00:00Z"; exit 0; fi
+      echo "Error: no such container $name" >&2; exit 125
+    fi
+    [[ -d $S/containers/$name ]] || { echo "Error: no such object: $name" >&2; exit 125; }
+    case $fmt in
+      *PODMAN_SYSTEMD_UNIT*) cat "$S/containers/$name/label" 2>/dev/null; echo ;;
+      *Config.Labels*) cat "$S/containers/$name/labels" 2>/dev/null ;;
+      '') printf '[{"Name":"%s","Shim":true}]\n' "$name" ;;
+      *) echo "{}" ;;
+    esac
+    exit 0 ;;
+  rename)
+    mv "$S/containers/$1" "$S/containers/$2"; exit 0 ;;
+  create)
+    [[ ${SHIM_CREATE_RC:-0} == 0 ]] || { echo "Error: shim create refused" >&2; exit "$SHIM_CREATE_RC"; }
+    cargv=("$@") cname='' cpol='' cimg='' cnets=() cvols=()
+    ci=0
+    while ((ci < ${#cargv[@]})); do
+      a=${cargv[ci]}
+      case $a in
+        --name) cname=${cargv[ci + 1]}; ci=$((ci + 2)); continue ;;
+        --name=*) cname=${a#--name=}; ci=$((ci + 1)); continue ;;
+        --restart) cpol=${cargv[ci + 1]}; ci=$((ci + 2)); continue ;;
+        --restart=*) cpol=${a#--restart=}; ci=$((ci + 1)); continue ;;
+        -v | --volume) cvols+=("${cargv[ci + 1]}"); ci=$((ci + 2)); continue ;;
+        --volume=*) cvols+=("${a#--volume=}"); ci=$((ci + 1)); continue ;;
+        --net | --network) cnets+=("${cargv[ci + 1]}"); ci=$((ci + 2)); continue ;;
+        --net=* ) cnets+=("${a#--net=}"); ci=$((ci + 1)); continue ;;
+        --network=*) cnets+=("${a#--network=}"); ci=$((ci + 1)); continue ;;
+        --label | -e | --env | -p | --publish | --healthcheck-command) ci=$((ci + 2)); continue ;;
+        --requires=* | --label=* | --env=* | --publish=*) ci=$((ci + 1)); continue ;;
+        -*) ci=$((ci + 1)); continue ;;
+        *) cimg=$a; break ;;
+      esac
+    done
+    # real podman keeps the policy name and its retry count apart, and normalises the image
+    # reference (a short `n8nio/n8n:x` is reported back as `docker.io/n8nio/n8n:x`)
+    cret=0
+    case $cpol in *:*) cret=${cpol#*:}; cpol=${cpol%%:*} ;; esac
+    cfirst=${cimg%%/*}
+    if [[ $cimg != */* ]]; then cimg=docker.io/library/$cimg
+    elif [[ $cfirst != *.* && $cfirst != *:* && $cfirst != localhost ]]; then cimg=docker.io/$cimg
+    fi
+    [[ -n $cname ]] || { echo "Error: shim create needs --name" >&2; exit 125; }
+    [[ ! -d $S/containers/$cname ]] || { echo "Error: container name $cname is already in use" >&2; exit 125; }
+    d=$S/containers/$cname
+    mkdir -p "$d"
+    printf '%s' "${cpol:-}" >"$d/policy"
+    printf '%s' "$cimg" >"$d/image"
+    printf '%s' "$(cat "$S/image-ids/$(imgkey "$cimg")" 2>/dev/null || echo shimimageid)" >"$d/image_id"
+    printf '%s' "shimid-$cname" >"$d/id"
+    printf '%s' "$cret" >"$d/retries"
+    : >"$d/mounts"
+    for v in "${cvols[@]:-}"; do
+      [[ -n $v ]] || continue
+      src=${v%%:*} rest=${v#*:} dst=${rest%%:*}
+      if [[ $src == /* ]]; then printf 'bind||%s|%s|true|rprivate\n' "$src" "$dst" >>"$d/mounts"
+      else printf 'volume|%s|/vol/%s|%s|true|rprivate\n' "$src" "$src" "$dst" >>"$d/mounts"; fi
+    done
+    : >"$d/networks"
+    for n in "${cnets[@]:-}"; do [[ -n $n ]] && printf '%s|||\n' "$n" >>"$d/networks"; done
+    printf 'podman\0' >"$d/createcommand.argv0"
+    printf 'create\0' >>"$d/createcommand.argv0"
+    printf '%s\0' "${cargv[@]}" >>"$d/createcommand.argv0"
+    echo "shimid-$cname"
+    exit 0 ;;
+  rm)
+    for a in "$@"; do
+      [[ $a == -* ]] && continue
+      [[ -d $S/containers/$a ]] || { echo "Error: no such container $a" >&2; exit 1; }
+      rm -rf "$S/containers/$a"
+    done
+    exit 0 ;;
+  start)
+    for a in "$@"; do
+      [[ $a == -* ]] && continue
+      [[ -d $S/containers/$a ]] || { echo "Error: no such container $a" >&2; exit 125; }
+      echo running >"$S/containers/$a/started"
+    done
+    exit 0 ;;
+  commit)
+    [[ ${SHIM_COMMIT_RC:-0} == 0 ]] || { echo "Error: shim commit refused" >&2; exit "$SHIM_COMMIT_RC"; }
+    cargs=()
+    for a in "$@"; do [[ $a == -* || $a == -- ]] || cargs+=("$a"); done
+    [[ -d $S/containers/${cargs[0]} ]] || { echo "Error: no such container ${cargs[0]}" >&2; exit 125; }
+    mkdir -p "$S/images" "$S/image-ids"
+    : >"$S/images/$(imgkey "${cargs[1]}")"
+    printf 'committed-%s' "${cargs[0]}" >"$S/image-ids/$(imgkey "${cargs[1]}")"
+    echo "committedimageid"
+    exit 0 ;;
+  ps)
+    case " $* " in
+      *" -q "*) cat "$S/ps_ids" 2>/dev/null ;;
+      *volume=*) cat "$S/volume_users" 2>/dev/null ;;
+    esac
+    exit 0 ;;
+  secret)
+    sub=$1; shift
+    case $sub in
+      exists) [[ -f $S/secrets/$1 ]]; exit ;;
+      create)
+        replace=0 labels=()
+        while [[ ${1:-} == --* ]]; do
+          case $1 in
+            --replace) replace=1; shift ;;
+            --label) labels+=("$2"); shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        name=$1 src=$2
+        if [[ -f $S/secrets/$name && $replace == 0 ]]; then echo "Error: $name: secret name in use" >&2; exit 125; fi
+        mkdir -p "$S/secrets" "$S/secret-labels"
+        if [[ $src == - ]]; then cat >"$S/secrets/$name"; else cat -- "$src" >"$S/secrets/$name"; fi
+        printf '%s\n' "${labels[@]}" >"$S/secret-labels/$name"
+        echo "3f1e0c9a1b2c3d4e5f60718293a4"
+        exit 0 ;;
+      inspect)
+        name=${!#}
+        [[ -f $S/secrets/$name ]] || exit 125
+        cat "$S/secrets/$name"; echo; exit 0 ;;
+      rm) [[ -f $S/secrets/$1 ]] || exit 1; rm -f "$S/secrets/$1"; exit 0 ;;
+    esac
+    exit 0 ;;
+  volume)
+    sub=$1; shift
+    case $sub in
+      exists) [[ -d $S/volumes/$1 ]]; exit ;;
+      export)
+        vol=$1; shift
+        [[ ${1:-} == -o ]] || { echo "shim: export needs -o" >&2; exit 2; }
+        tar -cf "$2" -C "$S/volumes/$vol" .; exit ;;
+      rm) [[ -d $S/volumes/$1 ]] || exit 1; rm -rf "$S/volumes/$1"; exit 0 ;;
+      inspect)
+        # REPO-LOCAL EXTENSION (fold back into lib/tests/shims when syncing): the canonical
+        # copy ignores --format here and only prints the io.woowtech.* owner label. Volume
+        # identity - Mountpoint and CreatedAt - is what app_volume_identity compares across a
+        # cutover to prove the data was adopted and not re-created, so the double has to be
+        # able to answer those two templates, and to answer them differently for a volume that
+        # was removed and made again.
+        vfmt='' vname=''
+        while (($#)); do
+          case $1 in
+            --format | -f) vfmt=$2; shift 2 ;;
+            *) vname=$1; shift ;;
+          esac
+        done
+        case $vfmt in
+          *Mountpoint* | *CreatedAt*)
+            [[ -d $S/volumes/$vname ]] || { echo "Error: no such volume $vname" >&2; exit 125; }
+            case $vfmt in
+              *Mountpoint*) printf '%s\n' "$S/volumes/$vname" ;;
+              *) cat "$S/vol-created/$vname" 2>/dev/null || printf '2026-01-01T00:00:00Z\n' ;;
+            esac
+            exit 0 ;;
+        esac
+        cat "$S/vol-owner/$vname" 2>/dev/null; echo; exit 0 ;;
+    esac
+    exit 0 ;;
+  network)
+    sub=$1; shift
+    case $sub in
+      exists) [[ -e $S/networks/$1 ]]; exit ;;
+      rm) [[ -e $S/networks/$1 ]] || exit 1; rm -f "$S/networks/$1"; exit 0 ;;
+      inspect) echo; exit 0 ;;
+    esac
+    exit 0 ;;
+  image)
+    sub=$1; shift
+    case $sub in
+      exists) [[ ${SHIM_IMAGES_ALL:-0} == 1 || -e $S/images/$(imgkey "$1") ]]; exit ;;
+      inspect)
+        [[ ${1:-} == --format || ${1:-} == -f ]] && shift 2
+        cat "$S/image-ids/$(imgkey "${!#}")" 2>/dev/null || exit 125
+        echo; exit 0 ;;
+    esac
+    exit 0 ;;
+  pull)
+    mkdir -p "$S/images"; : >"$S/images/$(imgkey "${!#}")"; exit 0 ;;
+  unshare)
+    exec "$@" ;;
+  healthcheck)
+    exit "${SHIM_HC_RC:-1}" ;;
+  *) exit 0 ;;
+esac
