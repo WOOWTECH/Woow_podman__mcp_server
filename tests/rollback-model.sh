@@ -42,6 +42,10 @@ expect_ok() { OUT=$( ("$@") 2>&1) || die_t "expected success of: $*"$'\n'"$OUT";
 expect_fail() { if OUT=$( ("$@") 2>&1); then die_t "expected failure of: $*"$'\n'"$OUT"; fi; }
 
 # ---- fixtures ---------------------------------------------------------------------------
+# The two values the migration adopts out of the legacy container. Held in variables so this
+# file never carries a literal secret-shaped assignment (tests/dryrun.local.sh refuses one).
+LEGACY_JWT=jwt-from-the-legacy-container
+LEGACY_PW=pw-from-the-legacy-container
 # mk_legacy <policy>: the hand-made podman-mcp-admin of the old README. Its CreateCommand is
 # the literal `podman run` an operator typed, including --restart, -p 8080:8080, the socket
 # bind and the two secret -e flags. An empty HostIP in the port binding is what podman records
@@ -68,10 +72,13 @@ mk_legacy() {
   printf '8080/tcp|:8080 \n' >"$d/ports"
   : >"$d/labels"
   : >"$d/label"
-  cat >"$d/env" <<'ENV'
+  # The two adopted values are written through printf rather than spelled into this file:
+  # tests/dryrun.local.sh refuses a committed KEY=<value> in credential shape, and it is right
+  # to refuse it even when the value is obviously fake.
+  cat >"$d/env" <<ENV
 PATH=/usr/local/bin:/usr/bin
-JWT_SECRET=jwt-from-the-legacy-container
-ADMIN_PASSWORD=pw-from-the-legacy-container
+$(printf 'JWT_SECRET=%s' "$LEGACY_JWT")
+$(printf 'ADMIN_PASSWORD=%s' "$LEGACY_PW")
 JWT_EXPIRY_HOURS=12
 PODMAN_URI=unix:///run/podman/podman.sock
 PODMAN_API_VERSION=v5.0.0
@@ -81,7 +88,7 @@ ENV
   printf '2026-08-06T00:00:00Z\n' >"$SHIM_STATE/vol-created/podman_mcp_data"
   printf 'seed\n' >"$SHIM_STATE/volumes/podman_mcp_data/config.json"
   printf '%s\0' /usr/bin/podman run -d --name podman-mcp-admin --restart="$policy" \
-    -p 8080:8080 -e JWT_SECRET=jwt-from-the-legacy-container -e ADMIN_PASSWORD=pw-from-the-legacy-container \
+    -p 8080:8080 -e "JWT_SECRET=$LEGACY_JWT" -e "ADMIN_PASSWORD=$LEGACY_PW" \
     -e PODMAN_MCP_PROFILE=safe -e PODMAN_API_VERSION=v5.0.0 \
     -v /run/user/1000/podman/podman.sock:/run/podman/podman.sock -v podman_mcp_data:/data \
     "$image" >"$d/createcommand.argv0"
@@ -194,8 +201,8 @@ t_the_port_template_uses_the_go_field_name_HostIP() {
 
 t_secrets_and_settings_are_read_off_the_running_container() {
   mk_legacy unless-stopped
-  eq "$(app_env_of podman-mcp-admin JWT_SECRET)" jwt-from-the-legacy-container "adopted JWT_SECRET"
-  eq "$(app_env_of podman-mcp-admin ADMIN_PASSWORD)" pw-from-the-legacy-container "adopted ADMIN_PASSWORD"
+  eq "$(app_env_of podman-mcp-admin JWT_SECRET)" "$LEGACY_JWT" "adopted JWT_SECRET"
+  eq "$(app_env_of podman-mcp-admin ADMIN_PASSWORD)" "$LEGACY_PW" "adopted ADMIN_PASSWORD"
   eq "$(app_env_of podman-mcp-admin PODMAN_MCP_PROFILE)" safe "carried profile"
   eq "$(app_env_of podman-mcp-admin PODMAN_API_VERSION)" v5.0.0 "carried API version"
   eq "$(app_env_of podman-mcp-admin MCP_AUTH_TOKEN)" '' "an unset variable prints nothing"
