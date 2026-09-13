@@ -313,7 +313,7 @@ derive_env() {
 }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/$APP-migrate.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+ql_cleanup work rm -rf "$WORK"
 
 if [[ $mode == dry-run ]]; then
   if [[ -f $ENV_FILE ]]; then install -m 600 -- "$ENV_FILE" "$WORK/$APP.env"; else install -m 600 -- "$REPO/$ENV_EXAMPLE_REL" "$WORK/$APP.env"; fi
