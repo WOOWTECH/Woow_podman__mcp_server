@@ -200,3 +200,48 @@ app_legacy_restore() {
     fi
   done
 }
+
+# ---- downtime probe -------------------------------------------------------------------------
+# "How long was the console down" is not answerable from .State.StartedAt: that is when the NEW
+# container started, not when the old one stopped, and the gap also covers the install. Two
+# background probers answer it from the outside instead - one on the legacy URL, one on the new
+# one, because a migration may change the publish address - and the downtime is the interval
+# between the last success of the first and the first success of the second.
+#
+# app_probe_start <url> <logfile> sets APP_PROBE_PID; app_probe_stop <pid> stops one.
+app_probe_start() {
+  local url=${1:?usage: app_probe_start <url> <log>} log=${2:?}
+  : >"$log"
+  (
+    while :; do
+      printf '%s %s\n' "$(date +%s%3N)" \
+        "$(curl -s -o /dev/null -m 2 -w '%{http_code}' "$url" 2>/dev/null || true)" >>"$log"
+      sleep 0.1
+    done
+  ) &
+  APP_PROBE_PID=$!
+}
+app_probe_stop() {
+  local pid=${1:-}
+  [[ -n $pid ]] || return 0
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+# _app_probe_edge <log> first|last: the timestamp of the first or last successful sample, or ''
+_app_probe_edge() {
+  awk -v want="$2" '
+    $2 ~ /^[23]/ || $2 == "401" || $2 == "403" {
+      if (want == "first") { print $1; exit } ; last = $1
+    }
+    END { if (want == "last" && last != "") print last }
+  ' "$1"
+}
+# app_probe_downtime_ms <before log> <after log>: milliseconds the service was unreachable, or
+# -1 when either side never answered (which the caller must report rather than round to 0).
+app_probe_downtime_ms() {
+  local a b
+  a=$(_app_probe_edge "${1:?}" last)
+  b=$(_app_probe_edge "${2:?}" first)
+  if [[ -z $a || -z $b ]]; then printf '%s' -1; return 0; fi
+  ((b > a)) && printf '%s' "$((b - a))" || printf '0'
+}

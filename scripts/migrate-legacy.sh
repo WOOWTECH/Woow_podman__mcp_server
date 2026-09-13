@@ -418,6 +418,14 @@ confirm "the cutover stops the console for a few seconds"
 ql_info "step 3/4: retiring the legacy deployment ($STRATEGY) and installing the Quadlet units"
 state_set STATUS cutover
 T0=$(now_ms)
+# Two probes, because the publish address may change across the cutover (openclaw's 0.0.0.0 is
+# narrowed to loopback by default). The reported downtime is the gap between the last answer of
+# the old endpoint and the first answer of the new one.
+PROBE_BEFORE=$bk/downtime-before.log PROBE_AFTER=$bk/downtime-after.log
+app_probe_start "http://${legacy_bind/0.0.0.0/127.0.0.1}:$legacy_port/healthz" "$PROBE_BEFORE"
+PROBE_BEFORE_PID=$APP_PROBE_PID
+app_probe_start "http://$bind:$port/healthz" "$PROBE_AFTER"
+PROBE_AFTER_PID=$APP_PROBE_PID
 if [[ -n $legacy_unit ]]; then
   systemctl --user disable "$legacy_unit" >/dev/null 2>&1 || true
   systemctl --user stop "$legacy_unit" || true
@@ -442,6 +450,10 @@ ql_info "step 4/4: scripts/install.sh"
 failed=0
 "$REPO/scripts/install.sh" --no-build --yes || failed=1
 T1=$(now_ms)
+sleep 2 # let the second probe record the first successes after the cutover
+app_probe_stop "$PROBE_BEFORE_PID"
+app_probe_stop "$PROBE_AFTER_PID"
+DOWN=$(app_probe_downtime_ms "$PROBE_BEFORE" "$PROBE_AFTER")
 if ((!failed)); then
   after=$(app_volume_identity "$APP_VOLUME") || after='unreadable'
   if [[ $after == "$VOL_ID" ]]; then
@@ -461,8 +473,14 @@ if ((failed)); then
   ql_die "the cutover failed; the new units are left in place. Inspect, then run: $0 --rollback"
 fi
 state_set STATUS "done"
-state_set DOWNTIME_MS "$((T1 - T0))"
-ql_info "downtime: $(((T1 - T0) / 1000)).$(printf '%03d' $(((T1 - T0) % 1000))) s (legacy stop -> the new console answered /healthz and tests/smoke.sh passed)"
+state_set DOWNTIME_MS "$DOWN"
+state_set CUTOVER_WALL_MS "$((T1 - T0))"
+if ((DOWN < 0)); then
+  ql_warn "downtime: the probes never saw both a last success and a first success; check $PROBE_BEFORE and $PROBE_AFTER by hand"
+else
+  ql_info "downtime: ${DOWN} ms of unreachable console (probed every 100 ms: last answer on $legacy_bind:$legacy_port -> first answer on $bind:$port)"
+fi
+ql_info "cutover wall clock: $(((T1 - T0) / 1000)) s (legacy stop -> install.sh, its health wait and tests/smoke.sh all finished)"
 if [[ $STRATEGY == capture ]]; then
   ql_info "the legacy container was captured into $bk/legacy-container and removed (podman-restart.service is enabled here, so a renamed copy would have revived at boot)."
 else

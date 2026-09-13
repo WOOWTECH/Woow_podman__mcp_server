@@ -230,6 +230,53 @@ t_the_backup_carries_verifiable_checksums() {
   return 0
 }
 
+# ---- the downtime report ----------------------------------------------------------------------
+t_the_downtime_spans_the_old_endpoint_to_the_new_one() {
+  # A migration may change the publish address (openclaw's 0.0.0.0 is narrowed to loopback), so
+  # one probe cannot see both sides. The reported downtime is the last answer of the OLD
+  # endpoint to the first answer of the NEW one.
+  printf '1000 200\n1100 200\n1200 000\n1300 000\n' >"$T/before.log"
+  printf '1150 000\n1250 000\n1500 200\n1600 200\n' >"$T/after.log"
+  eq "$(app_probe_downtime_ms "$T/before.log" "$T/after.log")" 400 "1100 -> 1500"
+  # a cutover with no observed gap reports 0, never a negative number
+  printf '1000 200\n1600 200\n' >"$T/b2.log"
+  printf '1500 200\n' >"$T/a2.log"
+  eq "$(app_probe_downtime_ms "$T/b2.log" "$T/a2.log")" 0 "an overlap is not negative downtime"
+  # and a side that never answered must not round to 0
+  printf '1000 000\n' >"$T/b3.log"
+  eq "$(app_probe_downtime_ms "$T/b3.log" "$T/after.log")" -1 "no success before the cutover"
+  eq "$(app_probe_downtime_ms "$T/before.log" "$T/b3.log")" -1 "no success after the cutover"
+  # a password-protected endpoint answers 401 and is still up
+  printf '1000 401\n' >"$T/b4.log"
+  printf '1300 401\n' >"$T/a4.log"
+  eq "$(app_probe_downtime_ms "$T/b4.log" "$T/a4.log")" 300 "401 counts as up"
+}
+
+t_the_probe_measures_a_real_restart() {
+  # End to end against a real HTTP server on loopback that the test stops and starts again on a
+  # DIFFERENT port, which is what a narrowed publish address looks like to the probes.
+  command -v python3 >/dev/null 2>&1 || { printf 'skip: no python3\n'; return 0; }
+  local p1 p2 srv b a
+  p1=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  p2=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+  cd "$T"
+  python3 -m http.server "$p1" --bind 127.0.0.1 >/dev/null 2>&1 &
+  srv=$!
+  sleep 0.6
+  app_probe_start "http://127.0.0.1:$p1/" "$T/live-before.log"; b=$APP_PROBE_PID
+  app_probe_start "http://127.0.0.1:$p2/" "$T/live-after.log"; a=$APP_PROBE_PID
+  sleep 0.5
+  kill "$srv" 2>/dev/null || true; wait "$srv" 2>/dev/null || true
+  sleep 0.6
+  python3 -m http.server "$p2" --bind 127.0.0.1 >/dev/null 2>&1 &
+  srv=$!
+  sleep 1.0
+  app_probe_stop "$b"; app_probe_stop "$a"
+  kill "$srv" 2>/dev/null || true; wait "$srv" 2>/dev/null || true
+  d=$(app_probe_downtime_ms "$T/live-before.log" "$T/live-after.log")
+  ((d >= 300 && d <= 2500)) || die_t "measured downtime $d ms is outside the ~600 ms outage the test created"
+}
+
 # ---- structural: the script really uses this model ------------------------------------------
 t_migrate_legacy_asks_the_host_instead_of_hardcoding() {
   local f=$REPO/scripts/migrate-legacy.sh
@@ -240,6 +287,8 @@ t_migrate_legacy_asks_the_host_instead_of_hardcoding() {
   grep -q 'app_volume_identity' "$f" || die_t "the cutover does not prove the volume was adopted"
   grep -q 'app_write_checksums' "$f" || die_t "the backup is not checksummed"
   grep -q 'DOWNTIME_MS' "$f" || die_t "the downtime is not measured"
+  grep -q 'app_probe_downtime_ms "$PROBE_BEFORE" "$PROBE_AFTER"' "$f" \
+    || die_t "the downtime is not the gap the two probes measured"
   return 0
 }
 
@@ -267,6 +316,9 @@ run() {
   local t=$1 log rc
   [[ -z $FILTER || $t == *"$FILTER"* ]] || return 0
   log=$ROOT/$t.log
+  # SC2094: a test may cat its own probe log inside the subshell; the redirection below is the
+  # harness's, not that file's.
+  # shellcheck disable=SC2094
   (
     set -euo pipefail
     T=$ROOT/$t

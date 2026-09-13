@@ -290,6 +290,14 @@ downtime, so a container that cannot be replayed is refused while the console st
 copy - all listed in `SHA256SUMS` (`cd <dir> && sha256sum -c SHA256SUMS`). The directory is
 `0700` and the files `0600`: the inspect carries the container's environment.
 
+**Downtime is measured, not estimated.** Two probes sample `/healthz` every 100 ms from
+outside - one on the address the legacy container publishes, one on the address the new unit
+will - because the cutover may change it. The reported downtime is the gap between the last
+answer of the old endpoint and the first answer of the new one; the wall clock of the whole
+cutover (which also covers `install.sh`, its health wait and `tests/smoke.sh`) is reported
+separately. On the toypark1234 rehearsal that was **2.5 s of unreachable console** inside a
+38 s cutover.
+
 **Afterwards.** Rotate the admin password and the connector token: both sat in the legacy
 container's environment and probably in shell history. Once the soak period is over, remove the
 renamed legacy container and the old unit file.
