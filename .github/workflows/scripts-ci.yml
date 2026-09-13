@@ -1,0 +1,36 @@
+# .github/workflows/scripts-ci.yml: repo-specific script checks, next to the vendored
+# quadlet-ci.yml (which is checksummed against scripts/lib/quadlet-lib.manifest, so
+# repo-specific jobs live here instead).
+#
+# tests/rollback-model.sh drives scripts/app.sh - the helpers scripts/migrate-legacy.sh is
+# built from - against the doubles in tests/shims (podman, systemctl): no container is created
+# and the runner's user manager is never touched. It covers both rollback shapes of
+# STANDARD 7a (rename and capture) and the facts the pre-flight reads off a running legacy
+# deployment.
+name: scripts-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rollback-model:
+    runs-on: ubuntu-24.04 # apt podman = 4.9.3, systemd 255: same as the WOOWTECH hosts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck --version | sed -n 2p
+
+      - name: shellcheck the test doubles
+        run: shellcheck -x tests/shims/podman tests/shims/systemctl
+
+      - name: Legacy rollback model (rename vs capture) and the migration pre-flight
+        run: tests/rollback-model.sh

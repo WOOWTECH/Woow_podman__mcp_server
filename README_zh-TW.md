@@ -209,24 +209,65 @@ scripts/uninstall.sh --purge-images     # 另外移除 localhost/woow-podman-mcp
 
 ## 遷移既有部署
 
-適用於以舊 README 方式執行容器的主機（`podman run … podman-mcp-admin`、`podman generate systemd`
-產生的單元，或手寫的 `podman-podman-mcp-admin.service`）：
+適用於以舊 README 方式執行的主機：手動 `podman run … podman-mcp-admin`，加上手寫的
+`podman-podman-mcp-admin.service`（或 `podman generate systemd` 產生的單元）。woowtechopenclaw
+目前就是這個形狀。一支腳本即可完成：
 
-1. 檢查 tunnel：主控台主機名稱的 ingress 必須指向本機的 `localhost:<port>` 或 `127.0.0.1:<port>`。
-   若指向主機的區網 IP，請規劃使用 `--bind <區網 IP>`。
-2. 備份：`podman volume export podman_mcp_data -o ~/podman_mcp_data-pre-quadlet.tar`（0600），並保留
-   一份舊的單元檔。
-3. 停止並停用舊單元；若它的名稱是 `podman-mcp-admin.service`（會遮蔽 Quadlet 單元），把它移開：
-   `systemctl --user disable --now podman-podman-mcp-admin.service`。
-4. 保留舊容器以便回復，停止後改名：
-   `podman stop podman-mcp-admin && podman rename podman-mcp-admin podman-mcp-admin-legacy-$(date +%Y%m%d)`。
-5. 執行 `scripts/install.sh`。它會沿用 `podman_mcp_data`，所以連線器 token 與管理員密碼不變；只有主控台
-   登入（新的 `JWT_SECRET`）需要重新登入。
-6. `config.json` 保留首次開機時的 API 版本。若 `tests/smoke.sh` 通過但工具呼叫回 404，請在設定頁把連線
-   的 API 版本改成 daemon 的版本（`podman version --format '{{.Server.APIVersion}}'`）。
-7. 輪替管理員密碼（它曾存在舊容器的環境變數中，也可能在 shell 歷史紀錄裡），並考慮輪替連線器 token。
+```bash
+scripts/migrate-legacy.sh --dry-run        # 只做檢查與 render，不改任何東西
+scripts/migrate-legacy.sh --prepare-only   # env 檔、secrets、映像、備份；零停機
+scripts/migrate-legacy.sh                  # 正式切換（數秒）
+scripts/migrate-legacy.sh --status         # 顯示記錄的遷移狀態
+scripts/migrate-legacy.sh --rollback       # 回復到舊部署
+```
 
-回復：`scripts/uninstall.sh`，把舊容器改回原名，重新啟用舊單元。
+**不做猜測。** 前置檢查寧可拒絕也不假設：找不到容器、容器已由 Quadlet 或其他單元管理、容器沒在跑、
+`/data` 不是具名磁碟區 `podman_mcp_data`、有 Quadlet 單元無法重現的掛載、加了 capability 或
+`--privileged`、連接埠被佔用、單元已安裝，或存在一個會遮蔽產生單元、且不屬於本 app 的
+`podman-mcp-admin.service`。
+
+**沿用什麼。** 原地沿用 `podman_mcp_data`（所以 `/data/config.json` 裡的連線器 token 與管理員密碼
+不變）；把舊容器環境變數中的 `JWT_SECRET`、`ADMIN_PASSWORD` 收編成 podman secret（值只走 pipe，
+不經過 argv 或 journal）；把 `PODMAN_MCP_PROFILE`、`PODMAN_MCP_NAME_ALLOW`、`PODMAN_MCP_MAX_CHARS`、
+`JWT_EXPIRY_HOURS` 與發布連接埠寫進 env 檔。因為 `JWT_SECRET` 是沿用而非重新產生，連主控台的登入
+工作階段都會保留。
+
+切換後會重新讀取磁碟區的 `CreatedAt`，以及掛載點與 `config.json` 的 inode，和切換前記錄的值比對。
+Quadlet 的 `.volume` 是**用名稱**沿用；唯有名稱仍指向同一個目錄，這件事才值得相信。比對不符即判定
+遷移失敗並自動回復。
+
+**曝露面是刻意縮小的。** openclaw 的容器發布在 `0.0.0.0:8080`——那是 rootless podman socket，區網
+可達。除非加上 `--keep-exposure` 或 `--bind <位址>`，新單元一律發布在 `127.0.0.1:8080`，而且兩種情況
+腳本都會明講。請先檢查 tunnel ingress：該主機的 `cf-tunnel-webgui` 使用 host networking，因此指向
+`localhost:8080` 的 ingress 在縮小後仍然可用，指向區網 IP 的則不然。
+
+**API 版本。** openclaw 的容器帶著 `PODMAN_API_VERSION=v5.0.0`，但 daemon 是 4.9.3。
+`/data/config.json` 凍結了首次開機時看到的值，所以通常只有全新設定才受影響；即便如此，遷移仍偏好
+daemon 自己的版本並說明原因，要保留舊值請用 `--api-version v5.0.0`。
+
+**回復形狀（STANDARD 7a）。** 舊容器怎麼保留，是問主機而不是問主機名稱：`ql_rollback_strategy`
+回答 `rename`（改名並保持停止）或 `capture`（`ql_capture_container` 寫進備份目錄，然後執行單純的
+`podman rm`——絕不用 `podman rm -v`，那會刪掉磁碟區）。只有在這個使用者的 `podman-restart.service`
+已啟用**且**容器的 restart policy 剛好是 `always` 時才選 `capture`，因為這種容器會在下次開機復活，
+和 Quadlet 容器搶名稱、連接埠與 socket。woowtechopenclaw 的該單元是啟用的，但容器是
+`unless-stopped`，所以今天在那裡走的是 rename——這是主機的事實，也正是腳本要用問的、不寫死的原因。
+capture 在 `--prepare-only` 階段、任何停機之前完成，無法重播的容器會在主控台仍在服務時就被擋下。
+
+**備份。** `~/backups/podman-mcp-admin/migrate-<timestamp>/` 內含磁碟區匯出、完整 `podman inspect`、
+舊單元檔、`precheck.txt`，以及 capture 路徑下的回復副本，全部列在 `SHA256SUMS`
+（`cd <dir> && sha256sum -c SHA256SUMS`）。目錄是 `0700`、檔案 `0600`：inspect 內含容器環境變數。
+
+**停機時間是量測出來的，不是估計的。** 兩個探測器每 100 毫秒從外部取樣 `/healthz`——一個對舊容器
+發布的位址，一個對新單元將要發布的位址，因為切換可能會改變它。回報的停機時間是舊端點最後一次回應
+到新端點第一次回應之間的間隔；整個切換的實際耗時（還包含 `install.sh`、健康等待與
+`tests/smoke.sh`）另外分開回報。在 toypark1234 的演練中，這是 42 秒切換裡的**10–11 秒主控台無法連線**
+——主控台只在 podman 停掉舊容器、啟動新容器的那段時間不可用；其餘時間是 `install.sh` 在驗證自己的
+成果，而新的主控台早已在回應。
+
+**之後。** 輪替管理員密碼與連線器 token：兩者都曾在舊容器的環境變數裡，也可能留在 shell 歷史。
+觀察期結束後，移除改名後的舊容器與舊單元檔。
+
+---
 
 ## Docker 與 compose
 
@@ -300,7 +341,11 @@ VERSION                     映像 tag；必須與 quadlet/podman-mcp-admin.cont
 quadlet/                    podman-mcp-admin.container、podman-mcp.volume、podman-mcp.network、render-vars
 config/                     podman-mcp-admin.env.example
 scripts/                    install、upgrade、uninstall、backup、restore、show-connector；lib/quadlet-lib.sh（vendored）
+scripts/migrate-legacy.sh   手動 `podman run` 部署 → 本 repo 的單元，含 --prepare-only 與 --rollback
+scripts/app.sh              migrate-legacy.sh 與 tests/rollback-model.sh 共用的事實與輔助函式
 tests/                      pytest 測試、dryrun.sh（+ dryrun.local.sh、fixtures/）、smoke.sh
+tests/rollback-model.sh     以 shim 驅動：STANDARD 7a 的兩種回復形狀，以及遷移前置檢查
+tests/shims/                podman 與 systemctl 測試替身（不會建立任何容器）
 verification/               針對執行中部署做手動檢查的容器內用戶端
 ```
 

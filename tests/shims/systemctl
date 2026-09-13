@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Test double for `systemctl --user`. Mimics just enough of the user manager:
+#   LoadState     loaded when ~/.config/systemd/user/<unit> exists or a Quadlet file in
+#                 ~/.config/containers/systemd generates it; else not-found
+#   FragmentPath  the ~/.config/systemd/user file if present (a shadow wins, as in systemd),
+#                 else /run/user/1000/systemd/generator/<unit>
+#   UnitFileState enabled/disabled for plain units (state file), "generated" for Quadlet units
+# Overrides: $SHIM_STATE/units/<unit>/<Property>. Active state: $SHIM_STATE/units/<unit>/active.
+# SHIM_FAIL_UNITS="a.service ..." makes start/restart of those units fail.
+set -u
+S=${SHIM_STATE:?SHIM_STATE is not set}
+printf 'systemctl %s\n' "$*" >>"$S/calls"
+[[ ${1:-} == --user ]] || { echo "shim: systemctl called without --user: $*" >&2; exit 99; }
+shift
+cmd=${1:-}
+shift || true
+Q=$HOME/.config/containers/systemd
+P=$HOME/.config/systemd/user
+ud() { mkdir -p "$S/units/$1"; printf '%s' "$S/units/$1"; }
+quadlet_src() {
+  local u=$1 n
+  case $u in
+    *-volume.service) n=${u%-volume.service}; [[ -f $Q/$n.volume ]] ;;
+    *-network.service) n=${u%-network.service}; [[ -f $Q/$n.network ]] ;;
+    *-image.service) n=${u%-image.service}; [[ -f $Q/$n.image ]] ;;
+    *.service) n=${u%.service}; [[ -f $Q/$n.container || -f $Q/$n.kube ]] ;;
+    *) return 1 ;;
+  esac
+}
+prop() {
+  local u=$1 p=$2 f
+  f=$S/units/$u/$p
+  [[ -f $f ]] && { cat "$f"; return; }
+  case $p in
+    LoadState) if [[ -e $P/$u ]] || quadlet_src "$u"; then echo loaded; else echo not-found; fi ;;
+    FragmentPath) if [[ -e $P/$u ]]; then echo "$P/$u"; elif quadlet_src "$u"; then echo "/run/user/1000/systemd/generator/$u"; fi ;;
+    UnitFileState) if [[ -e $P/$u ]]; then echo disabled; elif quadlet_src "$u"; then echo generated; fi ;;
+    *) echo "" ;;
+  esac
+}
+active() { cat "$S/units/$1/active" 2>/dev/null || echo inactive; }
+case $cmd in
+  daemon-reload | show-environment | reset-failed) exit 0 ;;
+  show)
+    p='' u=''
+    while (($#)); do
+      case $1 in
+        -p) p=$2; shift ;;
+        --value) ;;
+        *) u=$1 ;;
+      esac
+      shift
+    done
+    prop "$u" "$p"; exit 0 ;;
+  is-active)
+    q=0; [[ ${1:-} == --quiet ]] && { q=1; shift; }
+    st=$(active "$1"); ((q)) || echo "$st"
+    [[ $st == active ]]; exit ;;
+  is-enabled)
+    st=$(prop "$1" UnitFileState); echo "${st:-disabled}"; [[ $st == enabled ]]; exit ;;
+  start | restart)
+    for u in "$@"; do
+      [[ $(prop "$u" LoadState) == loaded ]] || { echo "Unit $u not found." >&2; exit 5; }
+      for x in ${SHIM_FAIL_UNITS:-}; do [[ $x == "$u" ]] && { echo "Job for $u failed." >&2; exit 1; }; done
+      echo active >"$(ud "$u")/active"
+    done
+    exit 0 ;;
+  stop)
+    for u in "$@"; do echo inactive >"$(ud "$u")/active"; done; exit 0 ;;
+  enable)
+    now=0; [[ ${1:-} == --now ]] && { now=1; shift; }
+    for u in "$@"; do echo enabled >"$(ud "$u")/UnitFileState"; ((now)) && echo active >"$(ud "$u")/active"; done
+    exit 0 ;;
+  disable)
+    for u in "$@"; do echo disabled >"$(ud "$u")/UnitFileState"; done; exit 0 ;;
+  *) exit 0 ;;
+esac
