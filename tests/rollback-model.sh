@@ -18,6 +18,8 @@
 # Every test runs in its own subshell on purpose (isolated HOME, shim state, env), so the
 # "modified in a subshell" notes do not apply here:
 # shellcheck disable=SC2030,SC2031
+# Some assertions grep for literal shell text inside another script:
+# shellcheck disable=SC2016
 # shellcheck source-path=SCRIPTDIR
 set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -238,6 +240,18 @@ t_migrate_legacy_asks_the_host_instead_of_hardcoding() {
   grep -q 'app_volume_identity' "$f" || die_t "the cutover does not prove the volume was adopted"
   grep -q 'app_write_checksums' "$f" || die_t "the backup is not checksummed"
   grep -q 'DOWNTIME_MS' "$f" || die_t "the downtime is not measured"
+  return 0
+}
+
+t_install_sh_honours_the_lock_the_migration_already_holds() {
+  # Found on toypark1234: migrate-legacy.sh takes ql_lock and then runs install.sh, whose own
+  # ql_lock aborted the cutover AFTER the legacy container had been renamed. The automatic
+  # rollback put it back, but the cutover could never succeed. install.sh must skip the lock
+  # when the caller already holds it (the WOOW_QL_LOCK_HELD convention).
+  grep -qF '[[ ${WOOW_QL_LOCK_HELD:-} == "$APP" ]] || ql_lock "$APP"' "$REPO/scripts/install.sh" \
+    || die_t "scripts/install.sh takes the lock unconditionally; a cutover would deadlock on itself"
+  grep -qF 'export WOOW_QL_LOCK_HELD=$APP' "$REPO/scripts/migrate-legacy.sh" \
+    || die_t "scripts/migrate-legacy.sh does not announce that it holds the lock"
   return 0
 }
 
