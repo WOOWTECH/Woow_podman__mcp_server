@@ -286,6 +286,11 @@ t_migrate_legacy_asks_the_host_instead_of_hardcoding() {
   grep -q 'app_legacy_restore' "$f" || die_t "the rollback does not go through app_legacy_restore"
   grep -q 'app_volume_identity' "$f" || die_t "the cutover does not prove the volume was adopted"
   grep -q 'app_write_checksums' "$f" || die_t "the backup is not checksummed"
+  # The probe logs live in the backup directory and are still being written when step 3
+  # checksums it: the sums must be regenerated after the probes are stopped, or every
+  # migration ends with two FAILED lines in `sha256sum -c SHA256SUMS`.
+  awk '/app_probe_stop/{seen=1} seen && /app_write_checksums/{ok=1} END{exit !ok}' "$f" \
+    || die_t "the checksums are never rewritten after the downtime probes are stopped"
   grep -q 'DOWNTIME_MS' "$f" || die_t "the downtime is not measured"
   grep -q 'app_probe_downtime_ms "$PROBE_BEFORE" "$PROBE_AFTER"' "$f" \
     || die_t "the downtime is not the gap the two probes measured"

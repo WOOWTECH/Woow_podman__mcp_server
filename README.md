@@ -295,8 +295,10 @@ outside - one on the address the legacy container publishes, one on the address 
 will - because the cutover may change it. The reported downtime is the gap between the last
 answer of the old endpoint and the first answer of the new one; the wall clock of the whole
 cutover (which also covers `install.sh`, its health wait and `tests/smoke.sh`) is reported
-separately. On the toypark1234 rehearsal that was **2.5 s of unreachable console** inside a
-38 s cutover.
+separately. On the toypark1234 rehearsal that was **10-11 s of unreachable console** inside a
+42 s cutover - the console is down for as long as podman takes to stop the old container and
+start the new one; the rest of the wall clock is `install.sh` verifying its own work while the
+new console is already answering.
 
 **Afterwards.** Rotate the admin password and the connector token: both sat in the legacy
 container's environment and probably in shell history. Once the soak period is over, remove the

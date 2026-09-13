@@ -454,6 +454,10 @@ sleep 2 # let the second probe record the first successes after the cutover
 app_probe_stop "$PROBE_BEFORE_PID"
 app_probe_stop "$PROBE_AFTER_PID"
 DOWN=$(app_probe_downtime_ms "$PROBE_BEFORE" "$PROBE_AFTER")
+# The probe logs were still being written when step 3 checksummed the backup, so the sums are
+# regenerated now that they are closed. Without this, `sha256sum -c SHA256SUMS` reports two
+# FAILED lines on every migration and an operator learns to ignore the check.
+app_write_checksums "$bk"
 if ((!failed)); then
   after=$(app_volume_identity "$APP_VOLUME") || after='unreadable'
   if [[ $after == "$VOL_ID" ]]; then

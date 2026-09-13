@@ -211,7 +211,7 @@ app_legacy_restore() {
 # app_probe_start <url> <logfile> sets APP_PROBE_PID; app_probe_stop <pid> stops one.
 app_probe_start() {
   local url=${1:?usage: app_probe_start <url> <log>} log=${2:?}
-  : >"$log"
+  (umask 077 && : >"$log")
   (
     while :; do
       printf '%s %s\n' "$(date +%s%3N)" \
