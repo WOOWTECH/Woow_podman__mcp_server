@@ -1,0 +1,72 @@
+# podman-mcp-admin: admin console + FastMCP server for this user's podman.
+#
+# SECURITY: this container holds the rootless podman socket. Anything that reaches it
+# controls every container of this user, which is root-equivalent for the account. It is
+# published on @@MCP_ADMIN_BIND@@ only; expose it through a tunnel or proxy on the same
+# host. See README "Authentication".
+#
+# Rendered by scripts/install.sh from ~/.config/podman-mcp-admin/podman-mcp-admin.env
+# (the double-at tokens are listed in quadlet/render-vars). Edit the env file and re-run
+# install.sh; do not edit the installed copy.
+[Unit]
+Description=Woow Podman MCP admin console + MCP server
+Documentation=https://github.com/WOOWTECH/Woow_podman__mcp_server
+# The socket must exist before the bind mount of its directory is set up.
+Requires=podman.socket
+After=podman.socket
+
+[Container]
+ContainerName=podman-mcp-admin
+# Built locally by scripts/install.sh from ./Dockerfile; the tag is the VERSION file
+# (tests/dryrun.local.sh fails CI when they disagree).
+Image=localhost/woow-podman-mcp-admin:0.1.0
+Pull=never
+Network=podman-mcp.network
+PublishPort=@@MCP_ADMIN_BIND@@:@@MCP_ADMIN_PORT@@:8080
+Volume=podman-mcp.volume:/data
+
+# Mount the socket DIRECTORY, not the socket file: a podman.socket restart recreates the
+# file (new inode) and a file bind would keep pointing at the dead one.
+Volume=%t/podman:/run/podman
+Environment=PODMAN_URI=unix:///run/podman/podman.sock
+# No user override: container root is the host user in the rootless user namespace and
+# owns the socket (a --user uid would map to a subuid and get EACCES).
+# On SELinux hosts, disabling the label beats relabelling %t/podman with :z.
+SecurityLabelDisable=true
+NoNewPrivileges=true
+DropCapability=ALL
+ReadOnly=true
+
+Environment=MCP_ADMIN_CONFIG=/data/config.json
+# Non-secret settings. They seed /data/config.json on the first boot of an empty volume;
+# config.json is authoritative afterwards (README "Configuration").
+Environment=PODMAN_MCP_PROFILE=@@PODMAN_MCP_PROFILE@@
+Environment=PODMAN_MCP_NAME_ALLOW=@@PODMAN_MCP_NAME_ALLOW@@
+Environment=PODMAN_API_VERSION=@@PODMAN_API_VERSION@@
+Environment=PODMAN_MCP_MAX_CHARS=@@PODMAN_MCP_MAX_CHARS@@
+Environment=JWT_EXPIRY_HOURS=@@JWT_EXPIRY_HOURS@@
+
+# Podman secrets created by install.sh (random, never printed). JWT_SECRET must stay
+# stable so sessions survive restarts. ADMIN_PASSWORD and MCP_AUTH_TOKEN only seed
+# /data/config.json on first boot, so the app never generates and logs its own.
+Secret=podman-mcp-admin-jwt-secret,type=env,target=JWT_SECRET
+Secret=podman-mcp-admin-password,type=env,target=ADMIN_PASSWORD
+Secret=podman-mcp-admin-mcp-token,type=env,target=MCP_AUTH_TOKEN
+
+# In the unit, so health no longer depends on `podman build --format docker`.
+HealthCmd=python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=20s
+HealthRetries=3
+
+[Service]
+# A container stopped by systemd is stopped with SIGTERM: an entrypoint that does not
+# trap it exits 143 (128+15), which would leave the unit failed after a clean stop.
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

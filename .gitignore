@@ -30,7 +30,6 @@ coverage.xml
 # --- Secrets / runtime state ----------------------------------------------
 .env
 .env.*
-!.env.example
 config.json
 data/
 /data/

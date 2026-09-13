@@ -1,10 +1,18 @@
 # Verification harness
 
-`mcpc.py` is a tiny in-pod client for driving the **real** admin API and the
-**real** MCP endpoint of a running `podman-mcp-admin`. It is not a unit test and
-it does not run in CI — the hermetic tests live in `tests/`. This one needs the
-pod's network namespace and filesystem to mean anything at all, because the
-whole point is to exercise the deployed thing rather than a stand-in.
+`mcpc.py` is a tiny in-container client for driving the **real** admin API and
+the **real** MCP endpoint of a running `podman-mcp-admin`. It is not a unit test
+and it does not run in CI: the hermetic tests live in `tests/`, and the
+post-install checks of a deployed host live in `tests/smoke.sh`. This one needs
+the container's network namespace and filesystem to mean anything at all,
+because the whole point is to exercise the deployed thing rather than a
+stand-in. Copy it into the container's `/tmp` (a tmpfs: the root filesystem is
+read-only) and run it there, for example:
+
+```bash
+podman exec -i podman-mcp-admin sh -c 'cat > /tmp/mcpc.py' < verification/mcpc.py
+podman exec -w /tmp podman-mcp-admin python -c 'import mcpc; print(mcpc.api("/api/health"))'
+```
 
 It reads its credentials at runtime from `/data/config.json`, taking the admin
 console password and the MCP auth token from there. No secret is stored in this

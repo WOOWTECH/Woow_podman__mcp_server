@@ -1,0 +1,60 @@
+# Repo-specific checks. The Quadlet dry-run and shellcheck live in quadlet-ci.yml (vendored
+# from Woow_quadlet_migration_plan; do not edit that one here).
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: pytest (no network, no podman)
+        run: pytest
+
+  credentials:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: No committed credentials
+        run: |
+          set -euo pipefail
+          # Value-shaped: a secret assigned in a unit, env example or script, or a URL with
+          # a password in it. Names alone (docs discuss JWT_SECRET etc.) are fine.
+          if git grep -nIE '(JWT_SECRET|ADMIN_PASSWORD|MCP_AUTH_TOKEN)=[^$"[:space:]]{6,}|://[^:/@[:space:]]+:[^@/[:space:]]{4,}@' \
+               -- quadlet config scripts tests Dockerfile README.md README_zh-TW.md; then
+            echo "FAIL something credential-shaped is committed"
+            exit 1
+          fi
+          echo "ok   no credential-shaped strings"
+
+  image-build:
+    # Proves the pinned bases and the committed frontend/package-lock.json still build.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: podman build --format docker
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y podman
+          img="localhost/woow-podman-mcp-admin:$(cat VERSION)"
+          podman build --format docker -t "$img" .
+          # The HEALTHCHECK is what supervises the container, so assert the built image really
+          # carries one. Plain `podman inspect` hands the template podman's ImageData, whose
+          # .Config is the OCI v1.ImageConfig and has no Healthcheck field (podman 4.9.3 then
+          # exits 125). The healthcheck is a top-level field of the `image inspect` view, and
+          # `json` renders it as "null" instead of tripping over the nil pointer.
+          hc=$(podman image inspect -f '{{json .HealthCheck}}' "$img")
+          echo "healthcheck: $hc"
+          [ "$hc" != "null" ] || { echo "FAIL the image declares no HEALTHCHECK"; exit 1; }

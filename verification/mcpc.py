@@ -1,4 +1,4 @@
-"""Tiny in-pod MCP + admin-API client for the verification harness."""
+"""Tiny in-container MCP + admin-API client for the verification harness."""
 import json, os, urllib.request, urllib.error
 
 CFG = json.load(open(os.environ.get('MCP_ADMIN_CONFIG', '/data/config.json')))

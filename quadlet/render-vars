@@ -1,0 +1,10 @@
+# Variables scripts/install.sh may substitute into quadlet/* (D2: rendered at install time).
+# Values come from ~/.config/podman-mcp-admin/podman-mcp-admin.env; a token that is not
+# listed here, or listed but unset, stops the install before anything is written.
+MCP_ADMIN_BIND
+MCP_ADMIN_PORT
+PODMAN_MCP_PROFILE
+PODMAN_MCP_NAME_ALLOW
+PODMAN_API_VERSION
+PODMAN_MCP_MAX_CHARS
+JWT_EXPIRY_HOURS

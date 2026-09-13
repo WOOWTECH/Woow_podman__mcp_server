@@ -1,0 +1,4 @@
+# Own bridge (standard: one network per app). Nothing else joins it.
+[Network]
+NetworkName=podman-mcp
+Label=io.woowtech.app=podman-mcp-admin
