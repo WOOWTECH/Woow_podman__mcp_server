@@ -44,6 +44,7 @@ expect_fail() { if OUT=$( ("$@") 2>&1); then die_t "expected failure of: $*"$'\n
 # ---- fixtures ---------------------------------------------------------------------------
 # The two values the migration adopts out of the legacy container. Held in variables so this
 # file never carries a literal secret-shaped assignment (tests/dryrun.local.sh refuses one).
+LEGACY_CID=3f2a9c1d5e7b0a4c6d8e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e
 LEGACY_JWT=jwt-from-the-legacy-container
 LEGACY_PW=pw-from-the-legacy-container
 # mk_legacy <policy>: the hand-made podman-mcp-admin of the old README. Its CreateCommand is
@@ -56,7 +57,8 @@ mk_legacy() {
   mkdir -p "$d" "$SHIM_STATE/image-ids" "$SHIM_STATE/volumes/podman_mcp_data" "$SHIM_STATE/vol-created"
   printf '%s' "$policy" >"$d/policy"
   printf '0' >"$d/retries"
-  printf 'cid-mcp' >"$d/id"
+  # a real podman container id: hex, and what the transient healthcheck timer is named after
+  printf '%s' "$LEGACY_CID" >"$d/id"
   printf '%s' "$image" >"$d/image"
   printf 'imgid-mcp' >"$d/image_id"
   printf 'imgid-mcp' >"$SHIM_STATE/image-ids/${image//[\/:@]/_}"
@@ -115,6 +117,33 @@ t_a_disabled_restart_unit_keeps_the_rename_path() {
   has "$OUT" "renamed podman-mcp-admin-legacy-20260914 -> podman-mcp-admin"
   podman container exists podman-mcp-admin || die_t "the rollback did not bring the container back"
   eq "$(ncalls 'podman create')" 0 "a renamed container is not recreated"
+}
+
+# The renamed legacy container must not keep a healthcheck timer. podman keys that timer on
+# the container ID, so `podman rename` does not detach it: it goes on firing
+# `podman healthcheck run <id>` every interval against a container that is no longer running,
+# and the transient <id>.service fails. STANDARD.md makes an empty `systemctl --user --failed`
+# the cutover gate, so one leftover timer keeps the soak red for ever.
+t_retiring_a_legacy_container_stops_its_healthcheck_timer() {
+  mk_legacy unless-stopped
+  expect_ok app_legacy_retire rename 20260914 "$T/bk" podman-mcp-admin
+  has "$OUT" "stopped the healthcheck timer of podman-mcp-admin"
+  has "$(calls)" "systemctl --user stop $LEGACY_CID.timer $LEGACY_CID.service" \
+    "the timer must be stopped by container id"
+  # and while the old name still resolves, i.e. before the rename
+  local t_line r_line
+  t_line=$(grep -n -F -m1 "systemctl --user stop $LEGACY_CID.timer" "$SHIM_STATE/calls" | cut -d: -f1)
+  r_line=$(grep -n -F -m1 'podman rename podman-mcp-admin ' "$SHIM_STATE/calls" | cut -d: -f1)
+  ((t_line > 0 && r_line > 0 && t_line < r_line)) \
+    || die_t "the timer must be stopped before the rename (timer at line ${t_line:-none}, rename at ${r_line:-none})"
+  # the capture path removes the container, so its timer has to go too
+  : >"$SHIM_STATE/calls"
+  enable_restart_unit
+  mk_legacy always
+  expect_ok app_legacy_capture "$T/bk2" podman-mcp-admin
+  expect_ok app_legacy_retire capture '' "$T/bk2" podman-mcp-admin
+  has "$(calls)" "systemctl --user stop $LEGACY_CID.timer $LEGACY_CID.service" \
+    "the capture path must stop the timer as well"
 }
 
 t_openclaws_unless_stopped_container_is_still_the_rename_path() {
