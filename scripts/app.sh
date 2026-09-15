@@ -161,6 +161,13 @@ app_legacy_retire() {
   local strategy=${1:?} sfx=${2-} bk=${3:?} c
   shift 3
   for c in "$@"; do
+    # Before the name stops resolving: podman keys a container's transient healthcheck timer
+    # on its ID, so neither a rename nor a stop detaches it. Left alone it keeps firing
+    # `podman healthcheck run <id>` every interval against a container that is not running,
+    # and the transient <id>.service fails - which keeps `systemctl --user --failed` (the
+    # cutover gate in STANDARD.md) permanently non-empty. Best effort: no healthcheck, no
+    # timer, no error.
+    ql_stop_healthcheck_timer "$c"
     case $strategy in
       rename)
         [[ -n $sfx ]] || ql_die "the rename path needs a suffix for $c-legacy-<suffix>"

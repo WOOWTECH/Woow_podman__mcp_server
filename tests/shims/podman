@@ -70,6 +70,11 @@ case $cmd in
       # would look correct here and pick up a stray argument on a real host.
       *CreateCommand*) cat "$S/containers/$cname/createcommand.argv0" 2>/dev/null; echo; exit 0 ;;
       *.Destination*) cf mounts; exit 0 ;;
+      # ql_stop_healthcheck_timer resolves the container id (podman keys the transient
+      # healthcheck timer on it, not on the name).
+      *'.Id}}'*)
+        [[ -d $S/containers/$cname ]] || { echo "Error: no such object: $cname" >&2; exit 125; }
+        cf id; echo; exit 0 ;;
       # REPO-LOCAL EXTENSION (fold back into lib/tests/shims when syncing): the container
       # environment. scripts/migrate-legacy.sh adopts JWT_SECRET / ADMIN_PASSWORD out of the
       # legacy container's env into podman secrets, and carries the non-secret settings into
