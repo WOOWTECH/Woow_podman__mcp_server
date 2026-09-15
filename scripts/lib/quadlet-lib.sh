@@ -28,8 +28,13 @@
 #   QL_LOCK_GRACE       seconds before a lock with no owner file is stale (30); see ql_lock
 #   QL_LOG_PREFIX       log prefix                   (basename of $0)
 
+# The version is an identity, not a label: every released (version, content) pair is recorded
+# in lib/VERSIONS, and both sync-lib.sh and repo CI refuse a copy whose content is not the
+# content that was released under the version it declares. Bump this line and run
+# `lib/sync-lib.sh --register` in the same change; never edit this file and keep the number.
+# 1.7.0 is WITHDRAWN: two different files were released under it (see lib/VERSIONS).
 # shellcheck disable=SC2034 # public: read by sync-lib.sh, repo scripts and CI
-QL_LIB_VERSION="1.7.0"
+QL_LIB_VERSION="1.8.0"
 
 # ---------------------------------------------------------------------------------------
 # logging
