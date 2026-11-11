@@ -16,7 +16,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import log_redaction, setup_status
 from .auth.login_throttle import LoginThrottle
-from .auth.middleware import AdminSessionPolicy, AuthMiddleware, login_router
+from .auth.middleware import AdminSessionPolicy, AuthMiddleware, login_router, logout_router
+from .auth.sessions import ConfigAdminSessions
 from .capabilities import create_capabilities_router
 from .config.store import ConfigAvailabilityMiddleware
 from .launch_policy import LaunchPolicy, set_launch_policy
@@ -92,8 +93,8 @@ def create_app(
         子行程的 Streamable HTTP session 有名額上限的產品（n8n）：名額已滿時由閘道回收最久沒活動的閒置
         session 再重試 initialize（見 :mod:`mcp_admin_core.session_reclaim`）。None＝不記錄、不回收。
     admin_session_policy:
-        Optional persistent admin login/revocation policy. None preserves existing
-        authentication, including acceptance of JWTs without a jti.
+        Optional product policy; the default persists per-login revocation in the
+        private config volume. Existing JWTs without a session ID require login.
     """
     set_launch_policy(launch_policy)
     # #1614：URL 裡的憑證（/private_<token>、Logs 頁 EventSource 的 ?token=<JWT>）不進 log。
@@ -131,7 +132,7 @@ def create_app(
     app.state.tool_registry = tool_registry
     app.state.mcp_request_limits = mcp_request_limits
     app.state.session_reclaimer = session_reclaimer
-    app.state.admin_session_policy = admin_session_policy
+    app.state.admin_session_policy = admin_session_policy if admin_session_policy is not None else ConfigAdminSessions()
     # 422 不回顯送出的值（連線設定帶密碼／API key；見 validation_errors）。
     app.add_exception_handler(RequestValidationError, validation_error_without_input)
 
@@ -161,6 +162,8 @@ def create_app(
 
     # -- Core routers ----------------------------------------------------------
     app.include_router(login_router)
+    if admin_session_policy is None:
+        app.include_router(logout_router)
     app.include_router(settings_router)
     app.include_router(tokens_router)
     app.include_router(operations_router)

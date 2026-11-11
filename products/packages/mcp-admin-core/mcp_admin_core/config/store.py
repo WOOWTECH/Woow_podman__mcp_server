@@ -30,6 +30,7 @@ import logging
 import os
 import secrets
 import stat
+import time
 import weakref
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
@@ -65,6 +66,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "timeout": 86400,
     },
     "token_history": [],
+    "admin_session_revocations": {},
     "profile_index": {},
 }
 
@@ -389,7 +391,8 @@ class ConfigStore:
             # A generic whole-config save cannot undo a deliberate revocation or
             # reset auth generations or policy (including one-time migration
             # markers). Explicit management routes change tokens/policy separately.
-            for key in ("mcp_auth_token", "mcp_auth_revoked", "mcp_auth_generation", "token_history", "tools", "profile_index"):
+            for key in ("mcp_auth_token", "mcp_auth_revoked", "mcp_auth_generation", "token_history", "tools",
+                        "profile_index", "admin_session_revocations"):
                 if key in current:
                     updated[key] = copy.deepcopy(current[key])
                 else:
@@ -430,6 +433,27 @@ class ConfigStore:
                 await self._commit_locked(updated)
                 cfg = updated
             return cfg.get("admin_password", ""), generation
+
+    async def revoke_admin_session(self, digest: str, expires_at: int) -> None:
+        """Persist one login revocation without affecting other admin sessions.
+
+        Retain only unexpired hashes. The JWT itself never enters the config.
+        This lock also prevents a concurrent management save from undoing logout.
+        """
+        if (len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)
+                or type(expires_at) is not int or expires_at <= int(time.time())):
+            raise ValueError("invalid admin session identity")
+        async with self._lock:
+            cfg = await self._load_locked()
+            previous = cfg.get("admin_session_revocations", {})
+            if (not isinstance(previous, dict) or any(
+                    not isinstance(k, str) or len(k) != 64 or any(c not in "0123456789abcdef" for c in k)
+                    or type(v) is not int for k, v in previous.items())):
+                raise ConfigUnavailable("Configuration state unavailable")
+            now = int(time.time())
+            current = {key: expiry for key, expiry in previous.items() if expiry > now}
+            current[digest] = expires_at
+            await self._commit_locked({**cfg, "admin_session_revocations": current})
 
     async def update(self, updates: dict[str, Any]) -> None:
         """Atomically update top-level values; a password write revokes sessions."""

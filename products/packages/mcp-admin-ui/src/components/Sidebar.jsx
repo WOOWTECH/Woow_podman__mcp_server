@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { LogOut, X } from 'lucide-react';
-import { apiGet, clearToken } from '../api';
+import { apiGet, apiPost, clearToken } from '../api';
 import { useAppConfig } from '../appConfigContext';
 import { useCapabilities } from '../useCapabilities';
 import { capabilityNav } from '../capabilities';
@@ -28,6 +28,7 @@ export default function Sidebar({ open, onClose }) {
       await logout();
       return;
     }
+    await apiPost('/auth/logout');
     clearToken();
     navigate('/login');
   }

@@ -74,14 +74,96 @@ def test_login_success_returns_token(make_app):
     assert "token" in r.json()
 
 
-def test_default_app_does_not_require_or_issue_session_ids(make_app):
+def test_default_app_issues_server_revocable_session_ids(make_app):
     c = make_app()
     token = _login(c)
-    assert c.app.state.admin_session_policy is None
+    assert c.app.state.admin_session_policy is not None
     payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-    assert "jti" not in payload
+    assert payload.get("jti")
     for transport in ("bearer", "cookie", "query"):
         assert _read_with(c, token, transport).status_code == 200
+
+
+@pytest.mark.parametrize("transport", ["bearer", "cookie", "query"])
+def test_logout_revokes_only_this_login_for_all_credential_transports(make_app, transport):
+    c = make_app()
+    first, second = _login(c), _login(c)
+    def logout_first():
+        c.cookies.clear()
+        if transport == "cookie":
+            c.cookies.set("mcp-admin-token", first)
+            return c.post("/api/auth/logout")
+        credential = ({"headers": {"Authorization": f"Bearer {first}"}} if transport == "bearer"
+                      else {"params": {"token": first}})
+        return c.post("/api/auth/logout", **credential)
+
+    response = logout_first()
+    assert response.status_code == 200 and response.json() == {"logged_out": True}
+    assert "mcp-admin-token=" in response.headers["set-cookie"]
+    for replay in ("bearer", "cookie", "query"):
+        assert _read_with(c, first, replay).status_code == 401
+        assert _read_with(c, second, replay).status_code == 200
+    assert logout_first().status_code == 200  # idempotent retry
+
+
+def test_logout_survives_fresh_store_and_stale_save(make_app, tmp_config_path, monkeypatch):
+    import mcp_admin_core.config.store as store_mod
+
+    c = make_app()
+    token = _login(c)
+    previous = asyncio.run(store_mod.get_config_store().load())
+    assert c.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    asyncio.run(store_mod.get_config_store().save(previous))
+    monkeypatch.setattr(store_mod, "_instance", store_mod.ConfigStore(tmp_config_path))
+    assert _read_with(c, token, "bearer").status_code == 401
+
+
+def test_admin_logout_uses_global_store_across_profiles(make_app):
+    from mcp_admin_core.profiles import get_profile_registry
+
+    c = make_app()
+    first, second = _login(c), _login(c)
+    created = c.post("/api/profiles", headers={"Authorization": f"Bearer {first}"},
+                     json={"label": "Secondary"})
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+    registry = get_profile_registry()
+    policy = c.app.state.admin_session_policy
+    payload = jwt.decode(first, JWT_SECRET, algorithms=["HS256"])
+    # A selected profile must never become the authority for admin sessions.
+    with registry.activate(profile_id):
+        asyncio.run(policy.revoke(payload))
+    assert _read_with(c, first, "bearer").status_code == 401
+    assert _read_with(c, second, "bearer").status_code == 200
+    assert asyncio.run(registry.default_store.get("admin_session_revocations"))
+    assert not asyncio.run(registry.store_for(profile_id).get("admin_session_revocations"))
+
+
+def test_logout_write_failure_keeps_session_and_cookie(make_app, monkeypatch):
+    import mcp_admin_core.config.store as store_mod
+
+    c = make_app()
+    token = _login(c)
+    store = store_mod.get_config_store()
+
+    def fail_write(_data):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(store, "_write_sync", fail_write)
+    response = c.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 503
+    assert "set-cookie" not in response.headers
+    assert _read_with(c, token, "bearer").status_code == 200
+
+
+def test_old_jwt_without_session_id_requires_new_login(make_app):
+    c = make_app()
+    token = _login(c)
+    payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    payload.pop("jti")
+    unsigned_session = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    assert _read_with(c, unsigned_session, "bearer").status_code == 401
+    assert c.post("/api/auth/logout").status_code == 401
 
 
 def test_bearer_token_grants_access(make_app):
