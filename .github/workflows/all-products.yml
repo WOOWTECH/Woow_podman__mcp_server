@@ -13,6 +13,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: WOOWTECH/Woow_ha_mcp_addons
+          ref: 1b45bdfa5338170d2b397ef5940bb4c241f8b343
+          path: ha-source
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -28,6 +34,8 @@ jobs:
         run: |
           npm ci --prefix products --no-audit --no-fund
           npm ci --prefix products/apps/n8n/upstream-dependencies --omit=dev --ignore-scripts --no-audit --no-fund
+      - name: HA/PaaS/Podman tool-name parity
+        run: uv run --no-sync --directory products python scripts/check-ha-tool-parity.py --ha-checkout ../ha-source
       - name: Shared deployment, core, applications and frontend tests
         run: |
           set -euo pipefail
@@ -44,7 +52,7 @@ jobs:
         run: |
           bash -n products/deploy/manage.sh products/deploy/shared/lifecycle.sh \
             products/deploy/shared/tests/*.sh
-          python3 -m compileall -q products/deploy/shared products/scripts/check-all-parity.py
+          python3 -m compileall -q products/deploy/shared products/scripts/check-all-parity.py products/scripts/check-ha-tool-parity.py
           ! grep -RIn 'podman\.sock' products/deploy/shared/quadlet
 
   image-and-quadlet:

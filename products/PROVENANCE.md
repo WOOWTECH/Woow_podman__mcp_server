@@ -44,3 +44,13 @@ K8s and VK are absent. HA also uses its own GUI, HA authentication and ingress
 adapter. These are genuine upstream distribution differences; the Podman
 workspace follows the pinned PaaS product contracts, and it does not claim
 that the HA distribution already publishes all ten products.
+
+At HA source commit `1b45bdfa5338170d2b397ef5940bb4c241f8b343`, the
+six published products have exactly the same tool names as PaaS/Podman:
+EMQX 39, Hermes 11, n8n 28, Odoo 41, LiteLLM 40, and Nextcloud 9.
+The unpublished OpenDesign source also matches at 15. The Headscale source
+has 11 matching tools; PaaS/Podman additionally expose the optional
+`headscale_platform` integration tool. CI checks these name sets against the
+pinned HA checkout using `scripts/check-ha-tool-parity.py`. This check is a
+tool-name contract, not a claim that HA's GUI, authentication or unconfigured
+backend operations were tested through Podman.
