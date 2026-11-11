@@ -508,6 +508,27 @@ async def test_dns_is_pinned_to_validated_numeric_tcp_address(monkeypatch):
     assert queries==["headscale.sandbox.svc"] and tcp==[("10.43.1.2",8080)]
 
 
+async def test_dns_falls_back_to_next_validated_address_after_stale_first_answer(monkeypatch):
+    monkeypatch.setenv("HEADSCALE_MCP_ALLOWED_PRIVATE_CIDRS", "10.43.0.0/16")
+    answers = ["10.43.1.2", "10.43.1.3"]
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, **kw: [
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, port))
+        for address in answers])
+    attempts = []
+
+    async def connect(self, host, port, **kw):
+        attempts.append((host, kw["timeout"]))
+        if host == answers[0]:
+            raise httpcore.ConnectTimeout("stale address")
+        return "stream"
+
+    monkeypatch.setattr("httpcore._backends.anyio.AnyIOBackend.connect_tcp", connect)
+    backend = PinnedNetwork(Destination("http://headscale.sandbox.svc:8080"))
+    assert await backend.connect_tcp("headscale.sandbox.svc", 8080) == "stream"
+    assert [host for host, _ in attempts] == answers
+    assert attempts[0][1] <= 2.6  # Leave time for the second validated address.
+
+
 async def test_mixed_dns_answer_is_rejected_before_tcp(monkeypatch):
     monkeypatch.setenv("HEADSCALE_MCP_ALLOWED_PRIVATE_CIDRS","10.43.0.0/16")
     tcp=[]
