@@ -118,8 +118,10 @@ install_basic_auth(_od_mcp_server, _creds)
 
 # Install before either the production HTTP launcher or the stdio wrapper
 # starts the vendored server. The vendored source itself remains byte-faithful.
+from .input_contract import install_input_contract
 from .input_policy import install_input_guards
 from .output_policy import install_output_guards
 
 install_input_guards(_od_mcp_server.mcp)
 install_output_guards(_od_mcp_server.mcp)
+install_input_contract(_od_mcp_server.mcp)

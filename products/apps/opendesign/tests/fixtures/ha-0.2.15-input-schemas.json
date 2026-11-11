@@ -1,0 +1,204 @@
+{
+  "input_schemas": {
+    "create_project": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "default": "claude",
+          "description": "OpenDesign agent id from list_agents (e.g. claude, codex, opencode). The agent must be signed in or configured in OpenDesign.",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "What the OpenDesign agent should do (plain text, at most 20000 characters).",
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "title": "CreateProject",
+      "type": "object"
+    },
+    "delete_project": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "maxLength": 128,
+          "pattern": "^\\.*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id"
+      ],
+      "title": "Project",
+      "type": "object"
+    },
+    "get_file_info": {
+      "additionalProperties": false,
+      "properties": {
+        "file_path": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_㐀-鿿. /-]{1,256}$",
+          "title": "File Path",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "pattern": "^\\.*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "file_path"
+      ],
+      "title": "FileInfo",
+      "type": "object"
+    },
+    "get_project": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "maxLength": 128,
+          "pattern": "^\\.*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id"
+      ],
+      "title": "Project",
+      "type": "object"
+    },
+    "health": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Arguments",
+      "type": "object"
+    },
+    "list_agents": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Arguments",
+      "type": "object"
+    },
+    "list_connectors": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Arguments",
+      "type": "object"
+    },
+    "list_plugins": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Arguments",
+      "type": "object"
+    },
+    "list_project_files": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "maxLength": 128,
+          "pattern": "^\\.*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id"
+      ],
+      "title": "Project",
+      "type": "object"
+    },
+    "list_projects": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Arguments",
+      "type": "object"
+    },
+    "list_runs": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Args",
+      "type": "object"
+    },
+    "list_skills": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Arguments",
+      "type": "object"
+    },
+    "read_file": {
+      "additionalProperties": false,
+      "properties": {
+        "file_path": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_㐀-鿿. /-]{1,256}$",
+          "title": "File Path",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "pattern": "^\\.*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "file_path"
+      ],
+      "title": "ReadFile",
+      "type": "object"
+    },
+    "send_message": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "default": "claude",
+          "description": "OpenDesign agent id from list_agents (e.g. claude, codex, opencode). The agent must be signed in or configured in OpenDesign.",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "title": "Agent Id",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "pattern": "^\\.*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "What the OpenDesign agent should do (plain text, at most 20000 characters).",
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "prompt"
+      ],
+      "title": "SendMessage",
+      "type": "object"
+    },
+    "version": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "Arguments",
+      "type": "object"
+    }
+  },
+  "source_commit": "1dd8a2397f63759383493b30960623e5cd663805"
+}
