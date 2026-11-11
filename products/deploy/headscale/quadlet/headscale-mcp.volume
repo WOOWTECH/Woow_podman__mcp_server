@@ -1,0 +1,3 @@
+[Volume]
+VolumeName=headscale_mcp_data
+Label=io.woowtech.app=headscale-mcp-admin

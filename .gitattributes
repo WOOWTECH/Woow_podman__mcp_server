@@ -4,3 +4,7 @@
 # Never touch these.
 *.png binary
 *.pem binary
+
+# Preserve byte-for-byte PaaS product sources in products/; upstream has blank EOF lines.
+products/apps/headscale/** whitespace=-blank-at-eof
+products/packages/mcp-admin-core/** whitespace=-blank-at-eof

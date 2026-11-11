@@ -1,0 +1,36 @@
+# Headscale MCP administration and MCP proxy. No Podman socket is mounted.
+# Rendered by products/deploy/headscale/scripts/install.sh from the per-host env file.
+[Unit]
+Description=Woow Headscale MCP admin console and MCP server
+Documentation=https://github.com/WOOWTECH/Woow_podman__mcp_server
+
+[Container]
+ContainerName=headscale-mcp-admin
+Image=localhost/woow-headscale-mcp-admin:0.1.1-podman.1
+Pull=never
+Network=headscale-mcp.network
+PublishPort=@@MCP_ADMIN_BIND@@:@@MCP_ADMIN_PORT@@:8080
+Volume=headscale-mcp.volume:/data:U
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+Environment=MCP_ADMIN_CONFIG=/data/config.json
+Environment=HEADSCALE_MCP_ALLOWED_ORIGINS=@@HEADSCALE_MCP_ALLOWED_ORIGINS@@
+Environment=HEADSCALE_MCP_SECURE_COOKIE=@@HEADSCALE_MCP_SECURE_COOKIE@@
+Environment=HEADSCALE_MCP_ALLOWED_PRIVATE_CIDRS=@@HEADSCALE_MCP_ALLOWED_PRIVATE_CIDRS@@
+Secret=headscale-mcp-admin-jwt-secret,type=env,target=JWT_SECRET
+Secret=headscale-mcp-admin-password,type=env,target=ADMIN_PASSWORD
+HealthCmd=python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=20s
+HealthRetries=3
+
+[Service]
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

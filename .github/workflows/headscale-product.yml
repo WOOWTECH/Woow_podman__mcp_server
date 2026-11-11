@@ -1,0 +1,56 @@
+name: headscale-product
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Sync locked Headscale product
+        run: uv sync --directory products --frozen --package woow-headscale-mcp-server --extra dev
+      - name: Headscale API, GUI and security suite
+        run: .venv/bin/pytest -q apps/headscale/tests deploy/headscale/tests --disable-warnings --tb=short
+        working-directory: products
+      - name: Shell syntax
+        run: bash -n products/deploy/headscale/scripts/*.sh products/deploy/headscale/tests/*.sh
+      - name: No Podman socket or committed product credentials
+        run: |
+          set -euo pipefail
+          if grep -RInE '(podman\.sock|ADMIN_PASSWORD=[^$"[:space:]]{6,}|JWT_SECRET=[^$"[:space:]]{6,})' \
+               products/deploy/headscale/quadlet products/deploy/headscale/config; then
+            exit 1
+          fi
+
+  image-and-quadlet:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Podman and validate rendered Quadlet
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y podman
+          products/deploy/headscale/tests/quadlet-dryrun.sh
+      - name: Build Headscale product image
+        run: |
+          set -euo pipefail
+          img="localhost/woow-headscale-mcp-admin:$(cat products/deploy/headscale/VERSION)"
+          podman build --format docker --build-arg "VCS_REF=$GITHUB_SHA" \
+            -t "$img" -f products/deploy/headscale/Dockerfile products
+          test "$(podman image inspect -f '{{json .HealthCheck}}' "$img")" != null
+      - name: Start disposable container and exercise MCP boundary
+        run: |
+          set -euo pipefail
+          img="localhost/woow-headscale-mcp-admin:$(cat products/deploy/headscale/VERSION)"
+          products/deploy/headscale/tests/container-smoke.sh "$img"

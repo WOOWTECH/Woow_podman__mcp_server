@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Install the Headscale product as an independent rootless Quadlet stack.
+# Usage: install.sh [--port N] [--bind IP] [--origin URL] [--set KEY=VALUE]...
+#                   [--rebuild | --no-build] [--no-start] [--dry-run]
+set -euo pipefail
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
+DEPLOY=$REPO/products/deploy/headscale
+# shellcheck source=../../../../scripts/lib/quadlet-lib.sh
+. "$REPO/scripts/lib/quadlet-lib.sh"
+
+APP=headscale-mcp-admin
+CONTAINER=$APP
+UNIT=$APP.service
+VERSION=$(<"$DEPLOY/VERSION")
+IMAGE=localhost/woow-headscale-mcp-admin:$VERSION
+ENV_FILE=$HOME/.config/$APP/$APP.env
+EXAMPLE=$DEPLOY/config/$APP.env.example
+QDIR=${QL_QUADLET_DIR:-$HOME/.config/containers/systemd}
+SECRETS=("$APP-jwt-secret:random:64" "$APP-password:random:32")
+
+sets=() build=auto no_start=0
+while (($#)); do
+  case $1 in
+    --port) sets+=("MCP_ADMIN_PORT=${2:?--port needs a value}"); shift ;;
+    --bind) sets+=("MCP_ADMIN_BIND=${2:?--bind needs an address}"); shift ;;
+    --origin) sets+=("HEADSCALE_MCP_ALLOWED_ORIGINS=${2:?--origin needs an URL}"); shift ;;
+    --set) sets+=("${2:?--set needs KEY=VALUE}"); shift ;;
+    --rebuild) build=always ;;
+    --no-build) build=never ;;
+    --no-start) no_start=1 ;;
+    --dry-run) export QL_DRY_RUN=1 ;;
+    -h | --help) sed -n '2,3p' "$0"; exit 0 ;;
+    *) ql_die "unknown option $1" ;;
+  esac
+  shift
+done
+export QL_APP=$APP
+DRY=${QL_DRY_RUN:-0}
+
+ql_preflight 4.9
+command -v curl >/dev/null 2>&1 || ql_die "curl not found"
+command -v python3 >/dev/null 2>&1 || ql_die "python3 not found"
+ql_enable_linger
+ql_lock "$APP"
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/$APP-install.XXXXXX")
+ql_cleanup work rm -rf "$WORK"
+ql_env_ensure "$EXAMPLE" "$ENV_FILE"
+envsrc=$WORK/$APP.env
+if [[ -f $ENV_FILE ]]; then cp -- "$ENV_FILE" "$envsrc"; else cp -- "$EXAMPLE" "$envsrc"; fi
+chmod 600 "$envsrc"
+setenv() { QL_DRY_RUN=0 ql_env_set "$envsrc" "$1" "$2"; }
+for kv in "${sets[@]}"; do
+  [[ $kv == *=* ]] || ql_die "--set requires KEY=VALUE"
+  grep -q "^${kv%%=*}=" "$EXAMPLE" || ql_die "${kv%%=*} is not a Headscale setting"
+  setenv "${kv%%=*}" "${kv#*=}"
+done
+ql_env_load "$envsrc"
+BIND=$(ql_env_get MCP_ADMIN_BIND)
+PORT=$(ql_env_get MCP_ADMIN_PORT)
+ORIGINS=$(ql_env_get HEADSCALE_MCP_ALLOWED_ORIGINS)
+COOKIE=$(ql_env_get HEADSCALE_MCP_SECURE_COOKIE)
+CIDRS=$(ql_env_get HEADSCALE_MCP_ALLOWED_PRIVATE_CIDRS)
+python3 "$DEPLOY/validate_env.py" --bind "$BIND" --port "$PORT" \
+  --origins "$ORIGINS" --secure-cookie "$COOKIE" --cidrs "$CIDRS" \
+  || ql_die "invalid Headscale deployment settings"
+[[ $BIND == 127.0.0.1 ]] || ql_warn "GUI is reachable on $BIND; use a trusted HTTPS reverse proxy"
+
+ql_check_container_collision "$CONTAINER" "$UNIT"
+published=$(sed -n 's/^PublishPort=//p' "$QDIR/$CONTAINER.container" 2>/dev/null || true)
+if [[ $published != "$BIND:$PORT:8080" || $(systemctl --user is-active "$UNIT" 2>/dev/null || true) != active ]] \
+  && command -v ss >/dev/null 2>&1 && [[ -n $(ss -ltnH "sport = :$PORT" 2>/dev/null || true) ]]; then
+  ql_die "port $PORT is already in use; choose --port"
+fi
+
+mkdir -p "$WORK/out"
+ql_render "$DEPLOY/quadlet" "$envsrc" "$DEPLOY/quadlet/render-vars" "$WORK/out"
+ql_dryrun "$WORK/out" --verify --ref-dir "$QDIR" \
+  || ql_die "rendered Headscale units failed Quadlet validation"
+for file in "$WORK/out"/*; do
+  unit=$(ql_unit_for "$file")
+  [[ -z $unit ]] || ql_check_unit_shadow "$unit" "$APP"
+done
+if [[ $DRY != 1 ]] && ! cmp -s -- "$envsrc" "$ENV_FILE"; then
+  install -m 600 -- "$envsrc" "$ENV_FILE" || ql_die "cannot save $ENV_FILE"
+fi
+
+built=0
+if [[ $build == always ]] || ! podman image exists "$IMAGE"; then
+  [[ $build != never ]] || ql_die "image $IMAGE is missing and --no-build was set"
+  if [[ $DRY == 1 ]]; then
+    ql_info "[dry-run] would build $IMAGE"
+  else
+    ql_info "building $IMAGE"
+    podman build --format docker --build-arg "VCS_REF=$(git -C "$REPO" rev-parse HEAD)" \
+      -t "$IMAGE" -f "$DEPLOY/Dockerfile" "$REPO/products" \
+      || ql_die "Headscale image build failed; units were not changed"
+    built=1
+  fi
+fi
+if podman image exists "$IMAGE"; then ql_pull_images "$WORK/out"; fi
+for secret in "${SECRETS[@]}"; do ql_secret_ensure "${secret%%:*}" "${secret#*:}"; done
+
+changed=$(ql_install_files "$WORK/out" "$APP" --prune)
+[[ -z $changed ]] || ql_info "changed: $(tr '\n' ' ' <<<"$changed")"
+if [[ $DRY == 1 ]]; then ql_info "dry-run complete; no deployment changed"; exit 0; fi
+((built == 0)) || ql_mark_changed "$APP" "$UNIT"
+if ((no_start)); then
+  systemctl --user daemon-reload
+  ql_info "installed; start with systemctl --user start $UNIT"
+  exit 0
+fi
+ql_apply_units "$APP" "$UNIT"
+ql_wait_container_healthy "$CONTAINER" 180 \
+  || ql_die "$CONTAINER did not become healthy; inspect journalctl --user -u $UNIT"
+ql_wait_http "http://$BIND:$PORT/healthz" 200 60 \
+  || ql_die "Headscale GUI did not answer /healthz"
+"$DEPLOY/scripts/smoke.sh" || ql_die "Headscale smoke check failed"
+ql_info "Headscale MCP $VERSION is running at http://$BIND:$PORT/"
+ql_info "First-boot password: podman secret inspect --showsecret --format '{{.SecretData}}' $APP-password"
+ql_info "Connector URL: $DEPLOY/scripts/show-connector.sh (treat the URL as a credential)"
