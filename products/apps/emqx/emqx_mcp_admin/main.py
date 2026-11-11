@@ -4,6 +4,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from mcp_admin_core.app import create_app
 from mcp_admin_core.config import get_config_store
+from mcp_admin_core.profiles import get_profile_registry
 from mcp_admin_core.launch_policy import LaunchPolicy
 from mcp_admin_core.routers.health import make_health_router
 from mcp_admin_core.routers.logs import create_logs_router
@@ -25,6 +26,8 @@ app = create_app(title='EMQX MCP Admin', product_id='emqx', deployment_kind='pod
         make_health_router(app_type='emqx', probe_target=health_probes.probe_target, fetch_info=health_probes.fetch_info),
         create_logs_router('emqx_mcp_admin')])
 log_redaction.install()
+app.state.connection_saved = lambda conn: log_redaction.set_secrets(
+    conn.get('api_key', ''), conn.get('api_secret', ''))
 _core_lifespan = app.router.lifespan_context
 
 
@@ -36,8 +39,11 @@ async def invalid_input(request, exc):
 
 @asynccontextmanager
 async def lifespan(a):
-    conn = await get_config_store().get('connection', {}) or {}
-    log_redaction.set_secrets(conn.get('api_key', ''), conn.get('api_secret', ''))
+    registry = get_profile_registry()
+    for profile_id in ('default', *await registry.index()):
+        with registry.activate(profile_id):
+            conn = await get_config_store().get('connection', {}) or {}
+        log_redaction.set_secrets(conn.get('api_key', ''), conn.get('api_secret', ''))
     async with _core_lifespan(a):
         yield
 

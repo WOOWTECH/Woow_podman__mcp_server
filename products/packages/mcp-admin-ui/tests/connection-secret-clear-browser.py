@@ -37,7 +37,8 @@ def verify(browser, root, product, output, baseline=False):
         if not req.url.startswith(origin+'/'): route.abort();return
         if not path.startswith('/api/'):route.continue_();return
         if req.method == 'GET':
-            if path == '/api/config': body={**state['public'],key+'_masked':'********' if state['secret'] else '(not set)','configuration':configuration()}
+            if path == '/api/profiles': body={'profiles': [{'id': 'default', 'label': 'Default', 'port': 8000, 'is_default': True}]}
+            elif path == '/api/config': body={**state['public'],key+'_masked':'********' if state['secret'] else '(not set)','configuration':configuration()}
             elif path == '/api/settings/mcp/status':body={'running':True,'configuration':configuration()}
             elif path == '/api/capabilities':body={'backend':{'can_edit':state['can_edit'],'can_test':False}}
             else: body={}

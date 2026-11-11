@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
-from ..config import get_config_store
+from ..config.store import get_default_config_store
 from .login_throttle import LoginThrottle, client_key
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,7 @@ async def authenticate_request(request: Request, *, allow_revoked: bool = False)
     if payload is None:
         raise HTTPException(401, "Invalid or expired token")
     generation = payload.get("session_generation")
-    current_generation = await get_config_store().get("admin_session_generation")
+    current_generation = await get_default_config_store().get("admin_session_generation")
     if (not isinstance(generation, str) or not generation
             or not isinstance(current_generation, str) or not current_generation
             or not secrets.compare_digest(generation.encode(), current_generation.encode())):
@@ -177,7 +177,7 @@ async def login(body: _LoginRequest, request: Request) -> JSONResponse:
             headers={"Retry-After": str(retry_after)},
         )
 
-    store = get_config_store()
+    store = get_default_config_store()
     admin_password, generation = await store.get_admin_auth()
 
     if not admin_password:

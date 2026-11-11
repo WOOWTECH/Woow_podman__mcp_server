@@ -99,7 +99,9 @@ async def test_revocation_survives_policy_and_config_reload(admin_client, monkey
     first, second = await login(client), await login(client)
     assert (await client.post("/api/auth/logout", **credential(first, "bearer"))).status_code == 200
     monkeypatch.setattr(store_module, "_instance", store_module.ConfigStore(store.path))
-    monkeypatch.setattr(app.state, "admin_session_policy", AdminSessions())
+    # Starlette State stores attributes in _state; patching the proxy object
+    # can delete this policy on teardown instead of restoring its old value.
+    monkeypatch.setitem(app.state._state, "admin_session_policy", AdminSessions())
     await app.state.admin_session_policy.initialize()
     assert (await client.get("/api/headscale/connection", **credential(first, "bearer"))).status_code == 401
     assert (await client.get("/api/headscale/connection", **credential(second, "bearer"))).status_code == 200
@@ -195,7 +197,7 @@ async def test_recreated_database_cannot_resurrect_existing_tokens(admin_client,
     token = await login(client)
     assert (await client.post("/api/auth/logout", **credential(token, "bearer"))).status_code == 200
     store.path.with_name("admin-sessions.sqlite3").unlink()
-    monkeypatch.setattr(app.state, "admin_session_policy", AdminSessions())
+    monkeypatch.setitem(app.state._state, "admin_session_policy", AdminSessions())
     await app.state.admin_session_policy.initialize()
     assert (await client.get("/api/headscale/connection", **credential(token, "bearer"))).status_code == 401
     assert (await client.get("/api/headscale/connection", **credential(await login(client), "bearer"))).status_code == 200
@@ -299,7 +301,7 @@ async def test_corrupt_database_fails_closed_without_overwriting(admin_client, m
     token = await login(client)
     path = store.path.with_name("admin-sessions.sqlite3")
     path.write_bytes(b"corrupt session database")
-    monkeypatch.setattr(app.state, "admin_session_policy", AdminSessions())
+    monkeypatch.setitem(app.state._state, "admin_session_policy", AdminSessions())
     for route in ("/api/headscale/connection", "/api/headscale/catalog"):
         assert (await client.get(route, **credential(token, "bearer"))).status_code == 503
     assert (await client.post("/api/auth/logout", **credential(token, "bearer"))).status_code == 503

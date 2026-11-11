@@ -32,6 +32,7 @@ LAUNCH_POLICY = LaunchPolicy(
     args=("--transport", "streamable-http", "--host", "127.0.0.1", "--port", "{port}"),
     env_prefix="",
     connection_keys=frozenset({"odoo_url", "odoo_db", "odoo_username", "odoo_password"}),
+    identity_connection_keys=config.ODOO_IDENTITY_KEYS,
     env_keys=frozenset(seed_defaults.POLICY_KEYS),
     editable_env_keys=frozenset(seed_defaults.POLICY_KEYS),
     derived_env=allowed_methods.child_env,
@@ -43,6 +44,8 @@ LAUNCH_POLICY = LaunchPolicy(
         ("odoo_password", "API Key"),
     ),
     normalize_connection=config.normalize_connection_update,
+    max_extra_profiles=5,
+    profile_child_memory_mib=100,
 )
 
 app = create_app(

@@ -30,6 +30,10 @@ LAUNCH_POLICY = LaunchPolicy(
     derived_env=child_env.derived_env,
     url_connection_keys=config.URL_FIELDS,
     backend_connection=(("n8n_api_url", "n8n API URL"), ("n8n_api_key", "n8n API Key")),
+    # Production n8n children can consume ~228 MiB RSS each. Allow 300 MiB
+    # per child for catalog pages and runtime peaks: a 1 GiB pod fits two.
+    max_extra_profiles=2,
+    profile_child_memory_mib=300,
 )
 
 # 上游 session 有名額上限（Max Sessions）；用戶端重連時常不送 DELETE。名額滿時由閘道對最久沒活動、閒置超過 5 分鐘的

@@ -1,9 +1,16 @@
 import { useRef, useState } from 'react';
-import { apiGet, apiPost } from './api.js';
+import { apiGet, apiPost, DEFAULT_PROFILE_ID, getSelectedProfile } from './api.js';
 
 export function newOperationId(serverTime, elapsed = 0) {
   if (!Number.isSafeInteger(serverTime) || serverTime <= 0) throw new Error('請重新載入以取得伺服器時間。');
   return `${Math.floor(serverTime + Math.max(0, elapsed))}.${crypto.randomUUID()}`;
+}
+
+export function operationStorageKey(path, profileId = getSelectedProfile()) {
+  // Preserve outstanding receipts from before profiles were introduced.
+  return profileId === DEFAULT_PROFILE_ID
+    ? `mcp-admin-operation:${path}`
+    : `mcp-admin-operation:${encodeURIComponent(profileId)}:${path}`;
 }
 
 // Only public intent metadata lives in sessionStorage. No request body or secret.
@@ -13,7 +20,7 @@ export default function useDurableOperation(path, configuration) {
   if (Number.isSafeInteger(configuration?.server_time_ms) && clock.current?.configuration !== configuration) {
     clock.current = { configuration, observed: performance.now() };
   }
-  const storageKey = `mcp-admin-operation:${path}`;
+  const storageKey = operationStorageKey(path);
   const intent = useRef(undefined);
   const [receipt, setReceipt] = useState(null);
   if (intent.current === undefined) {

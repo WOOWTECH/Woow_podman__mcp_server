@@ -14,7 +14,7 @@ from typing import Annotated
 from fastapi import Request, Header, Response
 from mcp_admin_core.configuration import (ConfigurationResponse, configuration_status, revision_header, run_configuration_transition)
 
-from mcp_admin_core.connection_apply import connection_outcome
+from mcp_admin_core.connection_apply import connection_outcome, save_bound_connection
 import logging
 import xmlrpc.client
 from typing import Any, Mapping
@@ -31,6 +31,7 @@ from mcp_admin_core.util.xmlrpc_async import make_proxy, run_blocking
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/config", tags=["config"])
+ODOO_IDENTITY_KEYS = frozenset({"odoo_url", "odoo_db", "odoo_username"})
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ def normalize_connection_update(values: Mapping[str, Any]) -> dict[str, str]:
 
 class ConnectionUpdateResponse(ConfigurationResponse):
     saved: bool = True
+    token_rotated: bool = False
     status: str = "ok"
     apply_state: str = "not_requested"
     success: bool
@@ -110,14 +112,18 @@ async def update_connection(req: ConnectionUpdateRequest, response: Response = N
         # 看不見的空白（如 " user@example.com"）就會讓 authenticate 回 False → 認證失敗。
         updates = normalize_connection_update(req.model_dump(exclude={"restart"}))
         # 留空的 secret 欄不覆寫既有存檔值（避免只改 URL 沒重打密碼就清空）
-        await store.patch("connection", drop_blank_secrets(updates, ["odoo_password"]))
+        from mcp_admin_core.routers.tokens import new_token
+        pm = get_process_manager()
+        _, token_rotated = await save_bound_connection(store, pm,
+            drop_blank_secrets(updates, ["odoo_password"]),
+            identity_keys=ODOO_IDENTITY_KEYS, make_token=new_token)
         logger.info("Updated Odoo connection config")
 
         applied = False
         started = False
-        if req.restart:
+        should_restart = req.restart or token_rotated
+        if should_restart:
             try:
-                pm = get_process_manager()
                 if pm.is_running:
                     applied = bool(await pm.restart())
                 else:
@@ -126,7 +132,10 @@ async def update_connection(req: ConnectionUpdateRequest, response: Response = N
             except Exception:
                 # Persistence has already succeeded; do not disguise apply failure as save failure.
                 logger.warning("MCP process application failed after saving connection")
-        outcome = connection_outcome(req.restart, applied, started=started and applied)
+        outcome = connection_outcome(should_restart, applied, started=started and applied)
+        outcome["token_rotated"] = token_rotated
+        if token_rotated:
+            outcome["message"] += " Account changed: old MCP URL revoked. Copy the new URL from Tokens."
         return ConnectionUpdateResponse(success=True, **outcome)
 
     return await run_configuration_transition(get_config_store(), get_process_manager(), if_match, apply_update, response, request=request)

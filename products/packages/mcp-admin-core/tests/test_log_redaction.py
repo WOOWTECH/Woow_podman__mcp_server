@@ -200,7 +200,8 @@ def test_uvicorn_access_log_has_no_url_credentials(app, tmp_path: Path):
                 r = c.get("/api/logs/search", params={"q": "private_", "limit": 1000, "token": admin_jwt})
                 assert r.status_code == 200, r.text
                 time.sleep(0.3)
-                # 管理頁 Logs 的 ring buffer：上面所有請求的 access log 都要已遮
+                # 管理頁 Logs 只顯示目前 profile 的應用日誌；Uvicorn access log
+                # 在 request context 結束後才寫入，不能安全地歸屬某個 profile。
                 r = c.get("/api/logs/search", params={"q": "/", "limit": 1000, "token": admin_jwt})
                 assert r.status_code == 200, r.text
                 buffer_text = "\n".join(e["message"] for e in r.json()["entries"])
@@ -218,4 +219,4 @@ def test_uvicorn_access_log_has_no_url_credentials(app, tmp_path: Path):
     assert "/private_***/mcp" in container_log  # access log 確實有印出（只是遮了）
     assert "token=***" in container_log
     assert path_token not in buffer_text and admin_jwt not in buffer_text
-    assert "/private_***" in buffer_text
+    assert "/private_***" not in buffer_text

@@ -70,6 +70,9 @@ class RuntimeConfigurationBrowser(unittest.TestCase):
     def api(self, route):
         request = route.request
         path = urlsplit(request.url).path
+        if path == '/api/profiles':
+            route.fulfill(json={'profiles': [{'id': 'default', 'label': 'Default', 'port': 8000, 'is_default': True}]})
+            return
         if request.method in ('PUT', 'POST'):
             self.requests.append({'path': path, 'revision': request.headers.get('if-match'), 'body': request.post_data_json if request.post_data else None})
             if self.delay_save and path == '/api/config/connection':

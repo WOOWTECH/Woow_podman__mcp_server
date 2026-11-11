@@ -39,6 +39,9 @@ def verify(browser, dist, restart_status='ok'):
     def api(route):
         req = route.request
         path = urlsplit(req.url).path
+        if path == '/api/profiles':
+            route.fulfill(json={'profiles': [{'id': 'default', 'label': 'Default', 'port': 8000, 'is_default': True}]})
+            return
         if path.startswith('/api/operations/'):
             state['queries'] += 1
             key = path.rsplit('/', 1)[1]

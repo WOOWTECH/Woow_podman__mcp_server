@@ -149,7 +149,7 @@ export default function ConnectionConfig() {
     retry: false,
     mutationFn: ({ data, revision }) => apiPut(connection.saveEndpoint, data, { revision }),
     onSuccess: async (_result, submitted) => {
-      await Promise.all(['config', 'health', 'capabilities', 'mcpStatus'].map(key =>
+      await Promise.all(['config', 'health', 'capabilities', 'mcpStatus', 'tokens'].map(key =>
         queryClient.invalidateQueries({ queryKey: [key] })));
       if (edits.current === submitted.edits) { setDirty(false); setConflict(false); }
     },

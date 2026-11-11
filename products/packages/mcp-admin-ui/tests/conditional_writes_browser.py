@@ -74,6 +74,9 @@ class ConditionalWritesBrowser(unittest.TestCase):
     def api(self, route):
         """描述採正式 registry；儲存只改本測試的記憶體政策。"""
         path = urlsplit(route.request.url).path
+        if path == '/api/profiles':
+            route.fulfill(json={'profiles': [{'id': 'default', 'label': 'Default', 'port': 8000, 'is_default': True}]})
+            return
         if route.request.method == 'PUT':
             payload = route.request.post_data_json
             self.writes.append({'path': path, 'payload': payload, 'revision': route.request.headers.get('if-match')})

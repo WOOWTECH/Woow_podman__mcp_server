@@ -17,7 +17,7 @@ BASE = f"http://127.0.0.1:{PORT}"
 
 
 def request(path: str, payload: dict | None = None, *, origin: str = "",
-            bearer: str = "", etag: str = "", method: str | None = None):
+            bearer: str = "", etag: str = "", profile: str = "", method: str | None = None):
     headers = {}
     body = None
     if payload is not None:
@@ -29,6 +29,8 @@ def request(path: str, payload: dict | None = None, *, origin: str = "",
         headers["Authorization"] = f"Bearer {bearer}"
     if etag:
         headers["If-Match"] = etag
+    if profile:
+        headers["X-MCP-Profile"] = profile
     if path.endswith("/mcp"):
         headers["Accept"] = "application/json, text/event-stream"
     req = urllib.request.Request(BASE + path, body, headers, method=method)
@@ -113,7 +115,34 @@ def main() -> None:
     assert request(f"/private_{token}/mcp", initialize)[0] == 200
     assert request("/private_invalid-ci-token/mcp", initialize)[0] == 403
     assert request(f"/private_{token}/mcp", initialize, origin="https://untrusted.example")[0] == 403
-    print("Headscale first boot, GUI setup, 29 native operations, MCP and Origin checks passed")
+
+    assert request("/api/profiles")[0] == 401
+    profiles_status, _, profiles_body = request("/api/profiles", bearer=admin_token)
+    assert profiles_status == 200
+    profiles = json.loads(profiles_body)["profiles"]
+    assert profiles[0]["id"] == "default"
+    extra = [item for item in profiles if item["label"] == "Podman smoke second connection"]
+    if not extra:
+        created_status, _, created_body = request(
+            "/api/profiles", {"label": "Podman smoke second connection"},
+            bearer=admin_token, origin=BASE, method="POST")
+        assert created_status == 201
+        extra = [json.loads(created_body)]
+    assert len(extra) == 1
+    profile_id = extra[0]["id"]
+    assert len(profile_id) == 24 and all(c in "0123456789abcdef" for c in profile_id)
+    scoped_status, _, scoped_body = request(
+        "/api/headscale/connection", bearer=admin_token, profile=profile_id)
+    assert scoped_status == 200
+    assert not json.loads(scoped_body)["credentials"]["api_key"]["set"]
+    assert request("/api/headscale/connection", bearer=admin_token)[0] == 200
+    profile_token = json.loads(subprocess.check_output(
+        ["podman", "exec", CONTAINER, "cat", f"/data/profiles/{profile_id}/config.json"],
+        text=True))["mcp_auth_token"]
+    assert profile_token and profile_token != token
+    assert request(f"/private_{profile_token}/mcp", initialize)[0] == 200
+    assert request(f"/private_{token}/mcp", initialize)[0] == 200
+    print("Headscale first boot, 29 native operations, two isolated profiles, MCP and Origin checks passed")
 
 
 if __name__ == "__main__":

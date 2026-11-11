@@ -27,7 +27,7 @@ export async function privateJSON(path){
     return JSON.parse(await file.readFile('utf8'));
   }finally{await file.close();}
 }
-export async function start({mutations=false,nativeOracle=false}={}) {
+export async function start({mutations=false,nativeOracle=false,requireLogin=false}={}) {
   let fixture,base=options['base-url'],password,secrets;
   if(base){
     const url=new URL(base);
@@ -40,7 +40,8 @@ export async function start({mutations=false,nativeOracle=false}={}) {
     password=secrets.admin_password;assert(typeof password==='string'&&password.length>0);
     if(nativeOracle)assert(options['oracle-url']&&secrets.headscale_api_key,'Native workflow checks require --oracle-url and the private Headscale API key');
   }else{
-    fixture=await controlledServer({debugEnabled:options['debug-nodes'],...(options['static-root']?{staticRoot:pathToFileURL(resolve(options['static-root'])+'/')}:{})});base=fixture.base;
+    fixture=await controlledServer({debugEnabled:options['debug-nodes'],requireLogin,...(options['static-root']?{staticRoot:pathToFileURL(resolve(options['static-root'])+'/')}:{})});base=fixture.base;
+    if(requireLogin)password='fixture-admin-password';
   }
   let browser;
   try{

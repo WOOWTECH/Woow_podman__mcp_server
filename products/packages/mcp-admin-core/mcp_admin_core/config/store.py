@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import contextvars
 import hashlib
 import hmac
 import json
@@ -64,6 +65,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "timeout": 86400,
     },
     "token_history": [],
+    "profile_index": {},
 }
 
 
@@ -387,7 +389,7 @@ class ConfigStore:
             # A generic whole-config save cannot undo a deliberate revocation or
             # reset auth generations or policy (including one-time migration
             # markers). Explicit management routes change tokens/policy separately.
-            for key in ("mcp_auth_token", "mcp_auth_revoked", "mcp_auth_generation", "token_history", "tools"):
+            for key in ("mcp_auth_token", "mcp_auth_revoked", "mcp_auth_generation", "token_history", "tools", "profile_index"):
                 if key in current:
                     updated[key] = copy.deepcopy(current[key])
                 else:
@@ -467,6 +469,39 @@ class ConfigStore:
             await self._commit_locked(updated)
             return copy.deepcopy(current)
 
+    async def patch_connection_bound(self, updates: dict[str, Any], *,
+                                     identity_keys: frozenset[str], make_token,
+                                     before_rotate=None) -> tuple[dict[str, Any], bool]:
+        """Atomically save a backend identity and revoke its old capability URL.
+
+        Initial setup has no prior complete identity. A secret refresh for the
+        same identity keeps the URL; an account/database/server rebind rotates
+        an active URL in the same durable write as the new connection.
+        """
+        async with self._lock:
+            cfg = await self._load_locked()
+            previous = cfg.get("connection", {})
+            previous = previous if isinstance(previous, dict) else {}
+            merged = copy.deepcopy(previous)
+            merged.update(copy.deepcopy(updates))
+            rotated = bool(
+                identity_keys
+                and all(isinstance(previous.get(key), str) and previous[key].strip()
+                        for key in identity_keys)
+                and any(previous.get(key) != merged.get(key) for key in identity_keys)
+                and cfg.get("mcp_auth_token") and not cfg.get("mcp_auth_revoked", False)
+            )
+            updated = {**cfg, "connection": merged}
+            if rotated:
+                replacement = make_token()
+                if before_rotate is not None:
+                    # Keep old-token lookups behind this lock until the old
+                    # child is stopped. The new token cannot reach old creds.
+                    await before_rotate()
+                updated = self._token_transition(updated, replacement, "backend_identity_change")
+            await self._commit_locked(updated)
+            return copy.deepcopy(merged), rotated
+
     async def reload(self) -> dict[str, Any]:
         """Force re-read from disk, clearing cache."""
         async with self._lock:
@@ -486,11 +521,17 @@ class ConfigStore:
 # ------------------------------------------------------------------
 
 _instance: ConfigStore | None = None
+_active_store: contextvars.ContextVar[ConfigStore | None] = contextvars.ContextVar("mcp_profile_store", default=None)
 
 
-def get_config_store() -> ConfigStore:
-    """Return the global ConfigStore singleton."""
+def get_default_config_store() -> ConfigStore:
+    """Return the admin identity and legacy profile store, regardless of request context."""
     global _instance  # noqa: PLW0603
     if _instance is None:
         _instance = ConfigStore()
     return _instance
+
+
+def get_config_store() -> ConfigStore:
+    """Return the request's selected profile or the legacy default store."""
+    return _active_store.get() or get_default_config_store()

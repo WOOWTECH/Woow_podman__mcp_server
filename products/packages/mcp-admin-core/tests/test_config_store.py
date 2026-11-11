@@ -99,6 +99,84 @@ async def test_patch_merges_into_dict_value(fresh_store):
     assert cfg["connection"]["odoo_url"] == "http://x"
 
 
+async def test_bound_connection_rotation_is_atomic_and_preserves_password_changes(fresh_store, monkeypatch):
+    identity = frozenset({"odoo_url", "odoo_db", "odoo_username"})
+    await fresh_store.patch("connection", {"odoo_url": "https://odoo.example", "odoo_db": "shared",
+                                          "odoo_username": "alice", "odoo_password": "old-key"})
+    await fresh_store.change_mcp_token("alice-token", action="set")
+    before = await fresh_store.load()
+    merged, rotated = await fresh_store.patch_connection_bound(
+        {"odoo_password": "new-key"}, identity_keys=identity, make_token=lambda: "new-token")
+    assert not rotated and merged["odoo_password"] == "new-key"
+    assert await fresh_store.get("mcp_auth_token") == "alice-token"
+
+    observed_before_stop = []
+    async def before_rotate():
+        observed_before_stop.append(json.loads(fresh_store.path.read_text())["mcp_auth_token"])
+    merged, rotated = await fresh_store.patch_connection_bound(
+        {"odoo_username": "bob"}, identity_keys=identity,
+        make_token=lambda: "bob-token", before_rotate=before_rotate)
+    after = await fresh_store.load()
+    assert observed_before_stop == ["alice-token"]
+    assert rotated and merged["odoo_username"] == "bob"
+    assert after["mcp_auth_token"] == "bob-token"
+    assert after["mcp_auth_generation"] != before["mcp_auth_generation"]
+    assert after["token_history"][0]["action"] == "backend_identity_change"
+
+    durable = fresh_store.path.read_bytes()
+    def fail_write(_data):
+        raise OSError("simulated disk failure")
+    monkeypatch.setattr(fresh_store, "_write_sync", fail_write)
+    with pytest.raises(OSError, match="simulated disk failure"):
+        await fresh_store.patch_connection_bound(
+            {"odoo_username": "charlie"}, identity_keys=identity, make_token=lambda: "charlie-token")
+    assert fresh_store.path.read_bytes() == durable
+    assert (await fresh_store.load())["mcp_auth_token"] == "bob-token"
+
+
+async def test_initial_bound_connection_setup_keeps_issued_url(fresh_store):
+    identity = frozenset({"odoo_url", "odoo_db", "odoo_username"})
+    await fresh_store.change_mcp_token("initial-token", action="set")
+    _, rotated = await fresh_store.patch_connection_bound(
+        {"odoo_url": "https://odoo.example", "odoo_db": "shared", "odoo_username": "alice"},
+        identity_keys=identity, make_token=lambda: "new-token")
+    assert not rotated
+    assert await fresh_store.get("mcp_auth_token") == "initial-token"
+
+
+async def test_failed_account_rebind_restores_old_child_and_url(fresh_store, monkeypatch):
+    from mcp_admin_core.connection_apply import save_bound_connection
+
+    class Child:
+        is_running = True
+        stops = 0
+        starts = 0
+
+        async def stop(self):
+            self.stops += 1
+            self.is_running = False
+
+        async def start(self):
+            self.starts += 1
+            self.is_running = True
+            return True
+
+    await fresh_store.patch("connection", {"odoo_url": "https://odoo.example", "odoo_db": "shared",
+                                          "odoo_username": "alice", "odoo_password": "key"})
+    await fresh_store.change_mcp_token("alice-token", action="set")
+    child = Child()
+    def fail_write(_data):
+        raise OSError("simulated disk failure")
+    monkeypatch.setattr(fresh_store, "_write_sync", fail_write)
+    with pytest.raises(OSError, match="simulated disk failure"):
+        await save_bound_connection(fresh_store, child, {"odoo_username": "bob"},
+            identity_keys=frozenset({"odoo_url", "odoo_db", "odoo_username"}),
+            make_token=lambda: "bob-token")
+    assert child.is_running and (child.stops, child.starts) == (1, 1)
+    assert (await fresh_store.load())["connection"]["odoo_username"] == "alice"
+    assert await fresh_store.get("mcp_auth_token") == "alice-token"
+
+
 async def test_patch_resets_non_dict_value(fresh_store):
     await fresh_store.put("connection", "not-a-dict")
     merged = await fresh_store.patch("connection", {"a": 1})

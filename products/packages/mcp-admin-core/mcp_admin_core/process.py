@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextvars
 import logging
 import os
 import signal
@@ -124,6 +125,11 @@ class McpProcessManager:
     # ------------------------------------------------------------------
 
     async def start(self) -> bool:
+        from .profiles import DEFAULT_PROFILE, current_profile_id, get_profile_registry
+        profile_id = current_profile_id()
+        if profile_id != DEFAULT_PROFILE and not await get_profile_registry().may_start(profile_id):
+            logger.warning("MCP profile child exceeds this service's memory capacity")
+            return False
         async with get_config_store().transition():
             return await self._start_locked()
 
@@ -158,6 +164,10 @@ class McpProcessManager:
         # Build connection env from config（含 per-app env_prefix；有政策時只注入白名單鍵）
         connection = cfg.get("connection", {}) or {}
         env = _build_subprocess_env(connection, mcp_cfg, policy, cfg)
+        # Child launchers that read a config file (Headscale, Nextcloud) must
+        # see this profile's file. This trusted assignment comes after the
+        # allowlisted env builder; management settings cannot override it.
+        env["MCP_ADMIN_CONFIG"] = str(store.path)
 
         cmd = [command] + args
         logger.info("Starting MCP server: %s", " ".join(cmd))
@@ -433,11 +443,17 @@ class McpProcessManager:
 # ------------------------------------------------------------------
 
 _instance: McpProcessManager | None = None
+_active_process: contextvars.ContextVar[McpProcessManager | None] = contextvars.ContextVar("mcp_profile_process", default=None)
 
 
-def get_process_manager() -> McpProcessManager:
-    """Return the global McpProcessManager singleton."""
+def get_default_process_manager() -> McpProcessManager:
+    """Return the legacy child manager regardless of request context."""
     global _instance  # noqa: PLW0603
     if _instance is None:
         _instance = McpProcessManager()
     return _instance
+
+
+def get_process_manager() -> McpProcessManager:
+    """Return the selected profile's child manager or the legacy singleton."""
+    return _active_process.get() or get_default_process_manager()

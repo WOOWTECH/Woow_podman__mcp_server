@@ -130,6 +130,21 @@ class SessionReclaimer:
         self._lock: asyncio.Lock | None = None
         self._lock_loop: asyncio.AbstractEventLoop | None = None
 
+    def fork(self, *, label_suffix: str) -> "SessionReclaimer":
+        """An independent quota and session table for another MCP child."""
+        return SessionReclaimer(
+            is_session_limit=self.is_session_limit,
+            session_lifetime=self._session_lifetime,
+            idle_floor_seconds=self.idle_floor_seconds,
+            max_delete_attempts=self.max_delete_attempts,
+            max_tracked=self.max_tracked,
+            retry_cooldown_seconds=self.retry_cooldown_seconds,
+            max_reclaims_per_window=self.max_reclaims_per_window,
+            reclaim_window_seconds=self.reclaim_window_seconds,
+            clock=self._clock,
+            label=f"{self.label}:{label_suffix}",
+        )
+
     # ------------------------------------------------------------------
     # 記錄
     # ------------------------------------------------------------------

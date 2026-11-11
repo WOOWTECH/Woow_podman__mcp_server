@@ -27,6 +27,9 @@ state = {'unsupported': False, 'failure': False, 'pending': False, 'denied': {'h
 
 def api(route):
     path = route.request.url.split('/api', 1)[1].split('?', 1)[0]
+    if path == '/profiles':
+        route.fulfill(status=200, json={'profiles': [{'id': 'default', 'label': 'Default', 'port': 8000, 'is_default': True}]})
+        return
     tools = [
         {'name': 'hermes_session', 'description': 'Manage sessions', 'category': 'Read', 'enabled': True,
          'operations': ['list', 'get', 'delete'], 'operation_policy_supported': True,

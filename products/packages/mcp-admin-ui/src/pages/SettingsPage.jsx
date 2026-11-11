@@ -19,7 +19,7 @@ import {
   Shield,
   Network,
 } from 'lucide-react';
-import { apiGet, apiPut, apiPost } from '../api';
+import { apiGet, apiPut, apiPost, DEFAULT_PROFILE_ID, getSelectedProfile } from '../api';
 import useDurableOperation from '../useDurableOperation';
 import OperationRecovery from '../components/OperationRecovery';
 import { useAppConfig } from '../appConfigContext';
@@ -74,6 +74,7 @@ const inputClass =
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
+  const isDefaultProfile = getSelectedProfile() === DEFAULT_PROFILE_ID;
   // 各 app 於 appConfig 宣告的 env 開關（如 odoo 的 Allow Direct Writes）；未宣告者為空陣列 → 不顯示、不影響行為。
   const { settingsEnvToggles = [], settingsExtra: SettingsExtra } = useAppConfig();
   const toggleKeys = new Set(settingsEnvToggles.map((t) => t.env));
@@ -499,9 +500,12 @@ export default function SettingsPage() {
           </div>
         </SectionCard>
 
-        {/* Admin Password */}
-        <SectionCard title="Admin Password" icon={Shield}>
+        {/* The management password authenticates all profiles. */}
+        {isDefaultProfile && <SectionCard title="Global Admin Password" icon={Shield}>
           <div className="space-y-4">
+            <p className="text-sm text-muted">
+              This management password is shared across all profiles.
+            </p>
             <p className="text-sm text-muted">
               Current: <code className="text-muted">{settings?.admin_password_masked}</code>
             </p>
@@ -526,7 +530,7 @@ export default function SettingsPage() {
               Update Password
             </button>
           </div>
-        </SectionCard>
+        </SectionCard>}
       </div>
     </div>
   );

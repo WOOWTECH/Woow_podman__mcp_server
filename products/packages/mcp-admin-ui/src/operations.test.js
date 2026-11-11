@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newOperationId } from './useDurableOperation.js';
+import { newOperationId, operationStorageKey } from './useDurableOperation.js';
 import { apiPost } from './api.js';
 
 test('operation IDs use server snapshot plus monotonic elapsed time, not client wall time', () => {
@@ -11,6 +11,13 @@ test('operation IDs use server snapshot plus monotonic elapsed time, not client 
     assert.match(newOperationId(1793328000000, -10), /^1793328000000\./);
     assert.throws(() => newOperationId(undefined), /伺服器時間/);
   } finally { Date.now = original; }
+});
+
+test('durable operation receipts are isolated by profile and retain the default legacy key', () => {
+  const path = '/tokens/rotate';
+  assert.equal(operationStorageKey(path, 'default'), 'mcp-admin-operation:/tokens/rotate');
+  assert.equal(operationStorageKey(path, 'secondary'), 'mcp-admin-operation:secondary:/tokens/rotate');
+  assert.notEqual(operationStorageKey(path, 'secondary'), operationStorageKey(path, 'third'));
 });
 
 test('explicit operation key/revision are preserved and unknown outcome remains structured', async () => {

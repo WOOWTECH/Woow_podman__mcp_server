@@ -33,3 +33,13 @@ button{white-space:normal;overflow-wrap:anywhere}
   .login{padding:16px}
   .actions{align-items:stretch;flex-direction:column}
 }
+
+.profile-control{min-width:0;border:1px solid #47646b;border-radius:10px;padding:12px}
+.profile-control label{margin:0 0 8px;font-size:13px}
+.profile-control select,.profile-control input{margin:0;background:#eff7f6;color:#16333a}
+.profile-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.profile-actions button{padding:7px 10px;font-size:12px}
+.profile-control .quiet{border-color:#66858a;color:#eff7f6}
+.profile-control form{border-top:1px solid #47646b;margin-top:12px;padding-top:12px}
+.profile-control button:disabled{cursor:not-allowed}
+@media(min-width:851px){aside{overflow-y:auto}}

@@ -11,7 +11,6 @@ Endpoints:
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 import httpx
@@ -20,14 +19,11 @@ from fastapi import APIRouter
 from mcp_admin_core.config import get_config_store
 from mcp_admin_core.process import get_process_manager
 from mcp_admin_core.routers.health import mcp_server_health
+from ..dashboard_auth import dashboard_cookie
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/health", tags=["health"])
-
-# Cookie cache shared with dashboard_proxy
-_cookie_cache: dict[str, tuple[str, float]] = {}
-
 
 async def _check_gateway(gateway_url: str, api_key: str) -> dict[str, Any]:
     """Check Hermes Gateway health via GET /health with Bearer auth."""
@@ -54,22 +50,8 @@ async def _check_gateway(gateway_url: str, api_key: str) -> dict[str, Any]:
 
 async def _dashboard_login(dashboard_url: str, username: str, password: str) -> str:
     """Login to Dashboard and return session cookie (cached 10 min)."""
-    cached = _cookie_cache.get(dashboard_url)
-    if cached and cached[1] > time.time():
-        return cached[0]
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{dashboard_url.rstrip('/')}/auth/password-login",
-                json={"provider": "basic", "username": username, "password": password},
-            )
-            resp.raise_for_status()
-            for h in resp.headers.get_list("set-cookie"):
-                if "hermes_session_at=" in h:
-                    cookie = h.split("hermes_session_at=")[1].split(";")[0].strip('"')
-                    _cookie_cache[dashboard_url] = (cookie, time.time() + 600)
-                    return cookie
-            return ""
+        return await dashboard_cookie(dashboard_url, username, password)
     except Exception:
         return ""
 

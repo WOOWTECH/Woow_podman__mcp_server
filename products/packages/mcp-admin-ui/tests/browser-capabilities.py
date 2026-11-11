@@ -30,7 +30,9 @@ schema = {'type': 'object', 'properties': {'resource_selector': {'type': 'string
 
 def api(route):
     path = route.request.url.split('/api', 1)[1].split('?', 1)[0]
-    if path == '/capabilities':
+    if path == '/profiles':
+        body = {'profiles': [{'id': 'default', 'label': 'Default', 'port': 8000, 'is_default': True}]}
+    elif path == '/capabilities':
         items = [{'name': n, 'category': 'Runtime tools' if n == name else 'Catalog', 'description': 'Tool description stays readable on small screens.',
                   'policy_enabled': n not in state['disabled'], 'effective': None if state['unknown'] else n not in state['disabled'],
                   'runtime_only': n == name, 'inputSchema': schema, **({'reason': 'policy_disabled'} if n in state['disabled'] else {})}

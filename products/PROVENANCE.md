@@ -2,7 +2,7 @@
 
 The ten active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`c077be987d47d80240ee9de1810a91f6646845e2` (GitHub). The Headscale app
+`49c9a66e95e94ba9ab8630fc2a86488d1c649b2e` (Gitea). The Headscale app
 implements the Headscale v0.29.4 29-operation native contract, its dedicated
 management GUI, operation policy, Origin checks, session revocation, and the
 optional PaaS binding. The HA Add-on's Headscale child came from the same
@@ -37,13 +37,11 @@ a checkout containing the pinned PaaS commit before refreshing the vendored
 source. The latter checks every tracked application, core-test and frontend file
 against the exact deployment-specific transformations listed above.
 
-The HA Add-on repository publishes six products at its current release:
-Odoo, n8n, Hermes, EMQX, LiteLLM and Nextcloud. It has OpenDesign and Headscale
-source candidates but those are not part of that published six-product set;
-K8s and VK are absent. HA also uses its own GUI, HA authentication and ingress
-adapter. These are genuine upstream distribution differences; the Podman
-workspace follows the pinned PaaS product contracts, and it does not claim
-that the HA distribution already publishes all ten products.
+The HA Add-on Store includes Headscale alongside Odoo, n8n, Hermes, EMQX,
+LiteLLM and Nextcloud. OpenDesign is a source candidate; K8s and VK are absent.
+HA uses its own GUI, HA authentication and ingress adapter. These are genuine
+distribution differences; the Podman workspace follows the pinned PaaS product
+contracts and does not claim that HA already publishes all ten products.
 
 At HA source commit `1b45bdfa5338170d2b397ef5940bb4c241f8b343`, the
 six published products have exactly the same tool names as PaaS/Podman:

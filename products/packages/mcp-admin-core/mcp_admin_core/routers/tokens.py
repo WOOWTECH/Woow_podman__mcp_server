@@ -18,6 +18,7 @@ from mcp_admin_core.util.mask import mask_secret
 from mcp_admin_core.configuration import (ConfigurationResponse, configuration_status,
     revision_header, run_configuration_transition)
 from mcp_admin_core.process import get_process_manager
+from mcp_admin_core.profiles import current_profile_id, get_profile_registry
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +143,12 @@ async def set_token(payload: TokenSetRequest, response: Response = None,
         if_match: Annotated[str | None, Header(alias="If-Match")] = None,
         request: Request = None) -> dict[str, Any]:
     store = get_config_store()
+    registry = get_profile_registry()
+    # Reject missing profile files before admitting a durable operation. The
+    # claim below repeats this check under the assignment lock for races.
+    await registry.resolve_token(payload.token, strict=True)
     async def apply_update():
-        await store.change_mcp_token(payload.token, action="set")
+        await registry.assign_token(current_profile_id(), payload.token)
         return _apply_result()
     return await run_configuration_transition(store, get_process_manager(), if_match,
         apply_update, response, request=request, operation_kind="token.set", operation_payload={"token": payload.token})

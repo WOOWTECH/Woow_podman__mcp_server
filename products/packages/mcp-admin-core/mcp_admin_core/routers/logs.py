@@ -45,6 +45,7 @@ LOG_BUFFER_SIZE = 5000  # max lines kept in memory
 STREAM_TAIL_LINES = 100  # initial lines to send on SSE connect
 POLL_INTERVAL = 0.5  # seconds between buffer polls for SSE
 HEARTBEAT_INTERVAL = 15  # seconds between SSE heartbeat comments
+ACCESS_LOG_PROFILE = "__access__"  # request context has ended when Uvicorn logs
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +95,7 @@ def _append_log_line_sync(
     line: str,
     source: str = "mcp-server",
     level: str | None = None,
+    profile_id: str | None = None,
 ) -> None:
     """Synchronously append a log line to the in-memory buffer.
 
@@ -103,11 +105,14 @@ def _append_log_line_sync(
     from the message text via :func:`_extract_level`.
     """
     global _buffer_seq  # noqa: PLW0603
+    from ..profiles import current_profile_id
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "level": level if level is not None else _extract_level(line),
         "source": source,
         "message": line.rstrip(),
+        # Internal filter key; LogEntry deliberately omits it from API output.
+        "profile_id": current_profile_id() if profile_id is None else profile_id,
     }
     with _buffer_lock:
         _log_buffer.append(entry)
@@ -188,7 +193,10 @@ class _AdminLogHandler(logging.Handler):
         try:
             msg = self.format(record)
             level = _level_from_record(record)
-            _append_log_line_sync(msg, source=record.name, level=level)
+            # Uvicorn emits access records after request middleware resets its
+            # context. Keep these records out of every per-profile Logs page.
+            profile_id = ACCESS_LOG_PROFILE if record.name == "uvicorn.access" else None
+            _append_log_line_sync(msg, source=record.name, level=level, profile_id=profile_id)
         except Exception:
             # logging.Handler contract: never raise from emit()
             self.handleError(record)
@@ -251,6 +259,7 @@ class LogSearchResponse(BaseModel):
 
 async def _sse_log_generator(
     tail_lines: int = STREAM_TAIL_LINES,
+    profile_id: str = "default",
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from the in-memory log buffer.
 
@@ -267,7 +276,7 @@ async def _sse_log_generator(
 
     # 1. Send tail of existing buffer
     with _buffer_lock:
-        snapshot = list(_log_buffer)
+        snapshot = [entry for entry in _log_buffer if entry.get("profile_id", "default") == profile_id]
         last_seq = _buffer_seq
 
     for entry in snapshot[-tail_lines:]:
@@ -298,6 +307,8 @@ async def _sse_log_generator(
                     new_entries = []
 
             for entry in new_entries:
+                if entry.get("profile_id", "default") != profile_id:
+                    continue
                 log_entry = LogEntry(**entry)
                 yield f"data: {json.dumps(log_entry.model_dump())}\n\n"
                 polls_since_heartbeat = 0  # reset after real data
@@ -331,8 +342,9 @@ async def stream_logs(
         const es = new EventSource('/api/logs/stream?tail=100');
         es.onmessage = (e) => console.log(JSON.parse(e.data));
     """
+    from ..profiles import current_profile_id
     return StreamingResponse(
-        _sse_log_generator(tail_lines=tail),
+        _sse_log_generator(tail_lines=tail, profile_id=current_profile_id()),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -353,8 +365,10 @@ async def search_logs(
     By default performs case-insensitive substring matching.
     Set ``regex=true`` to use the query as a regular expression pattern.
     """
+    from ..profiles import current_profile_id
+    profile_id = current_profile_id()
     with _buffer_lock:
-        buffer_snapshot = list(_log_buffer)
+        buffer_snapshot = [entry for entry in _log_buffer if entry.get("profile_id", "default") == profile_id]
 
     total_buffered = len(buffer_snapshot)
 

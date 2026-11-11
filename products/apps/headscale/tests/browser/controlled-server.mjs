@@ -11,12 +11,15 @@ export async function controlledServer({staticRoot = new URL('../../static/', im
   const user = {id:'101', name:'BrowserOwner', email:'browser@example.invalid'};
   const node = {id:'201', givenName:'browser-node', user, online:true, ipAddresses:['100.64.0.1','fd7a:115c:a1e0::1'], tags:['tag:test'], approvedRoutes:['10.20.0.0/16','192.168.20.0/24'], availableRoutes:['10.20.0.0/16','192.168.20.0/24']};
   const state = {users:[user], nodes:[node], preAuthKeys:[], apiKeys:[], policy:'{"acls":[]}', sequence:300, mcpRotations:0, mcpRestarts:0,mcpRestores:0,mcpRevision:1,mcpToken:'fixture-original-mcp-token'};
+  const profiles=[{id:'default',label:'預設設定檔',port:19984,is_default:true}];
+  const profileStates=new Map([['default',state]]);
+  let nextProfile=0;
   const calls=[], faults=[], nativeCalls=[], nativeFaults=[], registrations=new Map();
   const username=catalog.tools.find(t=>t.name==='headscale_users').input_schema.$defs.headscale_users_create.properties.name;
   const validUsername=value=>typeof value==='string'&&value.length>=username.minLength&&value.length<=username.maxLength&&new RegExp(username.pattern).test(value)&&!username.not.enum.includes(value);
-  let delay=0,restartFailure=false;
+  let delay=0,connectionDelay=0,restartFailure=false;
   const reject = (code='HEADSCALE_INVALID_ARGUMENTS',outcome='not_sent') => ({status:422,body:{detail:{code,outcome}}});
-  function execute(name,a) {
+  function execute(name,a,state) {
     const op=a.operation;
     if (name==='headscale_routes_replace') {
       const n=state.nodes.find(n=>n.id===a.node_id);
@@ -85,7 +88,8 @@ export async function controlledServer({staticRoot = new URL('../../static/', im
       let body='';for await(const chunk of req)body+=chunk;
       const payload=body?JSON.parse(body):{};
       const path=new URL(req.url,'http://localhost').pathname;
-      const send=(value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store',ETag:'"fixture-'+state.mcpRevision+'"'});res.end(JSON.stringify(value));};
+      let responseState=state;
+      const send=(value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store',ETag:'"fixture-'+responseState.mcpRevision+'"'});res.end(JSON.stringify(value));};
       if(path.startsWith('/private_')){
         const rpcSend=value=>{if(!mcpSSE)return send(value);res.writeHead(200,{'Content-Type':'text/event-stream'});res.end('event: message\r\ndata: '+JSON.stringify(value)+'\r\n\r\n');};
         if(path!=='/private_'+state.mcpToken+'/mcp')return send({},403);
@@ -119,9 +123,42 @@ export async function controlledServer({staticRoot = new URL('../../static/', im
       }
       if(requireLogin&&path.startsWith('/api/')&&!req.headers.cookie?.includes('fixture-session=yes'))return send({},401);
       if(path==='/api/auth/logout')return send({ok:true});
-      if(path==='/api/headscale/connection')return send({connection:{base_url:'https://headscale.example.invalid',enrollment_url:'https://'+'long-enrollment-hostname-'.repeat(5)+'.example.invalid',headplane_url:'',paas_base_url:''},credentials:{api_key:{set:true}},configuration:{apply_state:'applied',server_time_ms:Date.now()}});
+      if(path==='/api/profiles'){
+        if(req.method==='GET')return send({profiles});
+        if(req.method==='POST'){
+          const label=payload.label?.trim();if(!label)return send({detail:'label_required'},422);
+          const profile={id:'profile-'+(++nextProfile),label,port:19984+nextProfile,is_default:false};
+          profiles.push(profile);
+          profileStates.set(profile.id,{users:[],nodes:[],preAuthKeys:[],apiKeys:[],policy:'{"acls":[]}',sequence:300,mcpRotations:0,mcpRestarts:0,mcpRestores:0,mcpRevision:1,mcpToken:'fixture-profile-token-'+nextProfile});
+          return send({profile},201);
+        }
+        return send({},405);
+      }
+      if(path.startsWith('/api/profiles/')){
+        const id=decodeURIComponent(path.slice('/api/profiles/'.length));
+        const profile=profiles.find(p=>p.id===id);if(!profile)return send({},404);
+        if(req.method==='PATCH'){
+          if(id==='default')return send({},422);
+          const label=payload.label?.trim();if(!label)return send({detail:'label_required'},422);
+          profile.label=label;return send({profile});
+        }
+        if(req.method==='DELETE'){
+          if(id==='default')return send({},403);
+          profiles.splice(profiles.indexOf(profile),1);profileStates.delete(id);
+          res.writeHead(204,{'Cache-Control':'no-store'});res.end();return;
+        }
+        return send({},405);
+      }
+      const profileId=req.headers['x-mcp-profile']||'default';
+      responseState=profileStates.get(profileId);
+      if(!responseState){responseState=state;return send({},404);}
+      const activeState=responseState;
+      if(path==='/api/headscale/connection'){
+        if(connectionDelay&&profileId==='default')await new Promise(resolve=>setTimeout(resolve,connectionDelay));
+        return send({connection:{base_url:profileId==='default'?'https://headscale.example.invalid':'',enrollment_url:profileId==='default'?'https://'+'long-enrollment-hostname-'.repeat(5)+'.example.invalid':'',headplane_url:'',paas_base_url:''},credentials:{api_key:{set:profileId==='default'}},configuration:{apply_state:profileId==='default'?'applied':'unconfigured',server_time_ms:Date.now()}});
+      }
       if(path==='/api/headscale/catalog')return send(catalog);
-      if(path==='/api/headscale/overview')return send({users:state.users,nodes:state.nodes,database:true});
+      if(path==='/api/headscale/overview')return send({users:activeState.users,nodes:activeState.nodes,database:true});
       if(path==='/api/settings/mcp/status')return send({running:true,configuration:{server_time_ms:Date.now()}});
       if(path==='/api/tokens'&&req.method==='GET')return send({state:'active',token_set:true,configuration:{server_time_ms:Date.now()}});
       if(path==='/api/tokens/rotate'||path==='/api/settings/mcp/restart'||path==='/api/tokens'&&req.method==='PUT'){
@@ -133,19 +170,19 @@ export async function controlledServer({staticRoot = new URL('../../static/', im
           if(Number(id.split('.')[0])<=now-86400000)return send({detail:{code:'operation_id_expired'}},410);
         }
         if(!req.headers['if-match'])return send({detail:{code:'config_revision_required'}},428);
-        if(req.headers['if-match']!=='"fixture-'+state.mcpRevision+'"')return send({detail:{code:'config_conflict'}},409);
+        if(req.headers['if-match']!=='"fixture-'+activeState.mcpRevision+'"')return send({detail:{code:'config_conflict'}},409);
         if(!id)return send({detail:{code:'operation_id_required'}},428);
         if(path==='/api/tokens'){
           if(!/^[A-Za-z0-9_-]{16,256}$/.test(payload.token))return send({},422);
-          state.mcpToken=payload.token;state.mcpRestores++;state.mcpRevision++;
+          activeState.mcpToken=payload.token;activeState.mcpRestores++;activeState.mcpRevision++;
           return send({status:'ok',token_state:'applied',configuration:{server_time_ms:now}});
         }
         if(path==='/api/tokens/rotate'){
-          state.mcpRotations++;state.mcpRevision++;state.mcpToken='fixture-rotated-mcp-token-'+state.mcpRotations;
-          return send({status:'ok',token_state:'applied',token:state.mcpToken,configuration:{server_time_ms:now}});
+          activeState.mcpRotations++;activeState.mcpRevision++;activeState.mcpToken='fixture-rotated-'+profileId+'-mcp-token-'+activeState.mcpRotations;
+          return send({status:'ok',token_state:'applied',token:activeState.mcpToken,configuration:{server_time_ms:now}});
         }
         if(restartFailure){restartFailure=false;return send({detail:{code:'fixture_restart_failed'}},500);}
-        state.mcpRestarts++;state.mcpRevision++;return send({status:'ok',configuration:{server_time_ms:now}});
+        activeState.mcpRestarts++;activeState.mcpRevision++;return send({status:'ok',configuration:{server_time_ms:now}});
       }
       if(path==='/api/tools')return send({tools:catalog.tools,disabled_operations:{},disabled_tools:catalog.tools.filter(t=>!t.enabled).map(t=>t.name)});
       if(path.startsWith('/api/headscale/tools/')) {
@@ -154,7 +191,7 @@ export async function controlledServer({staticRoot = new URL('../../static/', im
         const i=faults.findIndex(f=>f.name===name&&(!f.op||f.op===args.operation));
         const fault=i<0?null:faults.splice(i,1)[0];
         if(delay)await new Promise(r=>setTimeout(r,delay));
-        let result=(!fault||fault.afterWrite)?execute(name,args):null;
+        let result=(!fault||fault.afterWrite)?execute(name,args,activeState):null;
         if(fault)result=fault.response;
         result=structuredClone(result);
         return send(result?.body||result,result?.status||200);
@@ -168,6 +205,7 @@ export async function controlledServer({staticRoot = new URL('../../static/', im
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   return {base:`http://127.0.0.1:${server.address().port}`,catalog,state,calls,nativeCalls,
     delay(ms){delay=ms;},fault(f){faults.push(f);},
+    delayConnection(ms){connectionDelay=ms;},
     nativeFault(f){nativeFaults.push(f);},
     pending(id){registrations.set(id,{id:'0',givenName:'fixture-pending',online:false,tags:[],approvedRoutes:[],availableRoutes:[]});},
     failNextRestart(){restartFailure=true;},

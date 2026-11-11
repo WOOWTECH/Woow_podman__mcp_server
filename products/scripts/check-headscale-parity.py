@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-PIN = "c077be987d47d80240ee9de1810a91f6646845e2"
+PIN = "49c9a66e95e94ba9ab8630fc2a86488d1c649b2e"
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATHS = ("apps/headscale", "packages/mcp-admin-core/mcp_admin_core",
                 "packages/mcp-admin-core/pyproject.toml")

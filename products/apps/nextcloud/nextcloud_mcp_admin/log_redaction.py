@@ -6,7 +6,7 @@
 
 2. **app password**：正常路徑上 app password 不會出現在 log（vendored server 不記 header／body、錯誤訊息
    不帶憑證、pydantic 驗證錯誤隱藏輸入值；admin 只記 base_url）。這裡是第二道防線：admin 啟動與連線設定
-   存檔時以 ``set_secrets()`` 登記目前的 app password（以及 HTTP Basic 的 base64 形式），之後**本行程任何
+   存檔時以 ``set_profile_secrets()`` 登記各身分的 app password（以及 HTTP Basic 的 base64 形式），之後**本行程任何
    logger** 產生的 record（含 McpProcessManager 轉錄的子行程輸出 ``[mcp-server] …``、Logs 頁、容器
    stdout）只要格式化後的訊息含有它，就整段改寫成 ``***``。做法是包一層 ``logging`` 的 record factory，
    所以不受 logger 階層、handler 安裝順序影響。
@@ -30,12 +30,15 @@ __all__ = [
     "redact_secrets",
     "registered_secret_count",
     "set_secrets",
+    "set_profile_secrets",
+    "remove_profile_secrets",
 ]
 
 SECRET_MASK = "***"
 MIN_SECRET_LEN = 6
 
 _secrets: tuple[str, ...] = ()
+_profile_secrets: dict[str, tuple[str, ...]] = {}
 _lock = threading.Lock()
 _factory_installed = False
 
@@ -48,8 +51,12 @@ def redact_secrets(text: str) -> str:
 
 
 def set_secrets(app_password: str | None, username: str | None = None) -> None:
-    """登記要遮的祕密（每次覆蓋前一次登記）：app password 本身，有 username 時再加 HTTP Basic 的
-    base64(``username:password``)。空值＝清空；太短（< 6 字元）的值不登記，避免把一般字串也遮掉。"""
+    """Compatibility entry point for the default profile's secrets."""
+    set_profile_secrets("default", app_password, username)
+
+
+def set_profile_secrets(profile_id: str, app_password: str | None, username: str | None = None) -> None:
+    """Replace one profile's secrets while retaining every other profile's masks."""
     global _secrets
     values: list[str] = []
     pw = (app_password or "").strip()
@@ -59,9 +66,17 @@ def set_secrets(app_password: str | None, username: str | None = None) -> None:
             basic = base64.b64encode(f"{username.strip()}:{pw}".encode()).decode()
             values.append(basic)
     with _lock:
-        _secrets = tuple(values)
+        _profile_secrets[profile_id] = tuple(values)
+        _secrets = tuple(sorted({secret for group in _profile_secrets.values() for secret in group}, key=len, reverse=True))
     if values:
         _install_record_factory()  # 有祕密要遮就確保 factory 已裝（不依賴 install() 的呼叫順序）
+
+
+def remove_profile_secrets(profile_id: str) -> None:
+    global _secrets
+    with _lock:
+        _profile_secrets.pop(profile_id, None)
+        _secrets = tuple(sorted({secret for group in _profile_secrets.values() for secret in group}, key=len, reverse=True))
 
 
 def registered_secret_count() -> int:

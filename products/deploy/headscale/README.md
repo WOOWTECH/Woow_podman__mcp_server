@@ -2,6 +2,8 @@
 
 此產品使用與 PaaS Headscale MCP 相同的專用管理 GUI、29 項 Headscale v0.29.4 原生 API
 操作與共用核心。`products/PROVENANCE.md` 記錄固定來源版本及唯一的應用層部署識別差異。
+管理 GUI 可建立多個設定檔，各自保存 Headscale API 連線、MCP 權杖及工具政策；切換
+設定檔前會清除畫面上舊設定檔的快取狀態，避免跨設定檔操作。
 現有 Podman 主機 MCP 與此產品分開安裝，兩者使用不同映像、網路、容器、volume、port
 和 Python 環境；Headscale 容器沒有 Podman socket 權限。
 

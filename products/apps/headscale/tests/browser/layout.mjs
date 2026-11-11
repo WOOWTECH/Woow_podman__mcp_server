@@ -12,12 +12,13 @@ await run('layout',async()=>{
       for(const n of targets){
         n.scrollIntoView({block:'center',inline:'nearest'});
         const r=n.getBoundingClientRect();
-        if(r.left<-.5||r.right>innerWidth+.5||r.width<1)return {ok:false};
+        if(r.left<-.5||r.right>innerWidth+.5||r.width<1)return {ok:false,target:n.id||n.tagName,reason:'bounds',left:r.left,right:r.right,width:r.width};
         const hit=document.elementFromPoint(r.left+r.width/2,r.top+Math.min(r.height/2,20));
-        if(!hit||!(n.contains(hit)||hit.contains(n)))return {ok:false};
+        if(!hit||!(n.contains(hit)||hit.contains(n)))return {ok:false,target:n.id||n.tagName,reason:'covered',left:r.left,right:r.right,width:r.width};
       }
       return {ok:true,count:targets.length};
     });
+    if(!result.ok)console.error(JSON.stringify({suite:'layout',viewport:await page.evaluate(()=>innerWidth),...result}));
     assert(result.ok,'Control must be reachable without clipping or overlap');controls+=result.count;
   }
   try{

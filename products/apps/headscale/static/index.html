@@ -18,8 +18,25 @@
   <div id="workspace" class="workspace" hidden>
     <aside>
       <a class="brand" href="#overview"><span class="brand-mark">H</span><span>Headscale<small>組織連線管理</small></span></a>
+      <section class="profile-control" aria-label="管理設定檔">
+        <label for="profile-select">目前設定檔</label>
+        <select id="profile-select"></select>
+        <div class="profile-actions">
+          <button id="profile-create" class="quiet" type="button">新增</button>
+          <button id="profile-rename" class="quiet" type="button">重新命名</button>
+          <button id="profile-delete" class="quiet" type="button">刪除</button>
+        </div>
+        <form id="profile-editor" hidden>
+          <label for="profile-label">設定檔名稱</label>
+          <input id="profile-label" required maxlength="80" autocomplete="off">
+          <div class="profile-actions">
+            <button id="profile-save" type="submit">儲存</button>
+            <button id="profile-cancel" class="quiet" type="button">取消</button>
+          </div>
+        </form>
+      </section>
       <nav id="navigation" aria-label="主要導覽"></nav>
-      <div class="sidebar-note">一個組織 · 一個控制台<br>管理者工作區</div>
+      <div class="sidebar-note">每個設定檔有各自的連線與工具權限。<br>管理者工作區</div>
       <button id="logout" class="quiet">登出</button>
     </aside>
     <main>

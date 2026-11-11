@@ -10,6 +10,7 @@ import pathlib
 import secrets
 import sys
 import threading
+import time
 import unittest
 from urllib.parse import urlsplit
 
@@ -73,7 +74,9 @@ class MaskedSettingsBrowser(unittest.TestCase):
 
     def api(self, route):
         path = urlsplit(route.request.url).path
-        if path.endswith("/reveal"):
+        if path == '/api/profiles':
+            body = {'profiles': [{'id': 'default', 'label': 'Default', 'port': 8000, 'is_default': True}]}
+        elif path.endswith("/reveal"):
             self.reveals.append(path)
             if self.delay_reveal:
                 self.pending_reveal = (route, self.token)
@@ -91,7 +94,8 @@ class MaskedSettingsBrowser(unittest.TestCase):
             body = {"status": "ok", "token": self.token}
         elif path == "/api/tokens":
             body = {"state": "revoked" if self.revoked else "active", "token_set": not self.revoked,
-                    "token_masked": "" if self.revoked else self.token[:4] + "****" + self.token[-4:], "history": []}
+                    "token_masked": "" if self.revoked else self.token[:4] + "****" + self.token[-4:], "history": [],
+                    "configuration": {"revision": "fixture-r1", "server_time_ms": int(time.time() * 1000)}}
         elif path == "/api/settings/proxy" and route.request.method == "PUT":
             self.saves.append(route.request.post_data_json)
             body = {"status": "ok"}
@@ -147,15 +151,15 @@ class MaskedSettingsBrowser(unittest.TestCase):
         self.page.get_by_role("button", name="Revoke Token", exact=True).click()
         self.assertFalse(self.reveals)
         self.page.get_by_role("button", name="Confirm Revoke", exact=True).click()
-        self.page.get_by_text("Revoked — all clients blocked", exact=True).wait_for()
+        self.page.get_by_text("Revoked — this profile's clients blocked", exact=True).wait_for()
         for title in ("Copy token", "Copy command", "Show token"):
             self.assertTrue(self.page.get_by_title(title, exact=True).is_disabled())
         self.page.reload()
-        self.page.get_by_text("Revoked — all clients blocked", exact=True).wait_for()
+        self.page.get_by_text("Revoked — this profile's clients blocked", exact=True).wait_for()
         self.assertTrue(self.page.get_by_title("Copy token", exact=True).is_disabled())
         self.page.get_by_role("button", name="Rotate Token", exact=True).click()
         self.page.get_by_role("button", name="Confirm Rotate", exact=True).click()
-        self.page.get_by_text("New shared token generated. Copy it and update every MCP client.", exact=True).wait_for()
+        self.page.get_by_text("New token generated for this profile. Copy it and update its MCP clients.", exact=True).wait_for()
         self.assertFalse(self.reveals)
         self.page.get_by_title("Copy token", exact=True).click()
         self.page.wait_for_function("window.copiedValues.length === 1")
@@ -164,7 +168,7 @@ class MaskedSettingsBrowser(unittest.TestCase):
         self.page.get_by_text(self.token, exact=True).wait_for()
         self.page.get_by_role("button", name="Revoke Token", exact=True).click()
         self.page.get_by_role("button", name="Confirm Revoke", exact=True).click()
-        self.page.get_by_text("Revoked — all clients blocked", exact=True).wait_for()
+        self.page.get_by_text("Revoked — this profile's clients blocked", exact=True).wait_for()
         self.assertNotIn(self.token, self.page.locator("body").inner_text())
 
     def test_typed_proxy_value_survives_show_hide_and_save(self):
