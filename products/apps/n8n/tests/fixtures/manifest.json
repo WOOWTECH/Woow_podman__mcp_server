@@ -1,0 +1,9 @@
+{
+  "version": "2.96.2",
+  "tarball": "https://registry.npmjs.org/n8n-mcp/-/n8n-mcp-2.96.2.tgz",
+  "integrity": "sha512-fnpvAEuXOBRP0J6Uy3BjIyRja3y4Ox9rsmohqPb1qUEshso9aBt4L5/aYgSEl6lq/HoBPJ+DmZV0hP/GS+B/Dg==",
+  "archive_sha256": "3fffe30b0393e3c629bb1b01b7209871d592cc9f332e57ce8c9d234ce3e576f8",
+  "handler_bytes": 158079,
+  "handler_sha256": "6860193f1217c222c1ee1b1b08b7beb38847b85a182c36f2d8b8be7339cfad7b",
+  "tar_entry": "package/dist/mcp/handlers-n8n-manager.js"
+}

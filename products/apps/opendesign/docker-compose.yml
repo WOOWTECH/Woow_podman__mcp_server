@@ -1,0 +1,29 @@
+version: "3.8"
+
+# Open Design MCP Admin 本機開發用 compose。
+# 與 apps/vk/docker-compose.yml 同型：目標服務 Open Design daemon（/api/*）由「外部」提供，
+# 故此處只保留 mcp-admin 一段。
+#
+# 使用方式：
+#   1. seed config.json 的 connection.od_api_base 指向 Open Design daemon
+#      （例：http://host.docker.internal:7457 或內網 daemon URL），Test Connection 會走
+#      MCP 子行程 tools/call health（子行程未起時降級直打 /api/health、明說未端到端驗證）。
+#   2. seed mcp_server.command="opendesign-mcp-server" + args ["--host","127.0.0.1","--port","8000"]
+#      + port 8000（須與 args 的 --port 一致，否則 proxy 一律 502），讓 admin 於執行期 spawn
+#      原生 launcher 子行程（#1369；舊 supergateway seed 會在 admin 啟動時自動遷移）。
+#   未 seed command 時 admin 仍可跑（/healthz 綠），只是無 MCP 子行程。
+
+services:
+  mcp-admin:
+    build:
+      context: ../..
+      dockerfile: apps/opendesign/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - opendesign_mcp_data:/data
+    environment:
+      MCP_ADMIN_CONFIG: /data/config.json
+
+volumes:
+  opendesign_mcp_data:

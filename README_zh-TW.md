@@ -2,19 +2,19 @@
 
 [English](README.md) · **繁體中文**
 
-此 repo 現有兩項獨立部署的 MCP 產品。原本的 Podman 主機 MCP 保持在 repo 根目錄；新增的
-[Headscale MCP Podman 版](products/deploy/headscale/README.md) 位於 `products/`，沿用 PaaS
-的 Headscale 專用 GUI、29 項原生操作和共用 `mcp-admin-core`。部署方式改為 rootless Podman
-與使用者 Quadlet，容器不掛載 Podman socket。往後可在 `products/` 加入其他 MCP 產品，
-共用核心，並各自保留 API adapter、介面與 Quadlet 設定。
+此 repo 保留根目錄原有的 Podman 主機 MCP，並在 [`products/`](products/README.md) 提供
+Headscale、EMQX、Hermes、n8n、Odoo、LiteLLM、Nextcloud、OpenDesign、K8s、VK 共 10 個產品。
+它們共用 PaaS 的應用、核心與前端原始碼；每個產品使用獨立的 rootless Podman Quadlet、
+port、volume 與憑證，且不掛載 Podman socket。
 
 ```bash
-products/deploy/headscale/scripts/install.sh --dry-run
-products/deploy/headscale/scripts/install.sh
+products/deploy/manage.sh list
+products/deploy/manage.sh emqx install --dry-run
+products/deploy/manage.sh emqx install
 ```
 
-Headscale GUI 預設網址為 `http://127.0.0.1:18081/`；首次登入、Origin、Headscale API
-連線和備份方式見產品說明。
+Headscale 的專用安裝與 GUI 預設網址 `http://127.0.0.1:18081/`、首次登入、Origin、
+Headscale API 連線和備份方式見[產品說明](products/deploy/headscale/README.md)。
 
 ---
 

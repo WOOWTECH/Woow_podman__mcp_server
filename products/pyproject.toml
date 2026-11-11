@@ -1,27 +1,31 @@
-# Product workspace. The original Podman-host MCP remains a separate SDK 1.x image.
+# 虛擬 workspace root —— 本身不是套件，只宣告 members。
+# uv 0.6：root 沒有 [project] 即為合法的 "virtual" workspace root。
 [tool.uv.workspace]
-members = ["packages/mcp-admin-core", "apps/headscale"]
+members = ["packages/*", "apps/*"]
+# Phase 1c：packages/mcp-admin-ui 為純 JS npm workspace 套件（無 pyproject.toml），
+# 需排除以免 uv 把它當成 Python 工作區成員而報「missing pyproject.toml」。
+# apps/odoo-manage 已封存（2026-10-06 下架、CI 不建置，見 apps/odoo-manage/README.md）：它的上游
+# mcp-server-odoo 0.7.1 要求 mcp<2，與其他 app 的 MCP SDK 2.x 無法共用同一份 uv.lock，故移出 workspace
+# （#78 PaaS 第 1 階段）。程式碼保留給平台隱藏範本 cloud_app_mcp_odoo_manage 的既有映像 d5032a72 對照。
+exclude = ["packages/mcp-admin-ui", "apps/odoo-manage"]
 
+# X-FIX-CVE（商用驗收 2026-10-16）：把有修補版的相依公告固定成下限，避免日後 re-lock 退回舊版。
+# 這些套件多數是 transitive（mcp／httpx／各 SDK 帶入），沒有在 app 的 dependencies 內宣告，
+# 所以用 constraint-dependencies 約束整個 workspace 的解析結果（不新增任何相依）。
+#   - pyjwt >= 2.15.0     GHSA-8wjv／42vr／x33g 等 13 筆（2.14.0 修 11 筆、2.15.0 修剩下 2 筆）
+#   - anyio >= 4.14.2     GHSA-82r6／3w57／5p39
+#   - cryptography >= 50.0.0  GHSA-g6cj（PKCS7 decrypt）
+#   - mcp >= 2.3.0        GHSA-84m7（1.30.0 起已修）；2026-10-24 起 workspace 改用 MCP SDK 2.x（#78），下限同步提高
+#   - certifi >= 2026.10.23  GHSA-6q48-6c7w-9gw2（2026.10.19 移除 emSign ECC Root CA - G3；2026.10.23 再移除同一業者的
+#                            emSign Root CA - C1／emSign ECC Root CA - C3）
+#   - urllib3 >= 2.8.0    odoo MCP 映像 urllib3 2.7.0 的 3 筆公告
+# 備註：PyJWT GHSA-gvp8-978c-rx2q（options-dict 重用）的公告沒有 fixed 事件，但 OSV 影響範圍是 2.11.0～2.13.0（last_affected），>=2.14.0 不受影響，見 docs/security/dependency-pins.md。
 [tool.uv]
-# Match the PaaS Headscale runtime lock at c077be987d47 (2026-11-11).
 constraint-dependencies = [
-  "anyio==4.15.1",
-  "certifi==2026.10.23",
-  "cryptography==50.0.2",
-  "fastapi==0.162.0",
-  "fastmcp==4.1.3",
-  "h11==0.16.0",
-  "httpcore==1.0.9",
-  "httpx==0.28.1",
-  "mcp==2.3.0",
-  "mcp-types==2.3.0",
-  "pydantic==2.14.1",
-  "pydantic-core==2.50.1",
-  "pydantic-settings==2.16.1",
-  "pyjwt==2.15.1",
-  "pytest==9.1.1",
-  "pytest-asyncio==1.4.0",
-  "sse-starlette==3.5.0",
-  "starlette==1.9.0",
-  "uvicorn==0.54.0",
+    "pyjwt>=2.15.0",
+    "anyio>=4.14.2",
+    "cryptography>=50.0.0",
+    "mcp>=2.3.0",
+    "urllib3>=2.8.0",
+    "certifi>=2026.10.23",
 ]

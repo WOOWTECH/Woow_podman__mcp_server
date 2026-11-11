@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "n8n-mcp-admin"
+version = "1.0.0"
+description = "n8n MCP Admin backend service for managing n8n MCP server configuration"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp-admin-core",
+    "httpx",
+]
+
+[project.scripts]
+n8n-mcp-http = "n8n_mcp_admin.launcher:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["n8n_mcp_admin"]
+
+[tool.uv.sources]
+mcp-admin-core = { workspace = true }
+
+[tool.pytest.ini_options]
+# 明確的正向管理寫入 helper；原始負向 HTTP 請求不會自動補 header。
+pythonpath = ["../../packages/mcp-admin-core/tests"]

@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "woow-k8s-mcp-server"
+version = "1.0.0"
+description = "K8s MCP Admin Bundle — Web GUI + MCP Proxy + Process Manager for containers/kubernetes-mcp-server"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [
+    { name = "WOOWTECH", email = "dev@woowtech.io" },
+]
+keywords = ["kubernetes", "k8s", "mcp", "admin", "fastapi", "model-context-protocol", "containers"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "mcp-admin-core",
+    # 顯式宣告執行期依賴（比照 apps/n8n 慣例，不依賴 core 的傳遞依賴）：
+    # pyyaml 供 launcher / cluster_probe / config router 解析 kubeconfig；
+    # httpx 供 cluster_probe（GET /version reachability）與 mcp_client（raw JSON-RPC）。
+    "pyyaml",
+    "httpx",
+]
+
+[project.urls]
+Homepage = "https://github.com/WOOWTECH/woow_k8s_mcp_server"
+Documentation = "https://github.com/WOOWTECH/woow_k8s_mcp_server#readme"
+Repository = "https://github.com/WOOWTECH/woow_k8s_mcp_server"
+Issues = "https://github.com/WOOWTECH/woow_k8s_mcp_server/issues"
+
+[project.scripts]
+# launcher console script：起上游 Go binary kubernetes-mcp-server（見 launcher.py）。
+k8s-mcp-http = "k8s_mcp_admin.launcher:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["k8s_mcp_admin"]
+
+[tool.uv.sources]
+mcp-admin-core = { workspace = true }
+
+[tool.pytest.ini_options]
+# 明確的正向管理寫入 helper；原始負向 HTTP 請求不會自動補 header。
+pythonpath = ["../../packages/mcp-admin-core/tests"]
+
+# app-local async 測試（cluster_probe / mcp_client）用 auto 模式，比照 core conftest。
+asyncio_mode = "auto"

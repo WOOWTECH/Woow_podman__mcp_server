@@ -1,0 +1,103 @@
+{
+  "scope": "Static review of existing local LiteLLM backend source snapshots; no backend was executed or contacted.",
+  "not_a_live_or_image_acceptance_receipt": true,
+  "snapshot_origin": "litellm-m4-claude/stream-slots/{paas-full,ha-full}; pre-existing patch-chain source evidence, not a new image extraction",
+  "existing_bundle": {
+    "file": "paas-bundle-main.json",
+    "sha256": "3a009f0a9444920ee1d6e4f1c5b043ca659f79c6fe85427980e8b2f2e63b11c5",
+    "declared_upstream_version": "1.104.0",
+    "declared_base_index": "sha256:37066242e6b8327fdd627682a66a9ae2a599553b4d5a84c905c6d8b9eb35c01e",
+    "declared_base_amd64": "sha256:843a35c72a832e9c062b66111b1aa54e6588fb32c3ab400d3e20ea9c5fa656a0"
+  },
+  "identity_limit": "Bundle pins are recorded provenance from the previous lane. This review hashes current local source bytes; it does not independently re-extract an image or certify any service uses these bytes.",
+  "files": {
+    "litellm/proxy/health_endpoints/_health_endpoints.py": {
+      "lines": [
+        1046,
+        1060,
+        1074,
+        1127,
+        1139,
+        1211
+      ],
+      "observation": "GET /health runs probes unless a cached/background path applies; a configured model and Prisma can save health history.",
+      "sha256": "6f027c864258d94fbef1e65dc409d625ab8d6fe8e85bcffdb90ccdf639ac14df",
+      "ha_snapshot_sha256": "6f027c864258d94fbef1e65dc409d625ab8d6fe8e85bcffdb90ccdf639ac14df"
+    },
+    "litellm/proxy/health_check.py": {
+      "lines": [
+        539
+      ],
+      "observation": "Health check dispatch calls ahealth_check with test prompt/input.",
+      "sha256": "4256fee29dbbb383e9faed8c1a91afc774fc91bba0a7354c159c363689ec6599",
+      "ha_snapshot_sha256": "4256fee29dbbb383e9faed8c1a91afc774fc91bba0a7354c159c363689ec6599"
+    },
+    "litellm/proxy/proxy_server.py": {
+      "lines": [
+        13721,
+        13773,
+        13810,
+        13825
+      ],
+      "observation": "Token counter defaults call_endpoint=False. MCP leaves it unset; local tokenizer selection/counting is used.",
+      "sha256": "2d036ba2913d0ecad2d43b2d56781c1638cfc81270cf84c591db253895722cde",
+      "ha_snapshot_sha256": "2d036ba2913d0ecad2d43b2d56781c1638cfc81270cf84c591db253895722cde"
+    },
+    "litellm/proxy/spend_tracking/spend_management_endpoints.py": {
+      "lines": [
+        2266,
+        2289,
+        2388,
+        2394,
+        2397
+      ],
+      "observation": "Spend calculator delegates to completion_cost; does not dispatch inference or post a billing transaction.",
+      "sha256": "3191acd95c4981e959f9212afed624ecc781bfbdfbabfb43dd95947acda0fef4",
+      "ha_snapshot_sha256": "3191acd95c4981e959f9212afed624ecc781bfbdfbabfb43dd95947acda0fef4"
+    },
+    "litellm/cost_calculator.py": {
+      "lines": [
+        1502,
+        1505
+      ],
+      "observation": "Cost calculation can count tokens from supplied messages/text when usage is absent.",
+      "sha256": "d5cb2392d88777a28d9ea59ba6db24db40c61d508e8e0ebfb45c9d9bb9e05d53",
+      "ha_snapshot_sha256": "d5cb2392d88777a28d9ea59ba6db24db40c61d508e8e0ebfb45c9d9bb9e05d53"
+    },
+    "litellm/utils.py": {
+      "lines": [
+        2382,
+        2436
+      ],
+      "observation": "Tokenizer selection can use from_pretrained unless downloads are disabled/cached.",
+      "sha256": "86ae14eaecc554e7dedc1b807d534b7dd16f09761e39b51d096fdf178759f0eb",
+      "ha_snapshot_sha256": "86ae14eaecc554e7dedc1b807d534b7dd16f09761e39b51d096fdf178759f0eb"
+    },
+    "litellm/litellm_core_utils/token_counter.py": {
+      "lines": [
+        219,
+        234,
+        297,
+        693
+      ],
+      "observation": "Image token counting can fetch remote image bytes to determine dimensions.",
+      "sha256": "8d41757455dae08ced92706bee211fed1e2fc7d2557a56fde7ade2fc0ca362b8",
+      "ha_snapshot_sha256": "8d41757455dae08ced92706bee211fed1e2fc7d2557a56fde7ade2fc0ca362b8"
+    }
+  },
+  "decision": {
+    "operation_label": "create",
+    "tools": [
+      "litellm_health",
+      "litellm_token_counter",
+      "litellm_spend_calculate"
+    ],
+    "meaning": "Existing active-work permission bucket, not a claim all three mutate configuration or bill inference.",
+    "ha_write_grants": "Preserve the existing 25 exact grants.",
+    "legacy_read_denies": "For these three tools only, legacy read denies also deny create.",
+    "read_only_tool_count": 15,
+    "all_enabled_tool_count": 40
+  },
+  "upstream_documentation": "https://docs.litellm.ai/docs/proxy/health",
+  "validation": "Real MCP callbacks/HA gateway policy and PaaS proxy operation policy, fake HTTPX backends; no external provider calls."
+}

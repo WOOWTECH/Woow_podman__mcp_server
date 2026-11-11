@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: odoo
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  odoo:
+    image: odoo:18.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HOST: postgres
+      USER: odoo
+      PASSWORD: odoo
+    ports:
+      - "8069:8069"
+
+  mcp-admin:
+    build:
+      context: ../..
+      dockerfile: apps/odoo/Dockerfile
+    depends_on:
+      - odoo
+    ports:
+      - "8080:8080"
+    volumes:
+      - mcp_data:/data
+    environment:
+      MCP_ADMIN_CONFIG: /data/config.json
+
+volumes:
+  pg_data:
+  mcp_data:

@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "woow-vk-mcp-server"
+version = "1.0.0"
+description = "VK MCP Admin Bundle — Web GUI + MCP Proxy + Process Manager for supergateway + vibe-kanban-mcp"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [
+    { name = "WOOWTECH", email = "dev@woowtech.io" },
+]
+keywords = ["vibe-kanban", "mcp", "admin", "fastapi", "supergateway"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    # 本 app 只依賴共用核心 mcp-admin-core；MCP 子行程鏈為非 Python 元件：
+    #   - supergateway 是 npm 全域套件（stdio→streamableHttp bridge）
+    #   - vibe-kanban-mcp 是 Rust 靜態 binary（由 Dockerfile 下載並以 sha256 驗證）
+    # 兩者皆非 Python 依賴，故不像 apps/odoo-manage 需列 mcp-server-odoo / mcp[cli]。
+    "mcp-admin-core",
+]
+
+[project.urls]
+Homepage = "https://github.com/WOOWTECH/Woow_vk_mcp_server"
+Documentation = "https://github.com/WOOWTECH/Woow_vk_mcp_server#readme"
+Repository = "https://github.com/WOOWTECH/Woow_vk_mcp_server"
+Issues = "https://github.com/WOOWTECH/Woow_vk_mcp_server/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["vk_mcp_admin"]
+
+[tool.uv.sources]
+mcp-admin-core = { workspace = true }

@@ -1,0 +1,13 @@
+{
+  "repository": "woow-paas/woow-paas-charts",
+  "commit": "0aaa6b9b062fdc3ea5794544d1e41b15282722c8",
+  "path": "charts/mcp-server/files/seed-config.py",
+  "chart_version": "0.1.7",
+  "sha256": "608fb0dec45b3d51da0d76222c66ba04e14d075c04b4b4c3bf3334853f7b9a8b",
+  "status": "unreleased source candidate; registry 0.1.7 remains unchanged",
+  "published_baseline": {
+    "commit": "8ace565cf045d43333782c43c74d4379349b76f4",
+    "sha256": "04192ac8ae56888f6190dfc37fc1d22ebd4a2d4586a8973bdfcfa66845329844",
+    "chart_version": "0.1.7"
+  }
+}

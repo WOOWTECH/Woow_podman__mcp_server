@@ -1,0 +1,3 @@
+[Volume]
+VolumeName=@@VOLUME@@
+Label=io.woowtech.app=@@APP@@

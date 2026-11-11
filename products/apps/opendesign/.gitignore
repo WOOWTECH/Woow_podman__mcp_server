@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+.env
+.env.local
+*.egg-info/
+/data/
+.ruff_cache/
+.mypy_cache/
+*.whl
+*.tar.gz
+.DS_Store

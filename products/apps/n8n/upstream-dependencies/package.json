@@ -1,0 +1,16 @@
+{
+  "name": "woow-n8n-mcp-upstream",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reproducible runtime dependency tree for the PaaS n8n MCP child server",
+  "dependencies": {
+    "n8n-mcp": "2.96.2"
+  },
+  "overrides": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "better-sqlite3": "12.11.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
+  }
+}

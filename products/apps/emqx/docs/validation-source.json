@@ -1,0 +1,80 @@
+{
+  "kind": "source-stage-validation-not-image-acceptance",
+  "at": "2026-10-30T04:03:44.495217+00:00",
+  "paas_base": "3c93d0e727fdc948f1ea17cb5fa7d1ad1887a883",
+  "checks": {
+    "all_39_valid_schemas": true,
+    "all_39_positive_http_dispatch": true,
+    "all_39_valid_argument_denials_no_io": true,
+    "real_proxy_child_process_synthetic_http": true,
+    "child_two_generations_synthetic_http": true,
+    "frontend_build_reused_dependencies": true,
+    "wheel_build": true,
+    "wheel_license_included": true,
+    "ruff_E9_F": true,
+    "source_manifest_hashes": true,
+    "ha_sql_fresh_and_revoked_source_policy": true,
+    "paas_sql_default_allowed_revoked_no_effect_reenabled": true,
+    "sql_revocation_survives_child_restart": true
+  },
+  "not_performed": [
+    "Docker build",
+    "root frozen lock resolution",
+    "integrated browser review",
+    "published-image acceptance",
+    "real EMQX PaaS backend acceptance",
+    "new cluster resources",
+    "formal template/product exposure"
+  ],
+  "python": "3.12.14",
+  "dependencies": {
+    "fastmcp": "4.1.3",
+    "mcp": "2.3.0",
+    "httpx": "0.28.1",
+    "httpcore": "1.0.9",
+    "pydantic": "2.14.1",
+    "pydantic-settings": "2.16.1",
+    "pytest": "9.1.1"
+  },
+  "logs": {
+    "pr95.log": {
+      "sha256": "ce3ab2ada41062e380dd4e8199dbf7c9eb24bbde21073be7df30ca3aa0886014",
+      "summary": "161 passed in 21.79s"
+    },
+    "frontend-pr95.log": {
+      "sha256": "08459971b4512b90fa268f0826234ac94f7d74c31f00cc2d1a04fe2ed7e9f06a",
+      "summary": "\u2713 built in 3.60s"
+    },
+    "wheel-pr95.log": {
+      "sha256": "3a7dbf2b2a0d256566cb5ccc7d7004ca39be02e44e6afa2955ad45236007e962",
+      "summary": "Successfully built /tmp/mencius-emqx-adapter-YMqGEH/wheels/woow_emqx_mcp_server-0.1.0-py3-none-any.whl"
+    },
+    "child-pr95.log": {
+      "sha256": "9414841ed7fb0e4bbad619f3b0a9e83d613166095a94f06bf5978baaf7e1f30e",
+      "summary": "{\"child_generations\": 2, \"cleanup\": \"owned-processes-sockets-tempfiles-closed\", \"denied_write_effects\": 0, \"fixture\": \"synthetic-local-http\", \"permitted_write_effects\": 1, \"saved_policy_survived_child_restart\": true, \"sql_allowed_requests\": 1, \"sql_revoked_requests\": 0, \"status\": \"PASS\"}"
+    }
+  },
+  "source_manifest_sha256": "d2a04c9d6f860b86e003856c5983098b031248415b861b08c529650003884328",
+  "historical_first_checkpoint": {
+    "commit": "92387f8552d54ce23e9bbf5a542d14d805aca159",
+    "base": "7f0eb78f6edec39166b74d88a53307c4614dcf35",
+    "baseline_tests": {
+      "passed": 159,
+      "skipped": 2,
+      "reason": "N13/N15 absent at baseline"
+    },
+    "candidate_core": "0e6658a64e986baeaa671ccd30085b1fc4395222",
+    "candidate_core_tests": {
+      "passed": 161,
+      "skipped": 0
+    },
+    "superseded_policy": "SQL default-off seed removed after actual HA source review"
+  },
+  "merged_main_tests": {
+    "core_commit": "3c93d0e727fdc948f1ea17cb5fa7d1ad1887a883",
+    "passed": 161,
+    "skipped": 0,
+    "runtime_core_import": "this worktree/packages/mcp-admin-core"
+  },
+  "ha_sql_proof_sha256": "9c6ed44a24a449a9377477f25188b5119b8d618e27de17c1457f166392a52eec"
+}

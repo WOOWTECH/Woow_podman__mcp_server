@@ -1,0 +1,27 @@
+version: "3.8"
+
+# Nextcloud MCP Admin 本機開發用 compose（目標 Nextcloud 由「外部」提供，此處只有 mcp-admin）。
+#
+# 使用方式：
+#   1. 第一次啟動後 admin 會自動補安全預設（tools.disabled＝寫入／刪除四支工具、
+#      mcp_server.env_prefix="NEXTCLOUD_MCP_"）；再到 Settings 頁填 MCP Server：
+#      command "nextcloud-mcp-server"、args ["--port","8000"]、port 8000（須與 --port 一致，否則 proxy 一律 502）。
+#   2. Connection 頁填 Nextcloud 網址、帳號與 app password，Save 後子行程會啟動。
+#   3. Tokens 頁產生 MCP auth token，MCP client 連 http://localhost:8080/private_<token>/mcp（不要加結尾斜線）。
+#   未設 command 時 admin 仍可跑（/healthz 綠、GUI 可登入），只是不啟動 MCP 子行程。
+#   ⚠️ 本機預設管理密碼為 admin；JWT_SECRET 未設時每次重啟登入失效。
+
+services:
+  mcp-admin:
+    build:
+      context: ../..
+      dockerfile: apps/nextcloud/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - nextcloud_mcp_data:/data
+    environment:
+      MCP_ADMIN_CONFIG: /data/config.json
+
+volumes:
+  nextcloud_mcp_data:

@@ -1,0 +1,5 @@
+__pycache__/
+.pytest_cache/
+frontend/dist/
+frontend/node_modules/
+*.egg-info/

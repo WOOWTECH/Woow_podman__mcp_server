@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  hermes-mcp-admin:
+    build:
+      context: ../..
+      dockerfile: apps/hermes/Dockerfile
+    ports:
+      - "9003:8080"
+    volumes:
+      - hermes-mcp-data:/data
+    environment:
+      MCP_ADMIN_CONFIG: /data/config.json
+      HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-http://hermes:8642}
+      HERMES_GATEWAY_API_KEY: ${HERMES_GATEWAY_API_KEY:-}
+      HERMES_DASHBOARD_URL: ${HERMES_DASHBOARD_URL:-http://hermes:9119}
+      HERMES_DASHBOARD_USERNAME: ${HERMES_DASHBOARD_USERNAME:-admin}
+      HERMES_DASHBOARD_PASSWORD: ${HERMES_DASHBOARD_PASSWORD:-}
+      # 後台儲存／測試 gateway_url、dashboard_url 時做 SSRF 檢查（預設 strict 只收公開位址）。
+      # 本機 compose 直連同網路的 hermes 容器（私有位址）要放寬；PaaS 走公開網址，維持 strict。
+      WEBHOOK_SECURITY_MODE: ${WEBHOOK_SECURITY_MODE:-permissive}
+
+volumes:
+  hermes-mcp-data:

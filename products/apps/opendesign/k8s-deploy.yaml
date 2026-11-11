@@ -1,0 +1,116 @@
+# Open Design MCP Admin GUI — Kubernetes Deployment（dev 參考）
+#
+# ⚠️ 正式部署來源為 paas-charts 的 mcp-server chart；本檔僅供 dev 參考，對外 port 統一 8080。
+#    namespace（opendesign-dev）為 dev 佔位值，正式環境由平台決定。
+#
+# 本檔含 PersistentVolumeClaim / Deployment / Service。app 不需 k8s API 權限
+# （無 ServiceAccount / RBAC），直接套用即可：
+#     kubectl apply -f k8s-deploy.yaml
+#
+# ── 部署時 seed（不在 repo；設定 file-based，寫在 PVC 的 /data/config.json）──────────
+# app 只重啟自己 spawn 的 MCP 子行程，不碰 k8s API；MCP 子行程鏈由 McpProcessManager 於
+# 執行期依 config.json 的 mcp_server 拉起（上游 entrypoint.sh 雙行程做法已廢除）。config.json 需 seed：
+#   - mcp_server.command = "opendesign-mcp-server"（venv console script；PATH 前置 /app/.venv/bin）
+#   - mcp_server.args    = ["--host", "127.0.0.1", "--port", "8000"]
+#       原生 launcher：單一行程跑 /mcp（Streamable HTTP、stateless）＋ /sse（#1369）。
+#       ⚠️ 舊 seed（command="supergateway" + "python -m opendesign_mcp_server"）每個 session 多佔
+#       ~115MB 且不釋放 → OOM；admin 啟動時會自動把該舊形狀改寫成上面的原生 launcher。
+#   - mcp_server.port    = 8000
+#   - mcp_server.env     = {}
+#       ⚠️ od_chat_timeout 走 connection 選配欄（UI 可調、注入 OD_CHAT_TIMEOUT），此處不放。
+#   - mcp_server.env_prefix = ""      # connection 鍵大寫後即注入（od_api_base → OD_API_BASE）
+#   - connection.od_api_base    = "http://open-design-svc:7457"
+#       必填；指向 Open Design daemon 的 /api/*。
+#   - connection.od_chat_timeout = "300"   # 選配；AI 生成最長等待秒數，注入 OD_CHAT_TIMEOUT
+#   - 不 seed tools.disabled：出廠全 15 支啟用；租戶在 Tools 頁停用即由 core proxy 強制
+#       （tools/list 隱藏、tools/call 拒絕，#1384）。delete_project 不需要時建議停用。
+#   - connection.od_basic_user／od_basic_password：選配；daemon 前置 basic auth（PaaS open-design 服務）
+#       時填，password 為 secret（遮罩、留空沿用）。帳密不要寫進 od_api_base URL（#1354）。
+#   - ⚠️ 不設 od_api_token：現行 vendored wrapper 不送 Authorization、為死欄（避免誤導）。
+#
+# ⚠️⚠️ port 一致性紅字警語：mcp_server.port（core proxy 的轉發目標）必須與 args 裡的 --port
+#      「完全相同」（本例皆為 8000）。core 不做交叉驗證，兩者不一致時 proxy 一律回 502。
+#
+# ⚠️ 絕不在此檔或 seed 抄入上游明文 JWT_SECRET / ADMIN_PASSWORD（上游 manifest 曾明文塞入，
+#    屬安全事件）；admin 認證 secret 由部署期供給，非 repo 檔案。
+#
+# 未 seed command 時 admin 仍可跑（/healthz 綠、GUI 可登入），只是不啟動 MCP 子行程。
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opendesign-mcp-admin-data
+  namespace: opendesign-dev
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Open Design MCP Admin (port 8080)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opendesign-mcp-admin
+  namespace: opendesign-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opendesign-mcp-admin
+  template:
+    metadata:
+      labels:
+        app: opendesign-mcp-admin
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      containers:
+      - name: admin
+        image: jcr-prod.woowtech.io/woow-paas-docker-local/opendesign-mcp-admin:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        # Open Design daemon 連線設定（connection.od_api_base）走 file-based 的 config.json seed，
+        # 不以 k8s env 注入（設定 file-based、無 k8s Secret / ConfigMap 後援）。此處只給 config 路徑。
+        - name: MCP_ADMIN_CONFIG
+          value: /data/config.json
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: opendesign-mcp-admin-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opendesign-mcp-admin-svc
+  namespace: opendesign-dev
+spec:
+  selector:
+    app: opendesign-mcp-admin
+  ports:
+  - port: 8080
+    targetPort: 8080

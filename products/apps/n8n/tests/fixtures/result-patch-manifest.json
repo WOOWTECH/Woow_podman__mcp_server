@@ -1,0 +1,18 @@
+{
+  "version": "2.96.2",
+  "tarball": "https://registry.npmjs.org/n8n-mcp/-/n8n-mcp-2.96.2.tgz",
+  "integrity": "sha512-fnpvAEuXOBRP0J6Uy3BjIyRja3y4Ox9rsmohqPb1qUEshso9aBt4L5/aYgSEl6lq/HoBPJ+DmZV0hP/GS+B/Dg==",
+  "archive_sha256": "3fffe30b0393e3c629bb1b01b7209871d592cc9f332e57ce8c9d234ce3e576f8",
+  "files": {
+    "dist/mcp/server.js": {
+      "fixture": "n8n-mcp-2.96.2-server.js.gz",
+      "bytes": 167386,
+      "sha256": "a1237f5cafe34cddcecb85c48bc467c38a443be487a34b0f24c5cbbb343b30e9"
+    },
+    "dist/mcp/tools-n8n-manager.js": {
+      "fixture": "n8n-mcp-2.96.2-tools-n8n-manager.js.gz",
+      "bytes": 53462,
+      "sha256": "28d54ea6a3001678fd510542c82c04c26b2ff3b55b7db63b630800e82e02191f"
+    }
+  }
+}

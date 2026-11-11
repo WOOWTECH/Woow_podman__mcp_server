@@ -1,0 +1,16 @@
+{
+  "paas_source_commit": "c077be987d47d80240ee9de1810a91f6646845e2",
+  "image_version": "paas-c077be9-podman.1",
+  "products": {
+    "headscale": {"package": "woow-headscale-mcp-server", "module": "headscale_mcp_admin.main:app", "default_port": 18081, "installer": "headscale"},
+    "emqx": {"package": "woow-emqx-mcp-server", "module": "emqx_mcp_admin.main:app", "default_port": 18501},
+    "hermes": {"package": "woow-hermes-mcp-server", "module": "hermes_mcp_admin.main:app", "default_port": 18502},
+    "n8n": {"package": "n8n-mcp-admin", "module": "n8n_mcp_admin.main:app", "default_port": 18503},
+    "odoo": {"package": "woow-odoo-mcp-server", "module": "odoo_mcp_admin.main:app", "default_port": 18504},
+    "litellm": {"package": "woow-litellm-mcp-server", "module": "litellm_mcp_admin.main:app", "default_port": 18505},
+    "nextcloud": {"package": "woow-nextcloud-mcp-server", "module": "nextcloud_mcp_admin.main:app", "default_port": 18506},
+    "opendesign": {"package": "woow-opendesign-mcp-server", "module": "opendesign_mcp_admin.main:app", "default_port": 18507},
+    "k8s": {"package": "woow-k8s-mcp-server", "module": "k8s_mcp_admin.main:app", "default_port": 18508},
+    "vk": {"package": "woow-vk-mcp-server", "module": "vk_mcp_admin.main:app", "default_port": 18509}
+  }
+}

@@ -1,0 +1,106 @@
+# VK MCP Admin GUI — Kubernetes Deployment（dev 參考）
+#
+# ⚠️ 正式部署來源為 paas-charts 的 mcp-server chart；本檔僅供 dev 參考，對外 port 統一 8080。
+#    namespace（vk-dev）為 dev 佔位值，正式環境由平台決定。
+#
+# 本檔含 PersistentVolumeClaim / Deployment / Service。app 不需 k8s API 權限
+# （無 ServiceAccount / RBAC），直接套用即可：
+#     kubectl apply -f k8s-deploy.yaml
+#
+# ── 部署時 seed（不在 repo；設定 file-based，寫在 PVC 的 /data/config.json）──────────
+# app 只重啟自己 spawn 的 MCP 子行程，不碰 k8s API；MCP 子行程鏈由 McpProcessManager 於
+# 執行期依 config.json 的 mcp_server 拉起（來源 entrypoint.sh 雙行程做法已廢除）。config.json 需 seed：
+#   - mcp_server.command = "supergateway"（node 全域 bin，image 已預裝 supergateway@3.4.3）
+#   - mcp_server.args    = ["--stdio", "vibe-kanban-mcp --mode global",
+#                           "--port", "8000",
+#                           "--outputTransport", "streamableHttp",   # 不給則不開 /mcp（預設 sse）
+#                           "--healthEndpoint", "/healthz"]
+#   - mcp_server.port    = 8000
+#   - mcp_server.env     = {}
+#   - mcp_server.env_prefix = ""      # connection 鍵大寫後即注入（vibe_backend_url → VIBE_BACKEND_URL）
+#   - connection.vibe_backend_url = "http://<vk-host>:3000"
+#       必填；不論 binary 是否內建 fallback 一律顯式 seed，指向外部 VK Host（Vibe Kanban 後端 /api/*）。
+#
+# ⚠️⚠️ port 一致性紅字警語：mcp_server.port（core proxy 的轉發目標）必須與 args 裡的 --port
+#      「完全相同」（本例皆為 8000）。core 不做交叉驗證，兩者不一致時 proxy 一律回 502。
+#
+# 未 seed command 時 admin 仍可跑（/healthz 綠、GUI 可登入），只是不啟動 MCP 子行程。
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vk-mcp-admin-data
+  namespace: vk-dev
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# VK MCP Admin (port 8080)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vk-mcp-admin
+  namespace: vk-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vk-mcp-admin
+  template:
+    metadata:
+      labels:
+        app: vk-mcp-admin
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      containers:
+      - name: admin
+        image: jcr-prod.woowtech.io/woow-paas-docker-local/vk-mcp-admin:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        # VK Host 連線設定（connection.vibe_backend_url）走 file-based 的 config.json seed，
+        # 不以 k8s env 注入（設定 file-based、無 k8s Secret / ConfigMap 後援）。此處只給 config 路徑。
+        - name: MCP_ADMIN_CONFIG
+          value: /data/config.json
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: vk-mcp-admin-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vk-mcp-admin-svc
+  namespace: vk-dev
+spec:
+  selector:
+    app: vk-mcp-admin
+  ports:
+  - port: 8080
+    targetPort: 8080

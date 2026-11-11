@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+:root {
+  --ww-blue: #6183FC; --ww-blue-700: #3F63E8; --ww-blue-050: #EEF2FF;
+  --ww-white: #FFFFFF; --ww-gray: #EFF1F5; --ww-deep-gray: #646262; --ww-black: #212121;
+  --surface-page: #EFF1F5; --surface-card: #FFFFFF; --text-primary: #212121; --text-secondary: #646262;
+  --font-title: 'Poppins', 'Noto Sans TC', sans-serif;
+  --font-body: 'Outfit', 'Noto Sans TC', sans-serif;
+  --space-2: 8px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
+  --radius: 20px; --radius-lg: 28px; --radius-pill: 999px;
+  --shadow-sm: 0 2px 8px rgba(33,33,33,.06); --shadow-md: 0 10px 28px rgba(33,33,33,.08);
+  --glass-bg: rgba(255,255,255,.7); --glass-border: rgba(255,255,255,.9); --glass-blur: 20px;
+}
+
+@theme {
+  /* WoowTech shared palette */
+  --color-brand-50:  #ECEFFE;
+  --color-brand-100: #E1E6FD;
+  --color-brand-200: #C6CEFB;
+  --color-brand-300: #A1AEF7;
+  --color-brand-400: #3F63E8;
+  --color-brand-500: #6183FC;
+  --color-brand-600: #3F63E8;
+  --color-brand-700: #243AB2;
+  --color-brand-800: #203088;
+  --color-brand-900: #1F2A6B;
+
+  /* light 語意 surface / ink / border */
+  --color-bg:          #EFF1F5;
+  --color-panel:       #FFFFFF;
+  --color-field:       #F6F7F9;
+  --color-field-2:     #F1F3F6;
+  --color-border:      #E8EAEF;
+  --color-border-soft: #EEF0F4;
+  --color-ink:    #212121;
+  --color-ink-2:  #3C4150;
+  --color-muted:  #646262;
+  --color-muted-2:#646262;
+  --color-link:   #3B69EF;
+
+  /* 語意狀態（available；status pill 主要仍用 tailwind emerald/red/amber-600 + tint） */
+  --color-success: #1FA055; --color-success-tint: #E7F6EC;
+  --color-danger:  #E5484D; --color-danger-ink: #CF3439; --color-danger-tint: #FDECEC;
+  --color-warn:    #D98300; --color-warn-tint: #FBF1DF;
+  --color-id:      #CB3A5B; --color-id-bg: #F2F3F6;
+
+  /* fonts */
+  --font-sans: "Outfit", "Noto Sans TC", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+  /* radius / shadow */
+  --radius-sm: 12px; --radius-md: 12px; --radius-lg: 12px; --radius-xl: 20px; --radius-card: 20px; --radius-modal: 20px;
+  --shadow-card: 0 1px 2px rgba(17,24,39,.04), 0 4px 14px rgba(17,24,39,.035);
+  --shadow-pop:  0 18px 50px rgba(17,24,39,.18), 0 2px 8px rgba(17,24,39,.08);
+  --shadow-btn:  0 1px 1px rgba(17,24,39,.04);
+  --shadow-primary: 0 4px 12px rgba(61,90,241,.32);
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+
+/* scrollbar（light） */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #F1F3F6; }
+::-webkit-scrollbar-thumb { background: #C6CEFB; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #646262; }
+
+/* Capability views keep long runtime names and schemas contained at 320px. */
+h1, h2, h3 { font-family: var(--font-title); letter-spacing: -.02em; }
+body { line-height: 1.6; }
+:focus-visible { outline: 2px solid var(--ww-blue-700); outline-offset: 3px; }
+.capability-card { background: var(--ww-white); border: 1px solid var(--color-border); border-radius: 20px; padding: 24px; box-shadow: var(--shadow-sm); min-width: 0; }
+.capability-action { border-radius: 999px; padding: 8px 16px; min-height: 44px; background: var(--ww-blue-050); color: var(--ww-blue-700); transition: background 220ms cubic-bezier(.4,0,.2,1); }
+.capability-action:disabled { opacity: .6; }
+.capability-action:active { transform: scale(.97); }
+.capability-tools button { min-height: 44px; min-width: 44px; }
+.capability-schema { min-width: 0; max-width: 100%; }
+.capability-schema summary { cursor: pointer; min-height: 44px; padding: 8px 0; color: var(--ww-blue-700); }
+.capability-schema pre { overflow: auto; max-height: 360px; max-width: 100%; padding: 16px; border-radius: 12px; background: var(--ww-gray); font-size: 13px; white-space: pre; }

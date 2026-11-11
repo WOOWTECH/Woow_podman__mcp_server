@@ -1,0 +1,393 @@
+{
+  "version": "2.96.2",
+  "source_sha256": {
+    "dist/mcp/tools.js": "acb4d2a3ec74b5f2b41d327a93340a0f9a799e99947656afd010a76390fb10cb",
+    "dist/mcp/agents-action-map.js": "9282db04957b8a7931cd99ceddcbfd943419732930325256b03ecc443075c8e8",
+    "dist/mcp/tools-n8n-manager.js": "28d54ea6a3001678fd510542c82c04c26b2ff3b55b7db63b630800e82e02191f"
+  },
+  "schemas": {
+    "tools_documentation": {
+      "required": [],
+      "types": {
+        "topic": "string",
+        "depth": "string"
+      }
+    },
+    "search_nodes": {
+      "required": [
+        "query"
+      ],
+      "types": {
+        "query": "string",
+        "limit": "number",
+        "mode": "string",
+        "includeExamples": "boolean",
+        "includeOperations": "boolean",
+        "source": "string"
+      }
+    },
+    "get_node": {
+      "required": [
+        "nodeType"
+      ],
+      "types": {
+        "nodeType": "string",
+        "detail": "string",
+        "mode": "string",
+        "includeTypeInfo": "boolean",
+        "includeExamples": "boolean",
+        "fromVersion": "string",
+        "toVersion": "string",
+        "propertyQuery": "string",
+        "maxPropertyResults": "number"
+      }
+    },
+    "validate_node": {
+      "required": [
+        "nodeType",
+        "config"
+      ],
+      "types": {
+        "nodeType": "string",
+        "config": "object",
+        "mode": "string",
+        "profile": "string"
+      }
+    },
+    "get_template": {
+      "required": [
+        "templateId"
+      ],
+      "types": {
+        "templateId": "number",
+        "mode": "string"
+      }
+    },
+    "search_templates": {
+      "required": [],
+      "types": {
+        "searchMode": "string",
+        "query": "string",
+        "fields": "array",
+        "nodeTypes": "array",
+        "task": "string",
+        "category": "string",
+        "complexity": "string",
+        "maxSetupMinutes": "number",
+        "minSetupMinutes": "number",
+        "requiredService": "string",
+        "targetAudience": "string",
+        "limit": "number",
+        "offset": "number"
+      }
+    },
+    "validate_workflow": {
+      "required": [
+        "workflow"
+      ],
+      "types": {
+        "workflow": "object",
+        "options": "object"
+      }
+    },
+    "n8n_create_workflow": {
+      "required": [
+        "name",
+        "nodes",
+        "connections"
+      ],
+      "types": {
+        "name": "string",
+        "nodes": "array",
+        "connections": "object",
+        "settings": "object",
+        "nodeGroups": "array",
+        "projectId": "string",
+        "parentFolderId": "string"
+      }
+    },
+    "n8n_get_workflow": {
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string",
+        "mode": "string",
+        "nodeNames": "array"
+      }
+    },
+    "n8n_update_full_workflow": {
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string",
+        "name": "string",
+        "nodes": "array",
+        "connections": "object",
+        "settings": "object",
+        "nodeGroups": "array",
+        "parentFolderId": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "n8n_update_partial_workflow": {
+      "required": [
+        "id",
+        "operations"
+      ],
+      "types": {
+        "id": "string",
+        "operations": "array",
+        "validateOnly": "boolean",
+        "continueOnError": "boolean"
+      }
+    },
+    "n8n_delete_workflow": {
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string"
+      }
+    },
+    "n8n_list_workflows": {
+      "required": [],
+      "types": {
+        "limit": "number",
+        "cursor": "string",
+        "active": "boolean",
+        "tags": "array",
+        "projectId": "string",
+        "excludePinnedData": "boolean"
+      }
+    },
+    "n8n_validate_workflow": {
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string",
+        "options": "object"
+      }
+    },
+    "n8n_autofix_workflow": {
+      "required": [
+        "id"
+      ],
+      "types": {
+        "id": "string",
+        "applyFixes": "boolean",
+        "fixTypes": "array",
+        "confidenceThreshold": "string",
+        "maxFixes": "number"
+      }
+    },
+    "n8n_test_workflow": {
+      "required": [
+        "workflowId"
+      ],
+      "types": {
+        "workflowId": "string",
+        "method": "string",
+        "triggerType": "string",
+        "httpMethod": "string",
+        "webhookPath": "string",
+        "message": "string",
+        "sessionId": "string",
+        "data": "object",
+        "headers": "object",
+        "timeout": "number",
+        "waitForResponse": "boolean",
+        "pinData": "object",
+        "triggerNodeName": "string",
+        "executionMode": "string",
+        "exposeToMcp": "boolean",
+        "timeoutMs": "integer"
+      }
+    },
+    "n8n_executions": {
+      "required": [],
+      "types": {
+        "action": "string",
+        "id": "string",
+        "mode": "string",
+        "nodeNames": "array",
+        "itemsLimit": "number",
+        "includeInputData": "boolean",
+        "errorItemsLimit": "number",
+        "includeStackTrace": "boolean",
+        "includeExecutionPath": "boolean",
+        "fetchWorkflow": "boolean",
+        "limit": "number",
+        "cursor": "string",
+        "workflowId": "string",
+        "projectId": "string",
+        "status": "string",
+        "includeData": "boolean"
+      }
+    },
+    "n8n_evaluations": {
+      "required": [
+        "action",
+        "workflowId"
+      ],
+      "types": {
+        "action": "string",
+        "workflowId": "string",
+        "runId": "string",
+        "status": "string",
+        "limit": "number",
+        "cursor": "string"
+      }
+    },
+    "n8n_health_check": {
+      "required": [],
+      "types": {
+        "mode": "string",
+        "verbose": "boolean"
+      }
+    },
+    "n8n_workflow_versions": {
+      "required": [],
+      "types": {
+        "mode": "string",
+        "source": "string",
+        "workflowId": "string",
+        "versionId": null,
+        "toVersionId": null,
+        "limit": "number",
+        "offset": "number",
+        "validateBefore": "boolean",
+        "deleteAll": "boolean",
+        "maxVersions": "number",
+        "exposeToMcp": "boolean",
+        "timeoutMs": "integer"
+      }
+    },
+    "n8n_deploy_template": {
+      "required": [
+        "templateId"
+      ],
+      "types": {
+        "templateId": "number",
+        "name": "string",
+        "autoUpgradeVersions": "boolean",
+        "autoFix": "boolean",
+        "stripCredentials": "boolean"
+      }
+    },
+    "n8n_manage_datatable": {
+      "required": [
+        "action"
+      ],
+      "types": {
+        "action": "string",
+        "tableId": "string",
+        "name": "string",
+        "columns": "array",
+        "data": null,
+        "filter": "object",
+        "limit": "number",
+        "cursor": "string",
+        "sortBy": "string",
+        "search": "string",
+        "returnType": "string",
+        "returnData": "boolean",
+        "dryRun": "boolean",
+        "projectId": "string",
+        "columnId": "string",
+        "column": "object",
+        "timeoutMs": "integer"
+      }
+    },
+    "n8n_manage_folders": {
+      "required": [
+        "action"
+      ],
+      "types": {
+        "action": "string",
+        "projectId": "string",
+        "folderId": "string",
+        "name": "string",
+        "parentFolderId": [
+          "string",
+          "null"
+        ],
+        "transferToFolderId": "string",
+        "nameFilter": "string",
+        "sortBy": "string",
+        "skip": "number",
+        "take": "number"
+      }
+    },
+    "n8n_manage_credentials": {
+      "required": [
+        "action"
+      ],
+      "types": {
+        "action": "string",
+        "id": "string",
+        "name": "string",
+        "type": "string",
+        "data": "object",
+        "includeUsage": "boolean",
+        "cursor": "string",
+        "limit": "number"
+      }
+    },
+    "n8n_audit_instance": {
+      "required": [],
+      "types": {
+        "categories": "array",
+        "includeCustomScan": "boolean",
+        "daysAbandonedWorkflow": "number",
+        "customChecks": "array"
+      }
+    },
+    "n8n_manage_agents": {
+      "required": [
+        "action"
+      ],
+      "types": {
+        "action": "string",
+        "args": "object",
+        "timeoutMs": "integer"
+      }
+    },
+    "n8n_explore_node_resources": {
+      "required": [
+        "nodeType",
+        "version",
+        "methodName",
+        "methodType",
+        "credentialType",
+        "credentialId"
+      ],
+      "types": {
+        "nodeType": "string",
+        "version": "number",
+        "methodName": "string",
+        "methodType": "string",
+        "credentialType": "string",
+        "credentialId": "string",
+        "filter": "string",
+        "paginationToken": "string",
+        "currentNodeParameters": "object",
+        "timeoutMs": "integer"
+      }
+    },
+    "n8n_list_catalog": {
+      "required": [
+        "kind"
+      ],
+      "types": {
+        "kind": "string",
+        "query": "string",
+        "limit": "integer"
+      }
+    }
+  }
+}

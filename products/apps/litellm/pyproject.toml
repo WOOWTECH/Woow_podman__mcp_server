@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "woow-litellm-mcp-server"
+version = "1.0.0"
+description = "LiteLLM MCP Admin Bundle — Web GUI + MCP Proxy + Process Manager for the vendored LiteLLM FastMCP server (40 tools, gated, read-only by default on PaaS)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [
+    { name = "WOOWTECH", email = "dev@woowtech.io" },
+]
+keywords = ["litellm", "llm-gateway", "mcp", "fastmcp", "admin", "fastapi"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    # 共用管理面核心（app factory / auth / config store / process manager / proxy）。
+    "mcp-admin-core",
+    # vendored woow_litellm_mcp_server 直接 import 以下套件（第三方 FastMCP（鎖 4.x，底層 MCP SDK 2.x）的
+    # Context／middleware／ToolError、官方 mcp 的 ToolAnnotations、pydantic-settings 讀
+    # LITELLM_MCP_* env），故顯式宣告、不倚賴 core 的傳遞依賴；實際版本由 root uv.lock 釘死。
+    "fastmcp>=4.1.3,<5",
+    "mcp>=2.3,<3",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+]
+
+[project.scripts]
+# MCP 子行程入口（McpProcessManager 依 config.json 的 mcp_server.command 執行期 spawn）。
+# launcher 固定 Streamable HTTP、只綁 127.0.0.1，再交給 vendored server.main()（見 litellm_mcp_admin/launcher.py）。
+litellm-mcp-server = "litellm_mcp_admin.launcher:main"
+
+[project.urls]
+Homepage = "https://github.com/WOOWTECH/Woow_litellm_mcp_server"
+Repository = "https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["litellm_mcp_admin", "woow_litellm_mcp_server"]
+
+[tool.uv.sources]
+mcp-admin-core = { workspace = true }
+
+[tool.pytest.ini_options]
+# 明確的正向管理寫入 helper；原始負向 HTTP 請求不會自動補 header。
+pythonpath = ["../../packages/mcp-admin-core/tests"]
+
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# 打真 LiteLLM gateway 的探測測試只在 `pytest -m live` 才跑（沿用來源 repo 慣例）。
+addopts = "-ra -m 'not live'"
+markers = [
+    "live: opt-in tests that hit a real, reachable LiteLLM gateway (network).",
+]

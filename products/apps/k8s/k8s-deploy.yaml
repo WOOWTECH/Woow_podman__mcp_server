@@ -1,0 +1,105 @@
+# K8s MCP Admin GUI — Kubernetes Deployment（dev 參考）
+#
+# ⚠️ 正式部署來源為 paas-charts 的 mcp-server chart；本檔僅供 dev 參考，對外 port 統一 8080。
+#
+# 本檔含 PersistentVolumeClaim / Deployment / Service。
+#
+# ── 授權模型（2026-07-16 裁決：kubeconfig 管「外部」叢集為主示範）─────────────────
+# 主場景是 PaaS 起 service 管「外部」Kubernetes 叢集，授權在外部叢集側完成：
+#   在外部叢集 kubectl create serviceaccount → 綁 RBAC（view ClusterRole 起步，寫操作另授權）
+#   → kubectl create token → 組 kubeconfig（server URL + CA data + token）
+#   → 部署後經 admin UI Connection 頁貼入 kubeconfig（或 seed 注入 connection.kubeconfig）。
+# 完整 SOP 見 apps/k8s/README.md「外部叢集授權 SOP」章節。
+# 故本部署 yaml「不帶」ServiceAccount / RBAC（無叢集憑證）—— admin 自身不需 k8s 權限。
+#
+# ⚠️ admin 後端自身「不」呼叫 k8s API；kubeconfig 是給子行程 kubernetes-mcp-server（Go binary，
+#   內建 client-go）用的。admin 只管理 config.json 與自己 spawn 的子行程。
+#
+# ── 部署時 seed（不在 repo，見 apps/k8s/README.md 與 plan 附錄 A）────────────────
+# config.json 需設 mcp_server.command="k8s-mcp-http"、env_prefix="K8S_MCP_"、
+#   mcp_server.env 治理 toggle（全開：K8S_MCP_READ_ONLY=0 / K8S_MCP_DISABLE_DESTRUCTIVE=0 /
+#   K8S_MCP_ALLOW_SECRETS=1 / K8S_MCP_MULTI_CLUSTER=1）+ K8S_MCP_TOOLSETS="config,core,helm,kcp,kubevirt,tekton"，並填入 connection
+#   （kubeconfig 全文 + in_cluster="false"）。沒有 seed、由 admin 自己建立 config.json 時，同一組 env 由
+#   LaunchPolicy.fresh_env 寫入。process._build_subprocess_env 會把 connection
+#   鍵大寫加前綴成 K8S_MCP_KUBECONFIG / K8S_MCP_IN_CLUSTER 注入子行程。
+#   未 seed command 時 admin 仍可跑（/healthz 綠），只是不啟動 MCP 子行程。
+#
+# ── in-cluster 變體（僅「管宿主叢集」時適用；正式 RBAC 歸 paas-charts）────────────
+# 若要讓本 app 管「所在」叢集，改走 in-cluster：connection.in_cluster="true"、kubeconfig 空，
+#   並在此 spec 補 serviceAccountName + 對應 ClusterRole/ClusterRoleBinding（view 起步）。
+#   此變體不在本 dev 檔預設提供——正式 SA + RBAC 樣板歸 paas-charts。
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: k8s-mcp-admin-data
+  namespace: k8s-mcp
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# K8s MCP Admin (port 8080)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-mcp-admin
+  namespace: k8s-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-mcp-admin
+  template:
+    metadata:
+      labels:
+        app: k8s-mcp-admin
+    spec:
+      containers:
+      - name: admin
+        image: jcr-prod.woowtech.io/woow-paas-docker-local/k8s-mcp-admin:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        - name: MCP_ADMIN_CONFIG
+          value: /data/config.json
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: k8s-mcp-admin-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-mcp-admin-svc
+  namespace: k8s-mcp
+spec:
+  selector:
+    app: k8s-mcp-admin
+  ports:
+  - port: 8080
+    targetPort: 8080

@@ -1,0 +1,35 @@
+{
+  "version": "2.96.2",
+  "integrity": "sha512-fnpvAEuXOBRP0J6Uy3BjIyRja3y4Ox9rsmohqPb1qUEshso9aBt4L5/aYgSEl6lq/HoBPJ+DmZV0hP/GS+B/Dg==",
+  "archive_sha256": "3fffe30b0393e3c629bb1b01b7209871d592cc9f332e57ce8c9d234ce3e576f8",
+  "files": {
+    "dist/mcp/tools.js": {
+      "fixture": "n8n-mcp-2.96.2-tools.js.gz",
+      "sha256": "acb4d2a3ec74b5f2b41d327a93340a0f9a799e99947656afd010a76390fb10cb"
+    },
+    "dist/mcp/agents-action-map.js": {
+      "fixture": "n8n-mcp-2.96.2-agents-action-map.js.gz",
+      "sha256": "9282db04957b8a7931cd99ceddcbfd943419732930325256b03ecc443075c8e8"
+    },
+    "dist/mcp/tool-policy.js": {
+      "fixture": "n8n-mcp-2.96.2-tool-policy.js.gz",
+      "sha256": "e3ec9753d7b64320d83829015905c32a1b03620a4b82f0e39d5fcbb142a75ec5"
+    },
+    "dist/mcp/param-aliases.js": {
+      "fixture": "n8n-mcp-2.96.2-param-aliases.js.gz",
+      "sha256": "9e2ead691b7439c57b73fc4c80b76a4d86b914c2cf7b08e1f6cdd2f46edfa834"
+    },
+    "dist/mcp/instance-argument.js": {
+      "fixture": "n8n-mcp-2.96.2-instance-argument.js.gz",
+      "sha256": "dac8db2cb5f8ee496f0d6f78c0c294f9d5f47937f2d6fe4c923cb9cbf61dc462"
+    },
+    "dist/mcp/tools-n8n-manager.js": {
+      "fixture": "n8n-mcp-2.96.2-tools-n8n-manager.js.gz",
+      "sha256": "28d54ea6a3001678fd510542c82c04c26b2ff3b55b7db63b630800e82e02191f"
+    },
+    "dist/mcp/server.js": {
+      "fixture": "n8n-mcp-2.96.2-server.js.gz",
+      "sha256": "a1237f5cafe34cddcecb85c48bc467c38a443be487a34b0f24c5cbbb343b30e9"
+    }
+  }
+}
