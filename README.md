@@ -2,22 +2,21 @@
 
 **English** · [繁體中文](README_zh-TW.md)
 
-This repository now has two independently deployed MCP products. The original
-Podman host service remains at the repository root. The new [Headscale MCP
-product](products/deploy/headscale/README.md) lives in `products/` and uses the
-same Headscale application, dedicated GUI, 29 native operations, and shared
-`mcp-admin-core` as the PaaS version. Its deployment uses rootless Podman and
-user Quadlet units; it does not mount the Podman socket. The `products/`
-workspace can hold more MCP products that share this core while keeping their
-own API adapters, interfaces, and Quadlet units.
+This repository contains the original Podman-host MCP at the root and a
+[ten-product MCP workspace](products/README.md) under `products/`: Headscale,
+EMQX, Hermes, n8n, Odoo, LiteLLM, Nextcloud, OpenDesign, K8s and VK. The
+workspace shares the PaaS application/core/frontend source and deploys each
+product with its own rootless Podman Quadlet, port, volume and credentials.
+Product containers do not mount the Podman socket.
 
 ```bash
-products/deploy/headscale/scripts/install.sh --dry-run
-products/deploy/headscale/scripts/install.sh
+products/deploy/manage.sh list
+products/deploy/manage.sh emqx install --dry-run
+products/deploy/manage.sh emqx install
 ```
 
-The Headscale GUI defaults to `http://127.0.0.1:18081/`; see the product guide
-for first login, Origin settings, Headscale API connection, and backups.
+Headscale retains its [dedicated guide](products/deploy/headscale/README.md),
+including its default `http://127.0.0.1:18081/` GUI, Origin settings and backups.
 
 ---
 

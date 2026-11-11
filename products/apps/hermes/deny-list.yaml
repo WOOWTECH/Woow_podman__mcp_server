@@ -1,0 +1,17 @@
+# 說明用；實際規則在 hermes_mcp_server/guards.py（MCP 工具與後台直通共用）。
+# denied_config_keys 是根鍵：本身、底下任何鍵、以及它們的祖先都不能經 hermes_config set 寫入；
+# 比對前先正規化（NFKC、去零寬字元、strip、casefold），另外任何一段是憑證鍵（api_key、token…）或以 _ 開頭也拒絕。
+denied_config_keys:
+  - api_server
+  - custom_providers
+  - dashboard
+  - mcp_servers
+  - model
+  - providers
+  - secrets
+  - security
+  - terminal
+denied_mcp_operations:
+  - add_stdio_command   # hermes_mcp add 與 POST /api/mcp-servers/live：只收 http／https＋SSRF 檢查
+denied_env_operations:
+  - reveal

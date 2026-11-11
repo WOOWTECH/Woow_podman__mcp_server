@@ -1,0 +1,89 @@
+# n8n MCP Admin GUI — Kubernetes Deployment（namespace：kasim-odoo；dev 參考）
+#
+# ⚠️ 正式部署來源為 paas-charts 的 mcp-server chart；本檔僅供 dev 參考，對外 port 統一 8080。
+#
+# 本檔含 PersistentVolumeClaim / Deployment / Service。app 不需 k8s API 權限
+# （無 ServiceAccount / RBAC），直接套用即可：
+#     kubectl apply -f k8s-deploy.yaml
+#
+# 注意：本檔只負責 n8n-mcp-admin 自己的 Deployment/Service；odoo-mcp-admin
+# 由各自的 k8s-deploy.yaml 管理，互不影響。
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-mcp-admin-data
+  namespace: kasim-odoo
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# n8n MCP Admin (port 8080)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n-mcp-admin
+  namespace: kasim-odoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: n8n-mcp-admin
+  template:
+    metadata:
+      labels:
+        app: n8n-mcp-admin
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      containers:
+      - name: admin
+        image: jcr-prod.woowtech.io/woow-paas-docker-local/n8n-mcp-admin:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        - name: N8N_SVC_URL
+          value: http://n8n.kasim-odoo.svc.cluster.local:5678
+        - name: MCP_ADMIN_CONFIG
+          value: /data/config.json
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: n8n-mcp-admin-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n-mcp-admin-svc
+  namespace: kasim-odoo
+spec:
+  selector:
+    app: n8n-mcp-admin
+  ports:
+  - port: 8080
+    targetPort: 8080

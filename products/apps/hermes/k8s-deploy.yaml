@@ -1,0 +1,82 @@
+# Hermes MCP Admin — K8s Deployment Manifests（dev 參考）
+#
+# ⚠️ 正式部署來源為 paas-charts 的 mcp-server chart（per-tenant，operator helm install）。
+#    本檔僅供本機 / dev 參考；對外 port 統一 8080（admin GUI 在 /、MCP client 在 /private_{token}/）。
+# Deploy to kasim-odoo namespace (same as MCP servers)
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-mcp-admin-data
+  namespace: kasim-odoo
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Hermes MCP Admin Deployment (port 8080)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-mcp-admin
+  namespace: kasim-odoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-mcp-admin
+  template:
+    metadata:
+      labels:
+        app: hermes-mcp-admin
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      containers:
+      - name: admin
+        image: jcr-prod.woowtech.io/woow-paas-docker-local/hermes-mcp-admin:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        - name: MCP_ADMIN_CONFIG
+          value: /data/config.json
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: hermes-mcp-admin-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-mcp-admin-svc
+  namespace: kasim-odoo
+spec:
+  selector:
+    app: hermes-mcp-admin
+  ports:
+  - port: 8080
+    targetPort: 8080

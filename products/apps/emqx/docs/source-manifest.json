@@ -1,0 +1,125 @@
+{
+  "format": 1,
+  "upstream": "WOOWTECH/Woow_emqx_mcp_server",
+  "upstream_commit": "1be17bad5aef6c7b7519686ccbfe1d80762bc10e",
+  "ha_source_commit": "28b8317ec12c47c81c946fe9aaec18dd1d5ad852",
+  "paas_base": "7f0eb78f6edec39166b74d88a53307c4614dcf35",
+  "license_sha256": "1b05bfafc14067beabe8885c164528c122ebf545eabe97984b222fe377143a69",
+  "files": [
+    {
+      "path": "emqx_mcp_server/__init__.py",
+      "ha_baseline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "adapted_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/deps.py",
+      "ha_baseline_sha256": "fa949b1f1b3577be7c848af5bb74a5b9d068d39cba265b93cdd4dde4a41529e3",
+      "adapted_sha256": "fa949b1f1b3577be7c848af5bb74a5b9d068d39cba265b93cdd4dde4a41529e3",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/errors.py",
+      "ha_baseline_sha256": "c7e0035e810600c10db1bd5ff21f511f3023c4b1c0c57931b3487ba6d4611795",
+      "adapted_sha256": "43246d0cd944375411cc6e076af8750e60558d4278da58e2ea301aa53ef7e194",
+      "changed_from_ha": true
+    },
+    {
+      "path": "emqx_mcp_server/gating.py",
+      "ha_baseline_sha256": "9168feae3231c16df2513f3668a7ad6dacc67072ef5d0cc919bb963e2b6de057",
+      "adapted_sha256": "9168feae3231c16df2513f3668a7ad6dacc67072ef5d0cc919bb963e2b6de057",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/http_policy.py",
+      "ha_baseline_sha256": null,
+      "adapted_sha256": "4c90f71bbd209951f581931a121ee06eb97b946601e1f165423edaf34208dc92",
+      "changed_from_ha": true
+    },
+    {
+      "path": "emqx_mcp_server/lifespan.py",
+      "ha_baseline_sha256": "e217a630de2a1d9061441a81dc463aaada787203e3c900890198a5789a0be811",
+      "adapted_sha256": "262231226facf3766544d13ca8f352686f16b522750add6f7d7d3c1c8695976d",
+      "changed_from_ha": true
+    },
+    {
+      "path": "emqx_mcp_server/models.py",
+      "ha_baseline_sha256": "0d247d845738f37d2673fd0e50203cc8c4f3c4cf6a2d3b10db7bd2a0b9740801",
+      "adapted_sha256": "0d247d845738f37d2673fd0e50203cc8c4f3c4cf6a2d3b10db7bd2a0b9740801",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/registry.py",
+      "ha_baseline_sha256": "c440d204de9091952ffbd6784d81cd7fd78184e266701f86cf051da332191652",
+      "adapted_sha256": "c440d204de9091952ffbd6784d81cd7fd78184e266701f86cf051da332191652",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/server.py",
+      "ha_baseline_sha256": "e6ae5c32a62ae8942bdf2701f687dc7d840bc49745fd8b094e886f833c043c22",
+      "adapted_sha256": "07daa7473a8c621ca8486c10ab98c168f0a75a081a2a9b6b163e5af1c9f3dd7f",
+      "changed_from_ha": true
+    },
+    {
+      "path": "emqx_mcp_server/settings.py",
+      "ha_baseline_sha256": "7c4ad8c7d6c56c8a9d3ef62634a4a875bbb9ee25992e6ac0aaf972aaf32a3598",
+      "adapted_sha256": "57ce0b7f8d7d4af1f17d662efcfdf9d5a747e7848d7f6bc46930ea74acd7d7c4",
+      "changed_from_ha": true
+    },
+    {
+      "path": "emqx_mcp_server/tools/__init__.py",
+      "ha_baseline_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "adapted_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/tools/_common.py",
+      "ha_baseline_sha256": "ecf9b4f3ec95b059dcda81d0c5e77c294c14e48cc4f8adc423d455bcf5400ae5",
+      "adapted_sha256": "ecf9b4f3ec95b059dcda81d0c5e77c294c14e48cc4f8adc423d455bcf5400ae5",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/tools/clients.py",
+      "ha_baseline_sha256": "11b7029a4e57a78169fde8d006596513040c64cdcbb1b12b72f0e48eab0fc3af",
+      "adapted_sha256": "11b7029a4e57a78169fde8d006596513040c64cdcbb1b12b72f0e48eab0fc3af",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/tools/cluster.py",
+      "ha_baseline_sha256": "2a5f1943551498556b3ef525c6742d17980c40022dd6da9349307428da7b0f52",
+      "adapted_sha256": "2a5f1943551498556b3ef525c6742d17980c40022dd6da9349307428da7b0f52",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/tools/diagnostics.py",
+      "ha_baseline_sha256": "f20e0868ebca0c2707d8f3b3fbe7a9e3651af9235d708abfced402ba3c6e26bf",
+      "adapted_sha256": "f20e0868ebca0c2707d8f3b3fbe7a9e3651af9235d708abfced402ba3c6e26bf",
+      "changed_from_ha": false
+    },
+    {
+      "path": "emqx_mcp_server/tools/integration.py",
+      "ha_baseline_sha256": "05ac8a89c35389d6793bb2e2c579947ee3bbc42a55c5fd67d9978a162e1636de",
+      "adapted_sha256": "c09304a5656527cbd0cb3338bdee6cf85cac6f43a2ec1082620c1a5cada93f99",
+      "changed_from_ha": true
+    },
+    {
+      "path": "emqx_mcp_server/tools/messaging.py",
+      "ha_baseline_sha256": "afd34ac295d6fd12e6d9bc91718cfd7ae1e71606694d8b5a560962feea17b5c0",
+      "adapted_sha256": "3f82bc572c81dae703f9714372f09890b43f82e08ab08d6b2b9b84e32ee6e089",
+      "changed_from_ha": true
+    },
+    {
+      "path": "emqx_mcp_server/tools/security.py",
+      "ha_baseline_sha256": "f113e5c365b7d25bca426f3dd663570e9302777b27d67ff24c9ad4af1d299dcf",
+      "adapted_sha256": "6e155cb06026b18eb0cf6682bab82ff009284580d14ae75007f76215277b616f",
+      "changed_from_ha": true
+    },
+    {
+      "path": "emqx_mcp_server/tools/topics.py",
+      "ha_baseline_sha256": "fb95c8cfcf2279e3b8b2545079bda8276a24210440123c5ac38624c372f1e353",
+      "adapted_sha256": "fb95c8cfcf2279e3b8b2545079bda8276a24210440123c5ac38624c372f1e353",
+      "changed_from_ha": false
+    }
+  ],
+  "paas_integration_base": "3c93d0e727fdc948f1ea17cb5fa7d1ad1887a883"
+}

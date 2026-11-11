@@ -1,0 +1,33 @@
+[Unit]
+Description=Woow @@PRODUCT@@ MCP administration and MCP server
+Documentation=https://github.com/WOOWTECH/Woow_podman__mcp_server
+
+[Container]
+ContainerName=@@APP@@
+Image=@@IMAGE@@
+Pull=never
+Network=@@APP@@.network
+PublishPort=@@MCP_ADMIN_BIND@@:@@MCP_ADMIN_PORT@@:8080
+Volume=@@APP@@.volume:/data:U
+ReadOnly=true
+Tmpfs=/tmp:rw,size=64m
+NoNewPrivileges=true
+DropCapability=ALL
+Environment=MCP_ADMIN_CONFIG=/data/config.json
+EnvironmentFile=@@ENV_FILE@@
+Secret=@@APP@@-jwt-secret,type=env,target=JWT_SECRET
+Secret=@@APP@@-password,type=env,target=ADMIN_PASSWORD
+HealthCmd=python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=30s
+HealthRetries=3
+
+[Service]
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target

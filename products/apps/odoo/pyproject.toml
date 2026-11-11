@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "woow-odoo-mcp-server"
+version = "1.0.0"
+description = "Odoo MCP Admin Bundle — Web GUI + MCP Proxy + Process Manager for Odoo MCP Server"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [
+    { name = "WOOWTECH", email = "dev@woowtech.io" },
+]
+keywords = ["odoo", "mcp", "admin", "fastapi", "model-context-protocol"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "mcp-admin-core",
+    # tuanle96 的 odoo-mcp（41 tools、模組名 odoo_mcp）取代舊的 odoo-mcp-server（4 tools）。
+    # 版本釘死 1.3.0（PyPI 上第一個、也是最新一個支援 MCP SDK 2.x 的版本；1.3.1 只有 GitHub tag）：
+    # Elmo 的三個 build-time patch（apps/odoo/patches/）以字串比對 odoo_mcp 內部原始碼
+    # （server_core.py / tools_write.py），套件升版可能使 patch 目標失配。
+    # 升版時須重跑 apps/odoo/patches/*.py 對新版驗證後才可放行。
+    "odoo-mcp==1.3.0",
+    "mcp[cli]",
+]
+
+[project.scripts]
+# 先套用並行修補再啟動上游 odoo-mcp（DATA-ODOO-011-1）
+woow-odoo-mcp = "odoo_mcp_admin.launcher:main"
+
+[project.urls]
+Homepage = "https://github.com/WOOWTECH/woow_odoo_mcp_server"
+Documentation = "https://github.com/WOOWTECH/woow_odoo_mcp_server#readme"
+Repository = "https://github.com/WOOWTECH/woow_odoo_mcp_server"
+Issues = "https://github.com/WOOWTECH/woow_odoo_mcp_server/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["odoo_mcp_admin"]
+
+[tool.uv.sources]
+mcp-admin-core = { workspace = true }
+
+[tool.pytest.ini_options]
+# 明確的正向管理寫入 helper；原始負向 HTTP 請求不會自動補 header。
+pythonpath = ["../../packages/mcp-admin-core/tests"]

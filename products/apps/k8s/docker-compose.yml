@@ -1,0 +1,28 @@
+# K8s MCP Admin — 本機 dev / e2e 參考（正式面歸 paas-charts）。
+#
+# 單 service 形（不像 odoo-manage 帶 postgres/odoo）：本 app 的 target 是「Kubernetes
+# 叢集」，compose 起不起得了叢集，故只跑 mcp-admin 一顆，對外叢集用貼入的 kubeconfig 連。
+#
+# ⚠️ 本機 e2e 劇本（詳見 README「本機 e2e 劇本」章節）：
+#   1. kubeconfig 不掛載檔案，改由 admin UI Connection 頁「貼入內容」（textarea secret），
+#      經 process._build_subprocess_env 注入子行程 kubernetes-mcp-server。
+#   2. darwin + docker-desktop 的 kubeconfig `server: https://127.0.0.1:6443` 在容器內指向
+#      容器自身 → 貼入前改寫成 `https://kubernetes.docker.internal:6443`（該名在 cert SAN 內）。
+#   3. Apple Silicon 需以 `docker build --platform linux/amd64`（Dockerfile 內 ADD 的是
+#      linux-amd64 binary，image 為 amd64-only）。
+version: "3.8"
+
+services:
+  mcp-admin:
+    build:
+      context: ../..
+      dockerfile: apps/k8s/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - k8s_mcp_data:/data
+    environment:
+      MCP_ADMIN_CONFIG: /data/config.json
+
+volumes:
+  k8s_mcp_data:

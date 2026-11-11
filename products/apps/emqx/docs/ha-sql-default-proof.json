@@ -1,0 +1,18 @@
+{
+  "source_commit": "28b8317ec12c47c81c946fe9aaec18dd1d5ad852",
+  "scope": "released HA source policy only; no HAOS identity or real backend claim",
+  "tool_count": 39,
+  "fresh_global_writes": true,
+  "sql_write_classification": true,
+  "sql_exact_grants": [
+    "emqx_test_rule_sql"
+  ],
+  "fresh_sql_allowed": true,
+  "sql_revoked_while_global_writes_on_denied": true,
+  "file_sha256": {
+    "products.py": "0b183a34edafdeab1e31c768896654733bc6aefc9dc0adfdcd5a53c6f43a79d0",
+    "surface.py": "4005fc352e060fb18ca2f1606df1120577192f7b184ab64b222505bf97a33b5e",
+    "policy.py": "ef219530d02124201e2247357acc4934f9f059308f1c9de096adc8380eac2db4",
+    "config.py": "560bca37a46bfebd1942cc2fbf60774c0a07b39d733490089d3a979c29fbfb2d"
+  }
+}

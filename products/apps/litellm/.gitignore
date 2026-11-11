@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+.env
+.env.local
+*.egg-info/
+/data/
+.ruff_cache/
+.mypy_cache/
+*.whl
+*.tar.gz
+.DS_Store
+# 本機測試用的設定檔與備份可能含 LiteLLM 金鑰／path token（來源 repo OPEN-3），一律不進版控
+config.json
+config.json.*
+*.bak

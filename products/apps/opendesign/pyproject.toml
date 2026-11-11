@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "woow-opendesign-mcp-server"
+version = "1.0.0"
+description = "Open Design MCP Admin Bundle — Web GUI + MCP Proxy + Process Manager for vendored od_mcp_server (native Streamable HTTP launcher)"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [
+    { name = "WOOWTECH", email = "dev@woowtech.io" },
+]
+keywords = ["open-design", "mcp", "admin", "fastapi", "streamable-http"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    # 共用管理面核心。
+    "mcp-admin-core",
+    # vendored od_mcp_server.py 直接 import 這兩者（FastMCP + httpx），
+    # 故顯式宣告、不倚賴 mcp-admin-core 的傳遞依賴（避免上游解版漂移）。
+    "mcp>=2.3,<3",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+# 原生 Streamable HTTP（stateless）+ SSE launcher，取代 supergateway 橋（#1369）
+opendesign-mcp-server = "opendesign_mcp_server.launcher:main"
+
+[project.urls]
+Homepage = "https://github.com/WOOWTECH/Woow_opendesign_mcp_server"
+Documentation = "https://github.com/WOOWTECH/Woow_opendesign_mcp_server#readme"
+Repository = "https://github.com/WOOWTECH/Woow_opendesign_mcp_server"
+Issues = "https://github.com/WOOWTECH/Woow_opendesign_mcp_server/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["opendesign_mcp_admin", "opendesign_mcp_server"]
+
+[tool.uv.sources]
+mcp-admin-core = { workspace = true }

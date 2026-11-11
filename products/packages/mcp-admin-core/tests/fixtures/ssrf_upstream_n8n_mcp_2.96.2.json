@@ -1,0 +1,310 @@
+{
+ "_source": "n8n-mcp 2.96.2 dist/utils/ssrf-protection.js SSRFProtection.validateWebhookUrl（npm tarball，sha512 與 apps/n8n/upstream-dependencies/package-lock.json 相同），以 WEBHOOK_SECURITY_MODE=strict／moderate／permissive 各跑一次；true＝放行。2026-10-26 以 Node 26.12.1 記錄。",
+ "decisions": {
+  "https://203.0.113.10/": {
+   "strict": true,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://8.8.8.8:5678": {
+   "strict": true,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://[2606:4700::1111]/": {
+   "strict": true,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://169.254.169.254/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://169.254.170.2/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://100.100.100.200/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://192.0.0.192/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://10.0.0.5:5678": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://172.16.0.1/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://192.168.1.1/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://100.64.0.1/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://127.0.0.1:5678": {
+   "strict": false,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://127.1.2.3/": {
+   "strict": false,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://0.0.0.0:5678": {
+   "strict": false,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://224.0.0.1/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://240.0.0.1/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://localhost:5678": {
+   "strict": false,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://metadata.google.internal/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://metadata/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[fd00:ec2::254]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[fd20:ce::254]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[fe80::a9fe:a9fe]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[fd00:a9fe:a9fe::1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[fd00:0ec2:0:0:0:0:0:254]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[::1]:5678": {
+   "strict": false,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://[::]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[fe80::1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[fd00::1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[fc00::1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[ff02::1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[fec0::1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[::ffff:127.0.0.1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[::ffff:10.0.0.1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[::ffff:8.8.8.8]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[::ffff:169.254.169.254]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[::127.0.0.1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[::8.8.8.8]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[::169.254.169.254]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[::ffff:0:127.0.0.1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[::ffff:0:8.8.8.8]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[::ffff:0:169.254.169.254]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[64:ff9b::808:808]/": {
+   "strict": true,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://[64:ff9b::a00:1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[64:ff9b::a9fe:a9fe]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[64:ff9b:1::808:808]/": {
+   "strict": true,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://[64:ff9b:1::7f00:1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[64:ff9b:1:2::7f00:1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[64:ff9b:1:2::808:808]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[64:ff9b:0:0:1::808:808]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[2002:808:808::1]/": {
+   "strict": true,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://[2002:a00:1::1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "http://[2002:a9fe:a9fe::1]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[2001:0:4136:e378:8000:63bf:f7f7:f7f7]/": {
+   "strict": true,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://[2001:0:4136:e378:8000:63bf:56fe:5601]/": {
+   "strict": true,
+   "moderate": true,
+   "permissive": true
+  },
+  "http://[2001:0:4136:e378:8000:63bf:5601:5601]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://[2001:0:4136:e378:8000:63bf:f5ff:fffe]/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": true
+  },
+  "https://203.0.113.10:99999/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "https://203.0.113.10:abc/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "https://example.com:99999/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "https://example.com:abc/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  },
+  "http://n8n.example.com:5678x/": {
+   "strict": false,
+   "moderate": false,
+   "permissive": false
+  }
+ }
+}

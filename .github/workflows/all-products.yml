@@ -1,0 +1,72 @@
+name: all-mcp-products
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.12.1'
+          cache: npm
+          cache-dependency-path: products/package-lock.json
+      - name: Sync the locked PaaS workspace
+        run: uv sync --directory products --all-packages --all-extras --frozen
+      - name: Install locked frontend and native n8n fixtures
+        run: |
+          npm ci --prefix products --no-audit --no-fund
+          npm ci --prefix products/apps/n8n/upstream-dependencies --omit=dev --ignore-scripts --no-audit --no-fund
+      - name: Shared deployment, core, applications and frontend tests
+        run: |
+          set -euo pipefail
+          cd products
+          mkdir -p "$RUNNER_TEMP/mcp-core"
+          export MCP_ADMIN_CONFIG="$RUNNER_TEMP/mcp-core/config.json"
+          uv run --no-sync pytest -q deploy/shared/tests
+          uv run --no-sync --directory packages/mcp-admin-core pytest -q
+          for app in emqx hermes k8s litellm n8n nextcloud odoo opendesign; do
+            uv run --no-sync --directory "apps/$app" pytest -q
+          done
+          node --test packages/mcp-admin-ui/src/*.test.js
+      - name: Shell syntax and deployment source guard
+        run: |
+          bash -n products/deploy/manage.sh products/deploy/shared/lifecycle.sh \
+            products/deploy/shared/tests/*.sh
+          python3 -m compileall -q products/deploy/shared products/scripts/check-all-parity.py
+          ! grep -RIn 'podman\.sock' products/deploy/shared/quadlet
+
+  image-and-quadlet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [emqx, hermes, k8s, litellm, n8n, nextcloud, odoo, opendesign, vk]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+      - name: Verify rendered rootless Quadlet
+        run: products/deploy/shared/tests/quadlet-dryrun.sh
+      - name: Build product image
+        run: |
+          podman build --format docker -t "localhost/woow-${{ matrix.product }}-mcp-admin:ci" \
+            -f "products/apps/${{ matrix.product }}/Dockerfile" products
+      - name: Test first boot, GUI, MCP and volume persistence
+        run: |
+          products/deploy/shared/tests/container-smoke.sh "${{ matrix.product }}" \
+            "localhost/woow-${{ matrix.product }}-mcp-admin:ci"
