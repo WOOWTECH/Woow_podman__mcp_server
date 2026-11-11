@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 @pytest.fixture
 def broker(monkeypatch):
-    state = SimpleNamespace(calls=[], status=200, response=None, headers={}, body=None, delay=0, routes={})
+    state = SimpleNamespace(calls=[], client_ports=[], status=200, response=None, headers={}, body=None, delay=0, routes={})
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
         def log_message(self, *args):
@@ -34,6 +34,7 @@ def broker(monkeypatch):
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length) if length else b''
             state.calls.append((self.command, self.path, body, self.headers.get('Authorization')))
+            state.client_ports.append(self.client_address[1])
             if state.delay:
                 import time
                 time.sleep(state.delay)
