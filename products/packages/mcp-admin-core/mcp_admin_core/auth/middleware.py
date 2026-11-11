@@ -89,6 +89,8 @@ class AdminSessionPolicy(Protocol):
 
     async def validate(self, payload: dict[str, Any], *, allow_revoked: bool = False) -> bool: ...
 
+    async def revoke(self, payload: dict[str, Any]) -> None: ...
+
 
 def request_token(request: Request) -> str | None:
     """One credential precedence for API reads, writes, streams and logout."""
@@ -153,6 +155,7 @@ class _LoginRequest(BaseModel):
 
 
 login_router = APIRouter(prefix="/api/auth", tags=["auth"])
+logout_router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 def _throttle(request: Request) -> LoginThrottle:
@@ -204,4 +207,17 @@ async def login(body: _LoginRequest, request: Request) -> JSONResponse:
         samesite="strict",
         max_age=JWT_EXPIRY_HOURS * 3600,
     )
+    return response
+
+
+@logout_router.post("/logout")
+async def logout(request: Request) -> JSONResponse:
+    """Revoke this login on the server and remove its browser cookie."""
+    payload = await authenticate_request(request, allow_revoked=True)
+    policy = getattr(request.app.state, "admin_session_policy", None)
+    if policy is None:
+        raise HTTPException(503, "ADMIN_SESSION_STORE_UNAVAILABLE")
+    await policy.revoke(payload)
+    response = JSONResponse({"logged_out": True})
+    response.delete_cookie("mcp-admin-token")
     return response
