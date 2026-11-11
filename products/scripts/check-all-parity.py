@@ -14,7 +14,9 @@ CATALOG = json.loads((ROOT / "deploy/catalog.json").read_text())
 PIN = CATALOG["paas_source_commit"]
 APPS = tuple(name for name in CATALOG["products"] if name != "headscale")
 PATHS = tuple(f"apps/{name}" for name in APPS) + (
-    "apps/odoo-manage/frontend", "packages/mcp-admin-core/tests", "packages/mcp-admin-ui", "pyproject.toml",
+    "apps/odoo-manage/frontend", "packages/mcp-admin-core/mcp_admin_core",
+    "packages/mcp-admin-core/pyproject.toml", "packages/mcp-admin-core/tests",
+    "packages/mcp-admin-ui", "pyproject.toml",
     "uv.lock", "package.json", "package-lock.json",
 )
 IGNORE_DIRS = {"__pycache__", ".pytest_cache", "node_modules", "dist"}
