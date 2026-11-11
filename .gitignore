@@ -41,6 +41,8 @@ node_modules/
 frontend/dist/
 frontend/.vite/
 static/
+!products/apps/headscale/static/
+!products/apps/headscale/static/**
 *.log
 
 # --- Editor / OS ----------------------------------------------------------

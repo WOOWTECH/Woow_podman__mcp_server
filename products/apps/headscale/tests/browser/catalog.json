@@ -1,0 +1,1417 @@
+{
+  "tools": [
+    {
+      "name": "headscale_users",
+      "category": "Users",
+      "description": "Manage users; rename updates the Headscale user name, including OIDC users. It does not change the identity provider account. Name synchronization at the next IdP login is not guaranteed.",
+      "operations": [
+        "list",
+        "create",
+        "rename",
+        "delete"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "$defs": {
+          "headscale_users_create": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "create",
+                "title": "Operation",
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 2048,
+                "minLength": 1,
+                "not": {
+                  "enum": [
+                    ".",
+                    ".."
+                  ]
+                },
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f/\\\\%?#]+$",
+                "title": "Name",
+                "type": "string"
+              },
+              "display_name": {
+                "default": "",
+                "maxLength": 2048,
+                "title": "Display Name",
+                "type": "string"
+              },
+              "email": {
+                "default": "",
+                "maxLength": 2048,
+                "title": "Email",
+                "type": "string"
+              },
+              "picture_url": {
+                "default": "",
+                "maxLength": 2048,
+                "title": "Picture Url",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "name"
+            ],
+            "title": "headscale_users_create",
+            "type": "object"
+          },
+          "headscale_users_delete": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "delete",
+                "title": "Operation",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "user_id"
+            ],
+            "title": "headscale_users_delete",
+            "type": "object"
+          },
+          "headscale_users_list": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "list",
+                "title": "Operation",
+                "type": "string"
+              },
+              "user_id": {
+                "default": null,
+                "title": "User Id",
+                "type": "string"
+              },
+              "name": {
+                "default": null,
+                "maxLength": 2048,
+                "minLength": 1,
+                "not": {
+                  "enum": [
+                    ".",
+                    ".."
+                  ]
+                },
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f/\\\\%?#]+$",
+                "title": "Name",
+                "type": "string"
+              },
+              "email": {
+                "default": null,
+                "maxLength": 2048,
+                "title": "Email",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "headscale_users_list",
+            "type": "object"
+          },
+          "headscale_users_rename": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "rename",
+                "title": "Operation",
+                "type": "string"
+              },
+              "user_id": {
+                "title": "User Id",
+                "type": "string"
+              },
+              "new_name": {
+                "maxLength": 2048,
+                "minLength": 1,
+                "not": {
+                  "enum": [
+                    ".",
+                    ".."
+                  ]
+                },
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f/\\\\%?#]+$",
+                "title": "New Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "user_id",
+              "new_name"
+            ],
+            "title": "headscale_users_rename",
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "create": "#/$defs/headscale_users_create",
+            "delete": "#/$defs/headscale_users_delete",
+            "list": "#/$defs/headscale_users_list",
+            "rename": "#/$defs/headscale_users_rename"
+          },
+          "propertyName": "operation"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/headscale_users_list"
+          },
+          {
+            "$ref": "#/$defs/headscale_users_create"
+          },
+          {
+            "$ref": "#/$defs/headscale_users_rename"
+          },
+          {
+            "$ref": "#/$defs/headscale_users_delete"
+          }
+        ]
+      }
+    },
+    {
+      "name": "headscale_nodes",
+      "category": "Devices",
+      "description": "Inspect devices, rename, set expiry, delete or convert to tagged ownership. Tags must exist in policy; tagging cannot be undone.",
+      "operations": [
+        "list",
+        "get",
+        "rename",
+        "set_tags",
+        "expire",
+        "delete"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "$defs": {
+          "headscale_nodes_delete": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "delete",
+                "title": "Operation",
+                "type": "string"
+              },
+              "node_id": {
+                "title": "Node Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "node_id"
+            ],
+            "title": "headscale_nodes_delete",
+            "type": "object"
+          },
+          "headscale_nodes_expire": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "expire",
+                "title": "Operation",
+                "type": "string"
+              },
+              "node_id": {
+                "title": "Node Id",
+                "type": "string"
+              },
+              "mode": {
+                "default": "now",
+                "enum": [
+                  "now",
+                  "at",
+                  "disable"
+                ],
+                "title": "Mode",
+                "type": "string"
+              },
+              "expiry": {
+                "default": null,
+                "title": "Expiry",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "node_id"
+            ],
+            "title": "headscale_nodes_expire",
+            "type": "object"
+          },
+          "headscale_nodes_get": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "get",
+                "title": "Operation",
+                "type": "string"
+              },
+              "node_id": {
+                "title": "Node Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "node_id"
+            ],
+            "title": "headscale_nodes_get",
+            "type": "object"
+          },
+          "headscale_nodes_list": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "list",
+                "title": "Operation",
+                "type": "string"
+              },
+              "user": {
+                "default": null,
+                "maxLength": 2048,
+                "minLength": 1,
+                "not": {
+                  "enum": [
+                    ".",
+                    ".."
+                  ]
+                },
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f/\\\\%?#]+$",
+                "title": "User",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "headscale_nodes_list",
+            "type": "object"
+          },
+          "headscale_nodes_rename": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "rename",
+                "title": "Operation",
+                "type": "string"
+              },
+              "node_id": {
+                "title": "Node Id",
+                "type": "string"
+              },
+              "new_name": {
+                "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+                "title": "New Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "node_id",
+              "new_name"
+            ],
+            "title": "headscale_nodes_rename",
+            "type": "object"
+          },
+          "headscale_nodes_set_tags": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "set_tags",
+                "title": "Operation",
+                "type": "string"
+              },
+              "node_id": {
+                "title": "Node Id",
+                "type": "string"
+              },
+              "tags": {
+                "items": {
+                  "maxLength": 2048,
+                  "pattern": "^tag:[^A-Z\\s\\x00-\\x1f\\x7f-\\x9f]*$",
+                  "type": "string"
+                },
+                "maxItems": 128,
+                "minItems": 1,
+                "title": "Tags",
+                "type": "array"
+              }
+            },
+            "required": [
+              "operation",
+              "node_id",
+              "tags"
+            ],
+            "title": "headscale_nodes_set_tags",
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "delete": "#/$defs/headscale_nodes_delete",
+            "expire": "#/$defs/headscale_nodes_expire",
+            "get": "#/$defs/headscale_nodes_get",
+            "list": "#/$defs/headscale_nodes_list",
+            "rename": "#/$defs/headscale_nodes_rename",
+            "set_tags": "#/$defs/headscale_nodes_set_tags"
+          },
+          "propertyName": "operation"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/headscale_nodes_list"
+          },
+          {
+            "$ref": "#/$defs/headscale_nodes_get"
+          },
+          {
+            "$ref": "#/$defs/headscale_nodes_rename"
+          },
+          {
+            "$ref": "#/$defs/headscale_nodes_set_tags"
+          },
+          {
+            "$ref": "#/$defs/headscale_nodes_expire"
+          },
+          {
+            "$ref": "#/$defs/headscale_nodes_delete"
+          }
+        ]
+      }
+    },
+    {
+      "name": "headscale_register",
+      "category": "Enrollment & SSH authentication",
+      "description": "Complete an existing client registration using user name and auth ID. Legacy selects the query-based compatibility endpoint.",
+      "operations": [
+        "register",
+        "legacy"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "$defs": {
+          "headscale_register_legacy": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "legacy",
+                "title": "Operation",
+                "type": "string"
+              },
+              "user": {
+                "maxLength": 2048,
+                "minLength": 1,
+                "not": {
+                  "enum": [
+                    ".",
+                    ".."
+                  ]
+                },
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f/\\\\%?#]+$",
+                "title": "User",
+                "type": "string"
+              },
+              "auth_id": {
+                "pattern": "^hskey-authreq-[A-Za-z0-9_-]{24}$",
+                "title": "Auth Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "user",
+              "auth_id"
+            ],
+            "title": "headscale_register_legacy",
+            "type": "object"
+          },
+          "headscale_register_register": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "register",
+                "title": "Operation",
+                "type": "string"
+              },
+              "user": {
+                "maxLength": 2048,
+                "minLength": 1,
+                "not": {
+                  "enum": [
+                    ".",
+                    ".."
+                  ]
+                },
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f/\\\\%?#]+$",
+                "title": "User",
+                "type": "string"
+              },
+              "auth_id": {
+                "pattern": "^hskey-authreq-[A-Za-z0-9_-]{24}$",
+                "title": "Auth Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "user",
+              "auth_id"
+            ],
+            "title": "headscale_register_register",
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "legacy": "#/$defs/headscale_register_legacy",
+            "register": "#/$defs/headscale_register_register"
+          },
+          "propertyName": "operation"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/headscale_register_register"
+          },
+          {
+            "$ref": "#/$defs/headscale_register_legacy"
+          }
+        ]
+      }
+    },
+    {
+      "name": "headscale_preauth_keys",
+      "category": "Enrollment & SSH authentication",
+      "description": "Manage enrollment keys. Existing secrets are always redacted; creation requires explicit reveal_once and expiration.",
+      "operations": [
+        "list",
+        "create",
+        "expire",
+        "delete"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "$defs": {
+          "headscale_preauth_keys_create": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "create",
+                "title": "Operation",
+                "type": "string"
+              },
+              "user_id": {
+                "default": null,
+                "title": "User Id",
+                "type": "string"
+              },
+              "tags": {
+                "default": [],
+                "items": {
+                  "maxLength": 2048,
+                  "pattern": "^tag:[^A-Z\\s\\x00-\\x1f\\x7f-\\x9f]*$",
+                  "type": "string"
+                },
+                "maxItems": 128,
+                "title": "Tags",
+                "type": "array"
+              },
+              "reusable": {
+                "default": false,
+                "title": "Reusable",
+                "type": "boolean"
+              },
+              "ephemeral": {
+                "default": false,
+                "title": "Ephemeral",
+                "type": "boolean"
+              },
+              "expiration": {
+                "title": "Expiration",
+                "type": "string"
+              },
+              "reveal_once": {
+                "title": "Reveal Once",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "operation",
+              "expiration",
+              "reveal_once"
+            ],
+            "title": "headscale_preauth_keys_create",
+            "type": "object"
+          },
+          "headscale_preauth_keys_delete": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "delete",
+                "title": "Operation",
+                "type": "string"
+              },
+              "key_id": {
+                "title": "Key Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "key_id"
+            ],
+            "title": "headscale_preauth_keys_delete",
+            "type": "object"
+          },
+          "headscale_preauth_keys_expire": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "expire",
+                "title": "Operation",
+                "type": "string"
+              },
+              "key_id": {
+                "title": "Key Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "key_id"
+            ],
+            "title": "headscale_preauth_keys_expire",
+            "type": "object"
+          },
+          "headscale_preauth_keys_list": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "list",
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "headscale_preauth_keys_list",
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "create": "#/$defs/headscale_preauth_keys_create",
+            "delete": "#/$defs/headscale_preauth_keys_delete",
+            "expire": "#/$defs/headscale_preauth_keys_expire",
+            "list": "#/$defs/headscale_preauth_keys_list"
+          },
+          "propertyName": "operation"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/headscale_preauth_keys_list"
+          },
+          {
+            "$ref": "#/$defs/headscale_preauth_keys_create"
+          },
+          {
+            "$ref": "#/$defs/headscale_preauth_keys_expire"
+          },
+          {
+            "$ref": "#/$defs/headscale_preauth_keys_delete"
+          }
+        ]
+      }
+    },
+    {
+      "name": "headscale_auth",
+      "category": "Enrollment & SSH authentication",
+      "description": "Approve/reject a pending auth verdict, used by SSH check. This never registers a device or assigns its user; auth IDs come from the client flow.",
+      "operations": [
+        "approve",
+        "reject"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "$defs": {
+          "headscale_auth_approve": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "approve",
+                "title": "Operation",
+                "type": "string"
+              },
+              "auth_id": {
+                "pattern": "^hskey-authreq-[A-Za-z0-9_-]{24}$",
+                "title": "Auth Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "auth_id"
+            ],
+            "title": "headscale_auth_approve",
+            "type": "object"
+          },
+          "headscale_auth_reject": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "reject",
+                "title": "Operation",
+                "type": "string"
+              },
+              "auth_id": {
+                "pattern": "^hskey-authreq-[A-Za-z0-9_-]{24}$",
+                "title": "Auth Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "auth_id"
+            ],
+            "title": "headscale_auth_reject",
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "approve": "#/$defs/headscale_auth_approve",
+            "reject": "#/$defs/headscale_auth_reject"
+          },
+          "propertyName": "operation"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/headscale_auth_approve"
+          },
+          {
+            "$ref": "#/$defs/headscale_auth_reject"
+          }
+        ]
+      }
+    },
+    {
+      "name": "headscale_api_keys",
+      "category": "API credentials",
+      "description": "Manage instance API credentials. New secrets are returned only on explicit creation; use prefix for REST delete.",
+      "operations": [
+        "list",
+        "create",
+        "expire",
+        "delete"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "$defs": {
+          "headscale_api_keys_create": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "create",
+                "title": "Operation",
+                "type": "string"
+              },
+              "expiration": {
+                "title": "Expiration",
+                "type": "string"
+              },
+              "reveal_once": {
+                "title": "Reveal Once",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "operation",
+              "expiration",
+              "reveal_once"
+            ],
+            "title": "headscale_api_keys_create",
+            "type": "object"
+          },
+          "headscale_api_keys_delete": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "delete",
+                "title": "Operation",
+                "type": "string"
+              },
+              "prefix": {
+                "pattern": "^(?:[A-Za-z0-9_-]{7}(?:\\*\\*\\*)?|[A-Za-z0-9_-]{12}|hskey-api-[A-Za-z0-9_-]{12}(?:-\\*\\*\\*)?)$",
+                "title": "Prefix",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "prefix"
+            ],
+            "title": "headscale_api_keys_delete",
+            "type": "object"
+          },
+          "headscale_api_keys_expire": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "expire",
+                "title": "Operation",
+                "type": "string"
+              },
+              "key_id": {
+                "default": null,
+                "title": "Key Id",
+                "type": "string"
+              },
+              "prefix": {
+                "default": null,
+                "pattern": "^(?:[A-Za-z0-9_-]{7}(?:\\*\\*\\*)?|[A-Za-z0-9_-]{12}|hskey-api-[A-Za-z0-9_-]{12}(?:-\\*\\*\\*)?)$",
+                "title": "Prefix",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "headscale_api_keys_expire",
+            "type": "object"
+          },
+          "headscale_api_keys_list": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "list",
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "headscale_api_keys_list",
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "create": "#/$defs/headscale_api_keys_create",
+            "delete": "#/$defs/headscale_api_keys_delete",
+            "expire": "#/$defs/headscale_api_keys_expire",
+            "list": "#/$defs/headscale_api_keys_list"
+          },
+          "propertyName": "operation"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/headscale_api_keys_list"
+          },
+          {
+            "$ref": "#/$defs/headscale_api_keys_create"
+          },
+          {
+            "$ref": "#/$defs/headscale_api_keys_expire"
+          },
+          {
+            "$ref": "#/$defs/headscale_api_keys_delete"
+          }
+        ]
+      }
+    },
+    {
+      "name": "headscale_policy",
+      "category": "Access policy",
+      "description": "Read, validate, diff or apply a whole policy. Get returns exists=false with an absence digest when database policy is not set; use that digest for first apply. Apply validates and compares the digest before writing, then independently reads back. Failed verification or a differing readback is an error; upstream has no atomic CAS and other writers can still race.",
+      "operations": [
+        "get",
+        "check",
+        "diff",
+        "apply"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "$defs": {
+          "headscale_policy_apply": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "apply",
+                "title": "Operation",
+                "type": "string"
+              },
+              "policy": {
+                "maxLength": 262144,
+                "minLength": 1,
+                "title": "Policy",
+                "type": "string"
+              },
+              "expected_digest": {
+                "pattern": "^[a-f0-9]{64}$",
+                "title": "Expected Digest",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "policy",
+              "expected_digest"
+            ],
+            "title": "headscale_policy_apply",
+            "type": "object"
+          },
+          "headscale_policy_check": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "check",
+                "title": "Operation",
+                "type": "string"
+              },
+              "policy": {
+                "maxLength": 262144,
+                "minLength": 1,
+                "title": "Policy",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "policy"
+            ],
+            "title": "headscale_policy_check",
+            "type": "object"
+          },
+          "headscale_policy_diff": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "diff",
+                "title": "Operation",
+                "type": "string"
+              },
+              "policy": {
+                "maxLength": 262144,
+                "minLength": 1,
+                "title": "Policy",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "policy"
+            ],
+            "title": "headscale_policy_diff",
+            "type": "object"
+          },
+          "headscale_policy_get": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "get",
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "headscale_policy_get",
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "apply": "#/$defs/headscale_policy_apply",
+            "check": "#/$defs/headscale_policy_check",
+            "diff": "#/$defs/headscale_policy_diff",
+            "get": "#/$defs/headscale_policy_get"
+          },
+          "propertyName": "operation"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/headscale_policy_get"
+          },
+          {
+            "$ref": "#/$defs/headscale_policy_check"
+          },
+          {
+            "$ref": "#/$defs/headscale_policy_diff"
+          },
+          {
+            "$ref": "#/$defs/headscale_policy_apply"
+          }
+        ]
+      }
+    },
+    {
+      "name": "headscale_routes_replace",
+      "category": "Routes",
+      "description": "Replace the ENTIRE approved route set; [] revokes all. Exit IPv4/IPv6 defaults are paired. This does not advertise routes on clients.",
+      "operations": [
+        "replace"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "routes": {
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Routes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "node_id",
+          "routes"
+        ],
+        "title": "headscale_routes_replaceArguments"
+      }
+    },
+    {
+      "name": "headscale_health",
+      "category": "Maintenance",
+      "description": "Check Headscale database connectivity through the authenticated v1 API.",
+      "operations": [
+        "read"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "title": "headscale_healthArguments"
+      }
+    },
+    {
+      "name": "headscale_debug_node",
+      "category": "Maintenance",
+      "description": "Explicit test maintenance: seed a synthetic registration. This is not real client enrollment evidence.",
+      "operations": [
+        "create"
+      ],
+      "enabled": false,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "user": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "not": {
+              "enum": [
+                ".",
+                ".."
+              ]
+            },
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f/\\\\%?#]+$",
+            "title": "User",
+            "type": "string"
+          },
+          "auth_id": {
+            "pattern": "^hskey-authreq-[A-Za-z0-9_-]{24}$",
+            "title": "Auth Id",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+            "title": "Name",
+            "type": "string"
+          },
+          "routes": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 256,
+            "title": "Routes",
+            "type": "array"
+          },
+          "confirm": {
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "user",
+          "auth_id",
+          "name",
+          "confirm"
+        ],
+        "title": "headscale_debug_nodeArguments"
+      }
+    },
+    {
+      "name": "headscale_backfill_ips",
+      "category": "Maintenance",
+      "description": "Explicit maintenance: backfill node IPs. This is a write, not a dry run.",
+      "operations": [
+        "update"
+      ],
+      "enabled": true,
+      "denied_operations": [],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "headscale_backfill_ipsArguments"
+      }
+    },
+    {
+      "name": "headscale_platform",
+      "category": "PaaS services",
+      "description": "Manage the bound PaaS Headscale configuration and durable Tailscale service pairing. Workspace and control service are fixed in administrator connection settings. Writes require a stable UUID idempotency key; poll the returned operation.",
+      "operations": [
+        "tailscale_services",
+        "configuration",
+        "configure",
+        "restart",
+        "operation",
+        "pairing_options",
+        "pair",
+        "disconnect",
+        "pairing_operation"
+      ],
+      "enabled": false,
+      "denied_operations": [],
+      "input_schema": {
+        "$defs": {
+          "Platform_configuration": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "configuration",
+                "title": "Operation",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "Platform_configuration",
+            "type": "object"
+          },
+          "Platform_configure": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "configure",
+                "title": "Operation",
+                "type": "string"
+              },
+              "values": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": "Values",
+                "type": "object"
+              },
+              "expected_revision": {
+                "pattern": "^[a-f0-9]{64}$",
+                "title": "Expected Revision",
+                "type": "string"
+              },
+              "idempotency_key": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "title": "Idempotency Key",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "values",
+              "expected_revision",
+              "idempotency_key"
+            ],
+            "title": "Platform_configure",
+            "type": "object"
+          },
+          "Platform_disconnect": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "disconnect",
+                "title": "Operation",
+                "type": "string"
+              },
+              "tailscale_service_id": {
+                "title": "Tailscale Service Id",
+                "type": "string"
+              },
+              "expected_binding_version": {
+                "minimum": 0,
+                "title": "Expected Binding Version",
+                "type": "integer"
+              },
+              "idempotency_key": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "title": "Idempotency Key",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "tailscale_service_id",
+              "expected_binding_version",
+              "idempotency_key"
+            ],
+            "title": "Platform_disconnect",
+            "type": "object"
+          },
+          "Platform_operation": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "operation",
+                "title": "Operation",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "title": "Operation Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "operation_id"
+            ],
+            "title": "Platform_operation",
+            "type": "object"
+          },
+          "Platform_pair": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "pair",
+                "title": "Operation",
+                "type": "string"
+              },
+              "tailscale_service_id": {
+                "title": "Tailscale Service Id",
+                "type": "string"
+              },
+              "headscale_user_id": {
+                "default": null,
+                "title": "Headscale User Id",
+                "type": "string"
+              },
+              "expected_binding_version": {
+                "minimum": 0,
+                "title": "Expected Binding Version",
+                "type": "integer"
+              },
+              "idempotency_key": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "title": "Idempotency Key",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "tailscale_service_id",
+              "expected_binding_version",
+              "idempotency_key"
+            ],
+            "title": "Platform_pair",
+            "type": "object"
+          },
+          "Platform_pairing_operation": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "pairing_operation",
+                "title": "Operation",
+                "type": "string"
+              },
+              "tailscale_service_id": {
+                "title": "Tailscale Service Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "title": "Operation Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "tailscale_service_id",
+              "operation_id"
+            ],
+            "title": "Platform_pairing_operation",
+            "type": "object"
+          },
+          "Platform_pairing_options": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "pairing_options",
+                "title": "Operation",
+                "type": "string"
+              },
+              "tailscale_service_id": {
+                "title": "Tailscale Service Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "tailscale_service_id"
+            ],
+            "title": "Platform_pairing_options",
+            "type": "object"
+          },
+          "Platform_restart": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "restart",
+                "title": "Operation",
+                "type": "string"
+              },
+              "idempotency_key": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "title": "Idempotency Key",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "idempotency_key"
+            ],
+            "title": "Platform_restart",
+            "type": "object"
+          },
+          "Platform_tailscale_services": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "const": "tailscale_services",
+                "title": "Operation",
+                "type": "string"
+              },
+              "cursor": {
+                "default": null,
+                "maxLength": 2048,
+                "title": "Cursor",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "Platform_tailscale_services",
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "configuration": "#/$defs/Platform_configuration",
+            "configure": "#/$defs/Platform_configure",
+            "disconnect": "#/$defs/Platform_disconnect",
+            "operation": "#/$defs/Platform_operation",
+            "pair": "#/$defs/Platform_pair",
+            "pairing_operation": "#/$defs/Platform_pairing_operation",
+            "pairing_options": "#/$defs/Platform_pairing_options",
+            "restart": "#/$defs/Platform_restart",
+            "tailscale_services": "#/$defs/Platform_tailscale_services"
+          },
+          "propertyName": "operation"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/Platform_tailscale_services"
+          },
+          {
+            "$ref": "#/$defs/Platform_configuration"
+          },
+          {
+            "$ref": "#/$defs/Platform_configure"
+          },
+          {
+            "$ref": "#/$defs/Platform_restart"
+          },
+          {
+            "$ref": "#/$defs/Platform_operation"
+          },
+          {
+            "$ref": "#/$defs/Platform_pairing_options"
+          },
+          {
+            "$ref": "#/$defs/Platform_pair"
+          },
+          {
+            "$ref": "#/$defs/Platform_disconnect"
+          },
+          {
+            "$ref": "#/$defs/Platform_pairing_operation"
+          }
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

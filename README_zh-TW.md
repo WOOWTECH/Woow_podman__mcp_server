@@ -2,6 +2,22 @@
 
 [English](README.md) · **繁體中文**
 
+此 repo 現有兩項獨立部署的 MCP 產品。原本的 Podman 主機 MCP 保持在 repo 根目錄；新增的
+[Headscale MCP Podman 版](products/deploy/headscale/README.md) 位於 `products/`，沿用 PaaS
+的 Headscale 專用 GUI、29 項原生操作和共用 `mcp-admin-core`。部署方式改為 rootless Podman
+與使用者 Quadlet，容器不掛載 Podman socket。往後可在 `products/` 加入其他 MCP 產品，
+共用核心，並各自保留 API adapter、介面與 Quadlet 設定。
+
+```bash
+products/deploy/headscale/scripts/install.sh --dry-run
+products/deploy/headscale/scripts/install.sh
+```
+
+Headscale GUI 預設網址為 `http://127.0.0.1:18081/`；首次登入、Origin、Headscale API
+連線和備份方式見產品說明。
+
+---
+
 一個透過 libpod REST API 把 **Podman 主機** 以 MCP 工具形式公開的 FastMCP 伺服器，外加一個網頁管理
 主控台：負責監督它、限制它能做的事，並把它發布在一個經過驗證的 URL 上，讓 Claude（或任何 MCP
 用戶端）可以直接連線。

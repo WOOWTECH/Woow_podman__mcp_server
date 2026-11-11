@@ -1,0 +1,27 @@
+# Product workspace. The original Podman-host MCP remains a separate SDK 1.x image.
+[tool.uv.workspace]
+members = ["packages/mcp-admin-core", "apps/headscale"]
+
+[tool.uv]
+# Match the PaaS Headscale runtime lock at c077be987d47 (2026-11-11).
+constraint-dependencies = [
+  "anyio==4.15.1",
+  "certifi==2026.10.23",
+  "cryptography==50.0.2",
+  "fastapi==0.162.0",
+  "fastmcp==4.1.3",
+  "h11==0.16.0",
+  "httpcore==1.0.9",
+  "httpx==0.28.1",
+  "mcp==2.3.0",
+  "mcp-types==2.3.0",
+  "pydantic==2.14.1",
+  "pydantic-core==2.50.1",
+  "pydantic-settings==2.16.1",
+  "pyjwt==2.15.1",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "sse-starlette==3.5.0",
+  "starlette==1.9.0",
+  "uvicorn==0.54.0",
+]

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "woow-headscale-mcp-server"
+version = "0.1.1"
+description = "Headscale control-server management MCP and dedicated setup UI"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "mcp-admin-core", "fastmcp>=4.1.3,<5", "mcp>=2.3,<3",
+  "httpx==0.28.1", "httpcore==1.0.9", "pydantic>=2.6",
+  "pydantic-settings>=2.14,<3",
+]
+
+[project.scripts]
+headscale-mcp-server = "headscale_mcp_admin.launcher:main"
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "jsonschema"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["headscale_mcp_admin", "headscale_mcp_server"]
+
+[tool.uv.sources]
+mcp-admin-core = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra"

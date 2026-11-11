@@ -2,6 +2,25 @@
 
 **English** · [繁體中文](README_zh-TW.md)
 
+This repository now has two independently deployed MCP products. The original
+Podman host service remains at the repository root. The new [Headscale MCP
+product](products/deploy/headscale/README.md) lives in `products/` and uses the
+same Headscale application, dedicated GUI, 29 native operations, and shared
+`mcp-admin-core` as the PaaS version. Its deployment uses rootless Podman and
+user Quadlet units; it does not mount the Podman socket. The `products/`
+workspace can hold more MCP products that share this core while keeping their
+own API adapters, interfaces, and Quadlet units.
+
+```bash
+products/deploy/headscale/scripts/install.sh --dry-run
+products/deploy/headscale/scripts/install.sh
+```
+
+The Headscale GUI defaults to `http://127.0.0.1:18081/`; see the product guide
+for first login, Origin settings, Headscale API connection, and backups.
+
+---
+
 A FastMCP server that exposes a **Podman host** through its libpod REST API as MCP tools, plus a
 web admin console that supervises it, gates it, and publishes it on an authenticated URL that
 Claude (or any MCP client) can connect to directly.
