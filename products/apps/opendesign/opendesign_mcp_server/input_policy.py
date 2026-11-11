@@ -1,11 +1,9 @@
 """OpenDesign-only input guard, installed around the byte-faithful vendored tools.
 
-File-path and secret-name rules match the HA 0.2.13 ``od_rules`` overlay.
-Project IDs retain the HA-pinned daemon core's wider safe-ID syntax: imported projects
-can have non-UUID IDs, and narrowing them to HA's UUID-only policy would remove
-existing PaaS functionality.
+File-path, secret-name and project-ID rules match the published HA 0.2.15
+``od_rules`` overlay, including safe imported non-UUID project IDs.
 Validation happens in the child before any request to the OpenDesign daemon;
-the shared PaaS gateway and the tools' declared schemas stay unchanged.
+the separate ``input_contract`` also validates arguments and declares these rules.
 """
 
 from __future__ import annotations
@@ -16,8 +14,10 @@ import inspect
 import re
 from typing import Any
 
-SAFE_PROJECT_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
-FILE_PATH = re.compile(r"[A-Za-z0-9_㐀-鿿. /-]{1,256}")
+PROJECT_ID_PATTERN = r"^\.*[A-Za-z0-9_-][A-Za-z0-9._-]*$"
+FILE_PATH_PATTERN = r"^[A-Za-z0-9_㐀-鿿. /-]{1,256}$"
+SAFE_PROJECT_ID = re.compile(PROJECT_ID_PATTERN)
+FILE_PATH = re.compile(FILE_PATH_PATTERN)
 SECRET_PATTERNS = (
     "*.pem", "*.key", "*.p12", "*.pfx", "*.jks", "*.keystore", "*.kdbx", "*.gpg", "*.asc", "*.ovpn",
     "id_*", "*.env", "env.*", "*credential*", "*secret*", "*password*", "*passwd*",
@@ -37,8 +37,7 @@ EXPECTED_TOOLS = frozenset({
 
 def require_project_id(value: Any) -> None:
     """Reject URL-shaping IDs; retain UUID and imported safe-ID spelling."""
-    if (not isinstance(value, str) or SAFE_PROJECT_ID.fullmatch(value) is None
-            or value.strip(".") == ""):
+    if not isinstance(value, str) or len(value) > 128 or SAFE_PROJECT_ID.fullmatch(value) is None:
         raise ValueError("unsafe project_id refused")
 
 

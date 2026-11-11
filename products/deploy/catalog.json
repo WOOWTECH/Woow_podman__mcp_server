@@ -1,5 +1,5 @@
 {
-  "paas_source_commit": "c077be987d47d80240ee9de1810a91f6646845e2",
+  "paas_source_commit": "f0146c8cb8a5f3a826413034846d7575bd4cc94b",
   "image_version": "paas-c077be9-podman.1",
   "products": {
     "headscale": {"package": "woow-headscale-mcp-server", "module": "headscale_mcp_admin.main:app", "default_port": 18081, "installer": "headscale"},
@@ -9,7 +9,7 @@
     "odoo": {"package": "woow-odoo-mcp-server", "module": "odoo_mcp_admin.main:app", "default_port": 18504},
     "litellm": {"package": "woow-litellm-mcp-server", "module": "litellm_mcp_admin.main:app", "default_port": 18505},
     "nextcloud": {"package": "woow-nextcloud-mcp-server", "module": "nextcloud_mcp_admin.main:app", "default_port": 18506},
-    "opendesign": {"package": "woow-opendesign-mcp-server", "module": "opendesign_mcp_admin.main:app", "default_port": 18507},
+    "opendesign": {"package": "woow-opendesign-mcp-server", "module": "opendesign_mcp_admin.main:app", "default_port": 18507, "image_version": "paas-f0146c8-podman.1"},
     "k8s": {"package": "woow-k8s-mcp-server", "module": "k8s_mcp_admin.main:app", "default_port": 18508},
     "vk": {"package": "woow-vk-mcp-server", "module": "vk_mcp_admin.main:app", "default_port": 18509}
   }

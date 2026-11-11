@@ -260,7 +260,31 @@ def run_smoke() -> dict:
                         TOOL_PATHS.keys() <= names,
                         "metadata tools missing from child MCP registry",
                     )
-                    request_id = 1
+                    schemas = {tool["name"]: tool["inputSchema"] for tool in listed["tools"]}
+                    require(
+                        len(schemas) == 15 and all(schema.get("additionalProperties") is False
+                                                  for schema in schemas.values()),
+                        "OpenDesign child did not publish 15 closed HA input schemas",
+                    )
+                    require(
+                        schemas["create_project"]["properties"]["prompt"]["maxLength"] == 20_000,
+                        "OpenDesign prompt bound differs from published HA",
+                    )
+                    marker = "CI_SYNTHETIC_INPUT_MARKER"
+                    denied = client.post(mcp_url, json={
+                        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                        "params": {"name": "health", "arguments": {"acceptance_extra": marker}},
+                    }, headers=MCP_HEADERS)
+                    wire.append(denied.text)
+                    replies = [json.loads(line[5:].strip()) for line in denied.text.splitlines()
+                               if line.startswith("data:")]
+                    refusal = replies[-1] if replies else denied.json()
+                    require(
+                        denied.status_code == 200 and refusal.get("error", {}).get("code") == -32602
+                        and marker not in denied.text and not events,
+                        "extra health argument was not safely refused before backend I/O",
+                    )
+                    request_id = 2
                     for mode, code in (
                         ("success", None),
                         ("http_error", "BACKEND_HTTP_ERROR status=503"),
