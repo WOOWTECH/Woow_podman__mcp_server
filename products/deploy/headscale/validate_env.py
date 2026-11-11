@@ -7,6 +7,10 @@ import ipaddress
 from pathlib import Path
 import runpy
 
+_PRIVATE_DESTINATIONS = tuple(ipaddress.ip_network(value) for value in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "100.64.0.0/10",
+))  # Keep aligned with headscale_mcp_server.http_policy._PRIVATE.
+
 
 def validate(bind: str, port: str, origins: str, secure_cookie: str, cidrs: str) -> None:
     try:
@@ -35,6 +39,8 @@ def validate(bind: str, port: str, origins: str, secure_cookie: str, cidrs: str)
         elif scheme != "http" or host not in ("127.0.0.1", "localhost") or origin_port != int(port):
             raise ValueError("insecure cookies are allowed only for the local HTTP GUI")
 
+    if len(cidrs) > 4096:
+        raise ValueError("private destination CIDRs are too long")
     for raw in cidrs.split(",") if cidrs else ():
         if not raw or raw != raw.strip():
             raise ValueError("CIDRs must be comma-separated without spaces")
@@ -44,6 +50,9 @@ def validate(bind: str, port: str, origins: str, secure_cookie: str, cidrs: str)
             raise ValueError("invalid private destination CIDR") from exc
         if network.prefixlen == 0:
             raise ValueError("a default-route CIDR is not an allowed destination exception")
+        if not any(network.version == parent.version and network.subnet_of(parent)
+                   for parent in _PRIVATE_DESTINATIONS):
+            raise ValueError("destination CIDR is outside Headscale's private ranges")
 
 
 def main() -> None:
