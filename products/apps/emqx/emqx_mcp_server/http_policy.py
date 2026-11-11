@@ -231,7 +231,12 @@ class BrokerTransport(httpx.AsyncHTTPTransport):
             if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
                 raise RuntimeError('EMQX transport dependency needs source review')
         super().__init__(verify=True, trust_env=False, retries=0,
-                         limits=httpx.Limits(max_connections=4, max_keepalive_connections=4))
+                         # A brief network outage can leave an apparently live
+                         # pooled socket that times out on the first request
+                         # after the broker is reachable again. Never replay
+                         # an ambiguous write: use a fresh pinned TCP connection
+                         # for each request instead of retaining idle sockets.
+                         limits=httpx.Limits(max_connections=4, max_keepalive_connections=0))
         self.destination = destination
         self._pool._network_backend = PinnedNetwork(destination)
 

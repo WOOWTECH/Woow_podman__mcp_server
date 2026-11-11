@@ -105,14 +105,12 @@ def test_strict_private_and_mixed_dns_answers_are_denied(monkeypatch):
         Destination('https://broker.example.test').answers()
 
 
-async def test_dns_resolves_once_and_socket_uses_pinned_address(broker, monkeypatch):
+async def test_each_request_resolves_and_uses_fresh_pinned_socket(broker, monkeypatch):
     original = socket.getaddrinfo
     resolutions = []
     def resolve(host, port, *args, **kwargs):
         if host == 'broker.example.test':
             resolutions.append(host)
-            if len(resolutions) > 1:
-                raise AssertionError('Hostname was resolved again after validation')
             return original('127.0.0.1', port, *args, **kwargs)
         return original(host, port, *args, **kwargs)
     monkeypatch.setattr(socket, 'getaddrinfo', resolve)
@@ -125,7 +123,8 @@ async def test_dns_resolves_once_and_socket_uses_pinned_address(broker, monkeypa
             assert (await emqx_request(client, 'GET', '/nodes')).status_code == 200
     finally:
         await client.aclose()
-    assert len(resolutions) == 1 and len(broker.calls) == 2
+    assert len(resolutions) == 2 and len(broker.calls) == 2
+    assert len(set(broker.client_ports)) == 2, 'idle TCP sockets must not survive between requests'
 
 
 async def test_mcp_lifespan_owns_one_pool_and_closes_on_error(policy, broker, monkeypatch):
