@@ -17,6 +17,7 @@ spec.loader.exec_module(settings)
 def test_local_default_and_https_proxy_modes():
     settings.validate("127.0.0.1", "18081", "http://127.0.0.1:18081", "false", "")
     settings.validate("127.0.0.1", "18081", "https://mcp.example.com", "true", "10.42.3.4/32")
+    settings.validate("127.0.0.1", "18081", "https://mcp.example.com", "true", "100.64.0.1/32,fc00::1/128")
 
 
 @pytest.mark.parametrize("bind,port,origin,cookie,cidrs", [
@@ -27,6 +28,10 @@ def test_local_default_and_https_proxy_modes():
     ("127.0.0.1", "18081", "http://mcp.example.com", "false", ""),
     ("127.0.0.1", "18081", "http://127.0.0.1:18081", "true", ""),
     ("127.0.0.1", "18081", "http://127.0.0.1:18081", "false", "0.0.0.0/0"),
+    ("127.0.0.1", "18081", "http://127.0.0.1:18081", "false", "8.8.8.8/32"),
+    ("127.0.0.1", "18081", "http://127.0.0.1:18081", "false", "127.0.0.1/32"),
+    ("127.0.0.1", "18081", "http://127.0.0.1:18081", "false", "10.0.0.0/7"),
+    ("127.0.0.1", "18081", "http://127.0.0.1:18081", "false", "::1/128"),
     ("127.0.0.1", "18081", "http://127.0.0.1:18081", "false", "bad-cidr"),
 ])
 def test_unsafe_or_unusable_settings_rejected(bind, port, origin, cookie, cidrs):
