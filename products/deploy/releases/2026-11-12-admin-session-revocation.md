@@ -163,3 +163,14 @@ the unit is active, `/healthz` is 200, and the read-only backend probe succeeds.
 `restore` verifies the volume checksum and rotates the admin session generation,
 so prior GUI sessions must sign in again. Preserve the failed release receipt
 and backup privately. Do not remove the old image until acceptance is complete.
+
+An isolated one-product rehearsal exercised the real `shared/lifecycle.sh`
+automatic failed-install rollback, actual Podman volume export/import and
+checksum, and the real restored-session rotation script. The old unit,
+manifest and volume data were restored, the newly introduced unit was removed,
+and the restored session generation changed. The rehearsal redirected only the
+backup destination to a temporary directory and used fake systemd and a fake
+failing installer; it did not stop or alter a live Quadlet. Private redacted
+receipt: `work/mcp-unification-20261111/acceptance/podman-shared-rollback-isolation-20261112.json`.
+This does not validate a post-upgrade failure on the live systemd service;
+the recorded per-product live rollback and health checks remain release gates.
