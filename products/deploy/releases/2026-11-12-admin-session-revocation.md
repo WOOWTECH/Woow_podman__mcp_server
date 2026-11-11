@@ -1,7 +1,8 @@
 # Seven-product admin session revocation rollout
 
-Status: **source release blocked; no live Quadlet changed**. Podman PR #16 is in
-`main` at `acc3de6ac0ace35b0ad31ccae3043bcbdeb55aaf`, after Headscale PR #15.
+Status: **canonical source release blocked; seven shared Quadlets unchanged**.
+Podman PR #16 is in `main` at `acc3de6ac0ace35b0ad31ccae3043bcbdeb55aaf`,
+after Headscale PR #15; parity PR #18 is also in `main` at `fe4f0b4`.
 This plan covers EMQX, Hermes, n8n, Odoo, LiteLLM, Nextcloud, and OpenDesign.
 Headscale uses a separate image, installer, and session policy; release it through
 its own owner and checks.
@@ -13,35 +14,64 @@ its own owner and checks.
 `paas-49c9a66-podman.1`. `products/PROVENANCE.md` and
 `products/scripts/check-all-parity.py` require the vendored app, shared core,
 tests, and UI to match that exact source commit, with only documented Podman
-transformations. The session fix in Podman `main` is newer than this pin. The
+transformations. The session and Headscale DNS fixes in Podman `main` are absent
+from this pin. The
 GitHub PaaS mirror PR #4 is a draft and is not a canonical Gitea release.
-Access to the Gitea source currently redirects to Cloudflare Access, so the
-source commit cannot be verified here.
+The local source mirror contains the pinned commit and its content was audited;
+access to Gitea itself redirects to Cloudflare Access, so canonical merge
+status and the final source release SHA cannot be verified here.
 The five GitHub workflows on Podman merge commit `acc3de6` succeeded, but
 `all-mcp-products` does **not** run `check-all-parity.py` against Gitea. This
 is a documented/manual provenance gate, not a GitHub branch protection rule.
 
-Current live Quadlets use `paas-c077be9-podman.1`, also newer than the catalog
-version. Running `manage.sh PRODUCT upgrade` from this checkout now would
-select the stale catalog image tag and could replace a live service with older
-code. Seven local `logout-candidate` images are isolation test artifacts, not
-released images. **Do not deploy them or run `upgrade` until all gates pass.**
+Current seven shared Quadlets use `paas-c077be9-podman.1`. A source and runtime content
+audit corrected an earlier version-order claim: canonical `c077be987d47d80240ee9de1810a91f6646845e2`
+is an ancestor of `49c9a66e95e94ba9ab8630fc2a86488d1c649b2e`. Across
+`apps/` and `packages/`, the latter changes 66 paths and deletes none. Runtime
+modules extracted from **all seven live images** match `c077be9` exactly except
+each product's documented Podman `main.py` deployment marker. Their shared
+core lacks `profiles.py`; both the 49 source and all seven logout-fixed
+candidate images contain it. Each candidate's runtime module content matches
+current Podman `main` byte for byte. Thus there is **no identified c077 runtime
+feature lost by moving to 49**; 49 adds the multi-profile implementation. The
+private, redacted file-by-file SHA-256 receipt is
+`work/mcp-unification-20261111/acceptance/podman-source-content-audit-20261112.json`.
+Compiled UI bundles and third-party dependency layers were not byte-compared;
+the approved release still needs fresh builds and GUI/backend smoke checks.
 
-1. Merge the session fix in canonical Gitea and obtain its exact full commit SHA.
+The real gate is release provenance and image identity. The catalog's 49 pin
+does not contain the unmerged canonical logout/DNS changes, while Podman
+`main` already does. No local image currently uses tag `paas-49c9a66-podman.1`.
+`manage.sh install` would build the current Podman tree under that 49-labelled
+tag if it is missing, or reuse whatever image carries the tag if present.
+Neither case establishes an approved canonical-source image. Seven local
+`logout-candidate` images are isolation artifacts, not released images.
+**Do not deploy them or run `upgrade` until the source and image gates pass.**
+The current installer does not fail closed on source parity or verify an
+existing image's content identity. An independently reviewed installer guard
+must enforce the exact vendored source pin and image digest/labels before any
+Quadlet or persistent configuration change. Do not infer provenance from a tag.
+
+1. Review and merge both Gitea source PR #132 (Headscale DNS) and #133 (shared
+   session revocation); obtain the resulting exact canonical full commit SHA.
+   Recheck that the merged tree includes the c077 baseline, the 49 multi-profile
+   source, and both fixes by actual path/content comparison.
 2. Refresh the Podman vendored source from that commit. Update `catalog.json`
    `paas_source_commit`, a **new unique** `image_version`, and `PROVENANCE.md`
    together. Preserve the seven current live image tags and IDs for rollback.
 3. Run `check-all-parity.py` against a checkout containing the canonical Gitea
    commit. Keep the command output and the source SHA as release evidence.
-4. Pass the full Podman CI, seven image builds and container smoke tests, and
+4. Review and merge a fail-closed installer provenance guard. Confirm in
+   isolation that stale/missing source proof, unknown image identity and an
+   occupied tag cannot replace an active product.
+5. Pass the full Podman CI, seven image builds and container smoke tests, and
    the rootless Quadlet dry-run. Review the new image version before merge.
-5. Build/tag seven release images from the approved source and record their
+6. Build/tag seven release images from the approved source and record their
    immutable image IDs. Deploy only through `products/deploy/manage.sh`.
 
-Headscale PR #15 is also merged, while the live Headscale Quadlet still uses
-`localhost/woow-headscale-mcp-admin:0.1.1-podman.1`. Its dedicated deployment
-scripts and source provenance need a separate release record and live checks;
-this seven-product rollout does not switch the Headscale image.
+Headscale PR #15 is also merged. Its live Quadlet now uses
+`localhost/woow-headscale-mcp-admin:0.1.2-podman.1`; its dedicated source
+provenance and live backend checks remain separate from this seven-product rollout.
 
 The current host inventory, including live image IDs, health and persistent
 volume checks, is in the private acceptance file
@@ -111,6 +141,11 @@ STATE="$HOME/.local/state/woow-quadlet/$APP"
 SNAPSHOT=/absolute/path/recorded/from/upgrade
 BACKUP_DIR=/absolute/path/recorded/from/backup
 systemctl --user stop "$APP.service"
+if [[ -f $STATE/manifest ]]; then
+  while read -r _ path; do
+    grep -qF -- "  $path" "$SNAPSHOT/manifest" || rm -f -- "$path"
+  done < "$STATE/manifest"
+fi
 while IFS= read -r -d '' saved; do
   target=${saved#"$SNAPSHOT/files"}
   mkdir -p -- "${target%/*}"
