@@ -42,7 +42,7 @@ jobs:
           cd products
           mkdir -p "$RUNNER_TEMP/mcp-core"
           export MCP_ADMIN_CONFIG="$RUNNER_TEMP/mcp-core/config.json"
-          uv run --no-sync pytest -q deploy/shared/tests
+          uv run --no-sync pytest -q deploy/shared/tests scripts/tests
           uv run --no-sync --directory packages/mcp-admin-core pytest -q
           for app in emqx hermes k8s litellm n8n nextcloud odoo opendesign; do
             uv run --no-sync --directory "apps/$app" pytest -q
