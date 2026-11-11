@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from mcp_admin_core.auth.middleware import authenticate_request
-from mcp_admin_core.config import get_config_store
+from mcp_admin_core.config.store import get_default_config_store
 from mcp_admin_core.config.store import ConfigUnavailable
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class AdminSessions:
     @property
     def path(self) -> Path:
         # /data/admin-sessions.sqlite3 by default; custom config locations follow suit.
-        return self._path or get_config_store().path.with_name("admin-sessions.sqlite3")
+        return self._path or get_default_config_store().path.with_name("admin-sessions.sqlite3")
 
     @contextmanager
     def _connect(self, path):

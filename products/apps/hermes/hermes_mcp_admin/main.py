@@ -7,7 +7,7 @@ from mcp_admin_core.launch_policy import LaunchPolicy
 from mcp_admin_core.routers.logs import create_logs_router
 from mcp_admin_core.routers.tools import create_tools_router
 
-from . import tool_registry
+from . import dashboard_auth, tool_registry
 from .routers import config, dashboard_proxy, health
 
 # 子行程政策（woow_paas_platform#1530）：command／args 固定、connection 只注入五個連線欄位（HERMES_ 前綴）。
@@ -44,3 +44,4 @@ app = create_app(
     deployment_kind="podman",
     tool_registry=tool_registry,
 )
+app.state.profile_deleted = dashboard_auth.remove_profile

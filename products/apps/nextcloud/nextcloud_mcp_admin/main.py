@@ -16,6 +16,8 @@ from contextlib import asynccontextmanager
 
 from mcp_admin_core.app import create_app
 from mcp_admin_core.config import get_config_store
+from mcp_admin_core.profiles import get_profile_registry
+from mcp_admin_core.profiles import current_profile_id
 from mcp_admin_core.launch_policy import LaunchPolicy
 from mcp_admin_core.routers.health import make_health_router
 from mcp_admin_core.routers.logs import create_logs_router
@@ -65,13 +67,20 @@ app.add_middleware(tool_policy.ToolPolicyMiddleware)
 
 # path token 與 app password 不進 log。
 log_redaction.install()
+app.state.profile_deleted = log_redaction.remove_profile_secrets
+app.state.connection_saved = lambda conn: log_redaction.set_profile_secrets(
+    current_profile_id(), str(conn.get("app_password") or ""), str(conn.get("username") or ""))
 
 _core_lifespan = app.router.lifespan_context
 
 
 async def _register_secrets() -> None:
-    conn = await get_config_store().get("connection", {}) or {}
-    log_redaction.set_secrets(str(conn.get("app_password") or ""), str(conn.get("username") or ""))
+    registry = get_profile_registry()
+    for profile_id in ("default", *await registry.index()):
+        with registry.activate(profile_id):
+            conn = await get_config_store().get("connection", {}) or {}
+        log_redaction.set_profile_secrets(profile_id, str(conn.get("app_password") or ""),
+                                          str(conn.get("username") or ""))
 
 
 @asynccontextmanager

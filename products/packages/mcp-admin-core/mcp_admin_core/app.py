@@ -24,11 +24,13 @@ from .initial_token import ensure_initial_mcp_token
 from .owner_defaults import apply_owner_defaults
 from .request_limits import McpRequestLimits
 from .process import get_process_manager
+from .profiles import ProfileContextMiddleware, get_profile_registry
 from .session_reclaim import SessionReclaimer
 from .proxy import router as proxy_router
 from .routers.settings import router as settings_router
 from .routers.tokens import router as tokens_router
 from .routers.operations import router as operations_router
+from .routers.profiles import router as profiles_router
 from .security_headers import SecurityHeadersMiddleware
 from .validation_errors import validation_error_without_input
 
@@ -109,8 +111,10 @@ def create_app(
         # Startup: start MCP server if configured
         pm = get_process_manager()
         await pm.start()
+        await get_profile_registry().start_all()
         yield
         # Shutdown: stop MCP server
+        await get_profile_registry().stop_all()
         await pm.stop()
 
     docs_on = _api_docs_enabled()
@@ -133,6 +137,10 @@ def create_app(
 
     # -- Auth middleware -------------------------------------------------------
     app.state.admin_auth_required = True
+    # AuthMiddleware is added after ProfileContextMiddleware and therefore runs
+    # first. Admin JWTs always validate against the default store before a
+    # management request can select a profile.
+    app.add_middleware(ProfileContextMiddleware)
     app.add_middleware(AuthMiddleware)
     app.add_middleware(ConfigAvailabilityMiddleware)
 
@@ -156,6 +164,7 @@ def create_app(
     app.include_router(settings_router)
     app.include_router(tokens_router)
     app.include_router(operations_router)
+    app.include_router(profiles_router)
     app.include_router(proxy_router)
     if product_id is not None and tool_registry is not None:
         app.include_router(create_capabilities_router(

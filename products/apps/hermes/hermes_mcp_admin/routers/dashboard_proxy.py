@@ -10,7 +10,6 @@ Covers: skills, model, mcp-servers, hermes-tools, sessions,
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 from urllib.parse import quote
 
@@ -19,13 +18,11 @@ from fastapi import APIRouter, Request, HTTPException
 
 from hermes_mcp_server import guards
 from mcp_admin_core.config import get_config_store
+from ..dashboard_auth import dashboard_cookie
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["dashboard-proxy"])
-
-# Cookie cache: (cookie_value, expiry_timestamp)
-_cookie_cache: dict[str, tuple[str, float]] = {}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,28 +52,15 @@ async def _dashboard_cookie(conn: dict[str, str]) -> str:
     if not url:
         raise HTTPException(502, "Dashboard URL not configured")
 
-    # Check cache
-    cached = _cookie_cache.get(url)
-    if cached and cached[1] > time.time():
-        return cached[0]
-
     username = conn.get("dashboard_username", "admin")
     password = conn.get("dashboard_password", "admin")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"{url.rstrip('/')}/auth/password-login",
-                json={"provider": "basic", "username": username, "password": password},
-            )
-            resp.raise_for_status()
-            for h in resp.headers.get_list("set-cookie"):
-                if "hermes_session_at=" in h:
-                    cookie = h.split("hermes_session_at=")[1].split(";")[0].strip('"')
-                    _cookie_cache[url] = (cookie, time.time() + 600)  # cache 10 min
-                    return cookie
+        cookie = await dashboard_cookie(url, username, password)
     except Exception as exc:
         logger.error("Dashboard login failed: %s", exc)
         raise HTTPException(502, f"Dashboard login failed: {exc}")
+    if cookie:
+        return cookie
     raise HTTPException(502, "Dashboard login returned no session cookie")
 
 

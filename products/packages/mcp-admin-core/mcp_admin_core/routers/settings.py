@@ -21,8 +21,9 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from ..config import get_config_store
+from ..config.store import get_default_config_store
 from ..configuration import ConfigurationResponse, configuration_status, revision_header, run_configuration_transition
-from ..connection_apply import refuse_blocked_urls
+from ..connection_apply import refuse_blocked_urls, save_bound_connection
 from ..launch_policy import get_launch_policy, is_blocked_env_name
 from ..owner_defaults import owner_defaults_view
 from ..process import get_process_manager, resolve_launch
@@ -302,7 +303,11 @@ async def get_settings(response: Response = None) -> FullConfig:
     configuration = configuration_status(store, cfg, get_process_manager())
     revision_header(response, configuration)
 
-    password = cfg.get("admin_password", "")
+    # One admin identity protects every profile. Extra profile files carry an
+    # internal placeholder password that must never be presented as a login.
+    from mcp_admin_core.profiles import DEFAULT_PROFILE, current_profile_id
+    password = (cfg if current_profile_id() == DEFAULT_PROFILE
+                else await get_default_config_store().load()).get("admin_password", "")
     conn = _mask_connection(dict(cfg.get("connection", {})))
 
     policy = get_launch_policy()
@@ -370,12 +375,17 @@ async def put_section(section: str, body: dict[str, Any], request: Request, resp
     async def apply_update():
         """Replace a config section. Restarts MCP server if connection or mcp_server changed."""
         store = get_config_store()
+        token_rotated = False
 
         if section not in WRITABLE_SECTIONS:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Section '{section}' cannot be changed here")
 
         # Special handling for admin_password
         if section == "admin_password":
+            from mcp_admin_core.profiles import DEFAULT_PROFILE, current_profile_id
+            if current_profile_id() != DEFAULT_PROFILE:
+                raise HTTPException(status.HTTP_409_CONFLICT,
+                                    "Admin password is global; select the default profile")
             new_pass = body.get("value", "")
             if not new_pass or len(new_pass) < 4:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Password must be at least 4 characters")
@@ -407,7 +417,15 @@ async def put_section(section: str, body: dict[str, Any], request: Request, resp
                 await refuse_blocked_urls(stripped, policy.url_connection_keys)
             secret_fields = [k for k in stripped if _is_secret_key(k)]
             cleaned = drop_blank_secrets(stripped, secret_fields)
-            await store.patch("connection", cleaned)
+            if policy is not None and policy.identity_connection_keys:
+                from .tokens import new_token
+                merged, token_rotated = await save_bound_connection(store, get_process_manager(),
+                    cleaned, identity_keys=policy.identity_connection_keys, make_token=new_token)
+            else:
+                merged = await store.patch("connection", cleaned)
+            on_connection_saved = getattr(request.app.state, "connection_saved", None)
+            if on_connection_saved is not None:
+                on_connection_saved(merged)
         elif section == "tools":
             from mcp_admin_core.operation_policy import read_policy, validate_operation_update
             from mcp_admin_core.config.store import ConfigUnavailable
@@ -455,11 +473,17 @@ async def put_section(section: str, body: dict[str, Any], request: Request, resp
                 ok = False
             if ok:
                 action = "restarted" if was_running else "started"
+                message = f"Section '{section}' saved, MCP server {action}; backend not verified"
+                if token_rotated:
+                    message += ". Account changed: old MCP URL revoked. Copy the new URL from Tokens."
                 return {"status": "ok", "saved": True, "apply_state": "applied",
-                        "message": f"Section '{section}' saved, MCP server {action}; backend not verified"}
+                        "token_rotated": token_rotated, "message": message}
+            message = f"Section '{section}' saved, but MCP server failed to start; check process logs"
+            if token_rotated:
+                message += ". Account changed: old MCP URL revoked. Copy the new URL from Tokens."
             return {
                 "status": "partial", "saved": True, "apply_state": "failed",
-                "message": f"Section '{section}' saved, but MCP server failed to start; check process logs",
+                "token_rotated": token_rotated, "message": message,
             }
 
         return {"status": "ok", "message": f"Section '{section}' updated"}

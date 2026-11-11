@@ -130,6 +130,9 @@ class LaunchPolicy:
     derived_env: Callable[[Mapping[str, Any]], Mapping[str, str]] | None = None
     # 存檔時要過 SSRF 檢查的後端網址欄位（見模組說明）；必須是 connection_keys 的子集合。
     url_connection_keys: frozenset[str] = field(default_factory=frozenset)
+    # Changing a configured backend identity revokes the old MCP URL. Secret
+    # refreshes for the same identity do not rotate it.
+    identity_connection_keys: frozenset[str] = field(default_factory=frozenset)
     # 全新安裝（本行程建立 config.json）時 mcp_server.env 的起始值，見模組說明；不參與 hash。
     fresh_env: Mapping[str, str] = field(default_factory=dict, hash=False)
     # fresh_env 中以逗號分隔的清單鍵：一次性遷移時取舊值與全開值的聯集（見模組說明）。必須是 fresh_env 的鍵。
@@ -143,14 +146,25 @@ class LaunchPolicy:
     # Optional product validator shared with its dedicated connection route.
     # It receives only supplied, allowlisted keys: omitted fields stay omitted.
     normalize_connection: Callable[[Mapping[str, Any]], dict[str, Any]] | None = None
+    # Extra child count permitted by this product's tested memory budget.
+    max_extra_profiles: int = 3
+    # Conservative memory allowance per child for cgroup admission control.
+    profile_child_memory_mib: int = 160
 
     def __post_init__(self) -> None:
         if not self.command:
             raise ValueError("LaunchPolicy.command is required")
+        if isinstance(self.max_extra_profiles, bool) or not isinstance(self.max_extra_profiles, int) or not 0 <= self.max_extra_profiles <= 5:
+            raise ValueError("max_extra_profiles must be between 0 and 5")
+        if (isinstance(self.profile_child_memory_mib, bool) or not isinstance(self.profile_child_memory_mib, int)
+                or not 32 <= self.profile_child_memory_mib <= 1024):
+            raise ValueError("profile_child_memory_mib must be between 32 and 1024")
         if not self.non_env_connection_keys <= self.connection_keys:
             raise ValueError("non_env_connection_keys must be a subset of connection_keys")
         if not self.url_connection_keys <= self.connection_keys:
             raise ValueError("url_connection_keys must be a subset of connection_keys")
+        if not self.identity_connection_keys <= self.connection_keys:
+            raise ValueError("identity_connection_keys must be a subset of connection_keys")
         stray = self.editable_env_keys - self.env_keys
         if stray:
             raise ValueError(f"editable_env_keys must be a subset of env_keys: {sorted(stray)}")

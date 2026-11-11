@@ -1,4 +1,5 @@
 """Dedicated and generic Odoo writes must reject invalid types before effects."""
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -35,7 +36,7 @@ def odoo_client(tmp_config_path, monkeypatch):
     # Only the external lifecycle boundary is replaced. Routes, auth, revision
     # locking, ConfigStore validation and actual file writes remain real.
     apply = AsyncMock(return_value=True)
-    pm = SimpleNamespace(is_running=True, start=apply, restart=apply,
+    pm = SimpleNamespace(is_running=True, start=apply, restart=apply, stop=AsyncMock(),
                          start_or_restart=apply)
     monkeypatch.setattr(config, "get_process_manager", lambda: pm)
     monkeypatch.setattr(settings, "get_process_manager", lambda: pm)
@@ -82,6 +83,49 @@ def test_trim_and_blank_secret_keep_saved_credentials(odoo_client, route):
     assert after.headers["etag"] != before.headers["etag"]
     assert after.json()["configuration"]["saved_revision"] != before.json()["configuration"]["saved_revision"]
     apply.assert_awaited_once()
+
+
+@pytest.mark.parametrize("route", ["/api/config/connection", "/api/settings/connection"])
+def test_odoo_account_rebind_revokes_old_url_without_rotating_on_password_change(odoo_client, route):
+    from mcp_admin_core.config import store as store_mod
+    from odoo_mcp_admin.routers import config
+
+    client, path, apply = odoo_client
+    store = store_mod.get_config_store()
+    asyncio.run(store.patch("connection", {"odoo_url": "https://odoo.example.test"}))
+    asyncio.run(store.change_mcp_token("original-account-token", action="set"))
+    assert client.get("/private_original-account-token/health").status_code != 403
+
+    read_path = "/api/config" if route.startswith("/api/config/") else "/api/settings"
+    read = client.get(read_path)
+    payload = {**BASELINE, "odoo_url": "https://odoo.example.test", "odoo_username": "other-user"}
+    if route.startswith("/api/settings/"):
+        payload = {"odoo_username": "other-user"}
+    else:
+        payload["restart"] = False  # Identity changes must still stop/apply the old child.
+    changed = client.put(route, json=payload, headers={"If-Match": read.headers["etag"]})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["token_rotated"] is True
+    assert "Tokens" in changed.json()["message"]
+    config.get_process_manager().stop.assert_awaited_once()
+    assert apply.await_count == 1
+    assert client.get("/private_original-account-token/health").status_code == 403
+
+    current_token = client.post("/api/settings/mcp_auth_token/reveal").json()["value"]
+    assert current_token and current_token != "original-account-token"
+    assert current_token not in changed.text
+    assert client.get(f"/private_{current_token}/health").status_code != 403
+
+    read = client.get(read_path)
+    payload = {**BASELINE, "odoo_url": "https://odoo.example.test",
+               "odoo_username": "other-user", "odoo_password": "replacement-password"}
+    if route.startswith("/api/settings/"):
+        payload = {"odoo_password": "replacement-password"}
+    password = client.put(route, json=payload, headers={"If-Match": read.headers["etag"]})
+    assert password.status_code == 200, password.text
+    assert password.json()["token_rotated"] is False
+    assert client.post("/api/settings/mcp_auth_token/reveal").json()["value"] == current_token
+    assert json.loads(path.read_text())["connection"]["odoo_password"] == "replacement-password"
 
 
 def test_generic_partial_update_and_empty_patch_keep_omitted_fields(odoo_client):

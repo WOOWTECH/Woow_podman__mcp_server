@@ -18,6 +18,29 @@ EXPOSURE_TOOLS = frozenset({"n8n_workflow_versions", "n8n_test_workflow"})
 # ECMAScript TrimString; Python str.strip differs for BOM and C0 separators.
 _JS_SPACE = "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 _JS_NUMBER = re.compile(r"(?:[+-]?(?:Infinity|(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)|0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+)\Z")
+MAX_WRAPPER_NESTING = 512
+
+
+def _check_wrapper_nesting(source: str) -> None:
+    """Bound JSON depth independently of Python's version-specific parser limit."""
+    depth = 0
+    quoted = escaped = False
+    for char in source:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in "[{":
+            depth += 1
+            if depth > MAX_WRAPPER_NESTING:
+                raise ValueError("Unverifiable n8n wrapper")
+        elif char in "]}":
+            depth -= 1
 
 
 def _typeof(value):
@@ -41,6 +64,7 @@ def _extract(arguments, schema):
     output = arguments.get("output")
     if not isinstance(output, str) or not output.strip(_JS_SPACE).startswith("{"):
         return None
+    _check_wrapper_nesting(output)
     try:
         # JSON.parse receives the original string, not its trimmed copy.
         parsed = json.loads(output, parse_constant=_constant)

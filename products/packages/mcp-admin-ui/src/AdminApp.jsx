@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
-import { getToken } from './api';
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiDelete, apiGet, apiPatch, apiPost, DEFAULT_PROFILE_ID, getSelectedProfile, getToken, setSelectedProfile } from './api';
 import { AppConfigProvider, useAppConfig } from './appConfigContext';
 import Sidebar from './components/Sidebar';
+import ProfileChooser from './components/ProfileChooser';
 import Dashboard from './pages/Dashboard';
 import ToolManager from './pages/ToolManager';
 import ConnectionConfig from './pages/ConnectionConfig';
@@ -18,7 +20,7 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-export function AppLayout({ children }) {
+export function AppLayout({ children, profileChooser }) {
   const { brandTitle, menuIcon: MenuIcon = Menu } = useAppConfig();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
@@ -32,9 +34,103 @@ export function AppLayout({ children }) {
           </button>
           <h1 className="text-lg font-bold text-ink truncate">{brandTitle}</h1>
         </div>
-        <div className="max-w-6xl mx-auto">{children}</div>
+        <div className="max-w-6xl mx-auto">
+          {profileChooser}
+          {children}
+        </div>
       </main>
     </div>
+  );
+}
+
+function ProfileWorkspace({ children }) {
+  const outerClient = useQueryClient();
+  const clients = useRef(new Map());
+  const [selectedId, setSelectedId] = useState(getSelectedProfile);
+  const { data, isPending, isError, error, refetch } = useQuery({
+    queryKey: ['profiles'],
+    queryFn: () => apiGet('/profiles'),
+  });
+  const profiles = data?.profiles || [];
+
+  function select(id) {
+    if (id === selectedId) return;
+    setSelectedProfile(id);
+    setSelectedId(id);
+  }
+
+  useEffect(() => {
+    if (profiles.length && !profiles.some(profile => profile.id === selectedId)) {
+      setSelectedProfile(DEFAULT_PROFILE_ID);
+      setSelectedId(DEFAULT_PROFILE_ID);
+    }
+  }, [profiles, selectedId]);
+
+  async function refreshProfiles() {
+    await outerClient.invalidateQueries({ queryKey: ['profiles'] });
+  }
+
+  async function create(label) {
+    const created = await apiPost('/profiles', { label });
+    if (!created?.id) throw new Error('The server did not return a profile ID. Reload the profile list.');
+    outerClient.setQueryData(['profiles'], current => ({
+      ...current,
+      profiles: [...(current?.profiles || []), created],
+    }));
+    select(created.id);
+    await refreshProfiles();
+  }
+
+  async function rename(id, label) {
+    const updated = await apiPatch(`/profiles/${encodeURIComponent(id)}`, { label });
+    outerClient.setQueryData(['profiles'], current => ({
+      ...current,
+      profiles: current.profiles.map(profile => profile.id === id ? { ...profile, ...updated, label } : profile),
+    }));
+    await refreshProfiles();
+  }
+
+  async function remove(id) {
+    await apiDelete(`/profiles/${encodeURIComponent(id)}`);
+    clients.current.get(id)?.clear();
+    clients.current.delete(id);
+    outerClient.setQueryData(['profiles'], current => ({
+      ...current,
+      profiles: current.profiles.filter(profile => profile.id !== id),
+    }));
+    select(DEFAULT_PROFILE_ID);
+    await refreshProfiles();
+  }
+
+  if (isPending) return <div role="status" className="p-6 text-muted">Loading profiles…</div>;
+  if (isError && !data) return (
+    <div role="alert" className="p-6 text-red-600">
+      Could not load profiles: {error.message}
+      <button type="button" onClick={() => refetch()} className="ml-3 text-brand-400">Retry</button>
+    </div>
+  );
+  if (!profiles.some(profile => profile.id === DEFAULT_PROFILE_ID)) {
+    return <div role="alert" className="p-6 text-red-600">The default profile is missing.</div>;
+  }
+  if (!profiles.some(profile => profile.id === selectedId)) return <div role="status" className="p-6 text-muted">Selecting default profile…</div>;
+
+  if (!clients.current.has(selectedId)) {
+    clients.current.set(selectedId, new QueryClient({ defaultOptions: outerClient.getDefaultOptions() }));
+  }
+  return (
+    <QueryClientProvider key={selectedId} client={clients.current.get(selectedId)}>
+      <AppLayout profileChooser={
+        <>
+          {isError && <p role="alert" className="mb-2 text-sm text-red-600">Profile list refresh failed: {error.message}
+            <button type="button" onClick={() => refetch()} className="ml-2 text-brand-400">Retry</button>
+          </p>}
+          <ProfileChooser profiles={profiles} selectedId={selectedId} onSelect={select}
+            onCreate={create} onRename={rename} onDelete={remove} />
+        </>
+      }>
+        {children}
+      </AppLayout>
+    </QueryClientProvider>
   );
 }
 
@@ -49,7 +145,7 @@ function Shell() {
   }
   return (
     <ProtectedRoute>
-      <AppLayout>
+      <ProfileWorkspace>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/config" element={<ConnectionConfig />} />
@@ -60,7 +156,7 @@ function Shell() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </AppLayout>
+      </ProfileWorkspace>
     </ProtectedRoute>
   );
 }

@@ -71,7 +71,11 @@ async def _check_queued_session(request, snapshot):
     if user is None and not getattr(request.app.state, "admin_auth_required", False):
         return
     generation = user.get("session_generation") if isinstance(user, dict) else None
-    current = snapshot.get("admin_session_generation")
+    # Profile mutations keep their own configuration snapshot, but every admin
+    # login belongs to the default store. Recheck that identity after the
+    # transition wait, including when another profile is selected.
+    from .config.store import get_default_config_store
+    current = await get_default_config_store().get("admin_session_generation")
     expires = user.get("exp") if isinstance(user, dict) else None
     if (not isinstance(user, dict) or user.get("sub") != "admin"
             or not isinstance(expires, (int, float)) or not expires > time.time()

@@ -179,7 +179,9 @@ async def update_connection(req: ConnectionUpdateRequest, response: Response = N
             updates["app_password"] = ""
         updates = drop_blank_secrets(updates, SECRET_FIELDS)
         merged = await store.patch("connection", updates)
-        log_redaction.set_secrets(str(merged.get("app_password") or ""), str(merged.get("username") or ""))
+        from mcp_admin_core.profiles import current_profile_id
+        log_redaction.set_profile_secrets(current_profile_id(), str(merged.get("app_password") or ""),
+                                          str(merged.get("username") or ""))
         logger.info(
             "Updated Nextcloud connection config (base_url=%s, username=%s, app_password=%s)",
             updates["base_url"] or "<empty>",

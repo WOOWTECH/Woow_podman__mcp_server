@@ -1,6 +1,8 @@
 const $ = (s, parent = document) => parent.querySelector(s);
-const S = {connection: {}, credentials: {}, tools: [], overview: null, revision: null, policyDigest: '', serverTimeMs: null};
-const pendingTools = new Set();
+const S = {profileId:'default', profiles:[], connection: {}, credentials: {}, tools: [], overview: null, revision: null, policyDigest: '', serverTimeMs: null};
+let pendingTools = new Set();
+let profileGeneration = 0;
+const activeRequests = new Map();
 const pages = {overview:'連線概況', setup:'連接控制台', pairing:'配對與加入', users:'組織使用者', devices:'裝置', routes:'子網路與出口路由', policy:'存取政策', mcp:'MCP 連線與權限', platform:'PaaS 服務設定', maintenance:'憑證與維護'};
 const toolTitles = {headscale_platform:'PaaS 配對與服務設定', headscale_users:'組織使用者', headscale_nodes:'裝置管理', headscale_register:'完成裝置配對', headscale_preauth_keys:'裝置加入金鑰', headscale_auth:'核准登入驗證', headscale_api_keys:'控制台 API 金鑰', headscale_policy:'存取政策', headscale_routes_replace:'設定裝置核准路由', headscale_health:'檢查資料庫', headscale_debug_node:'建立測試註冊', headscale_backfill_ips:'補齊裝置 IP'};
 const operationTitles = {tailscale_services:'查看工作區的 VPN 節點', configuration:'讀取服務設定', configure:'更新服務設定', restart:'重新啟動 Headscale', operation:'查看服務作業進度', pairing_options:'查看 VPN 配對選項', pair:'配對 PaaS 上的 Tailscale', disconnect:'中斷 PaaS 節點連線', pairing_operation:'查看配對進度', list:'查看清單', get:'讀取目前設定', create:'建立', rename:'重新命名', delete:'刪除', set_tags:'設定標籤', expire:'設定到期', register:'完成註冊', legacy:'相容模式註冊', approve:'核准', reject:'拒絕', check:'驗證草稿', diff:'預覽差異', apply:'套用完整政策', replace:'替換核准路由', read:'檢查', update:'執行維護'};
@@ -9,22 +11,44 @@ const messages = {HEADSCALE_SETUP_REQUIRED:'請先設定 Headscale API 位址與
 
 function el(tag, text, attrs={}) { const n=document.createElement(tag); if(text!==null && text!==undefined)n.textContent=text; for(const [k,v] of Object.entries(attrs)) {if(k==='class')n.className=v; else n.setAttribute(k,v);} return n; }
 function show(message, error=false) {const n=$('#notice');n.textContent=message;n.className=error?'error':'';n.hidden=false;}
-function failure(error) {show(error.message || '操作未完成，請先重新讀取目前狀態。',true);}
+function failure(error) {if(!error.stale)show(error.message || '操作未完成，請先重新讀取目前狀態。',true);}
+function staleRequest() {return Object.assign(new Error('設定檔已切換。'),{stale:true});}
 async function api(path, {method='GET',body,revision=false}={}) {
-  const headers={};if(body!==undefined)headers['Content-Type']='application/json';
+  const scoped=path.startsWith('/api/')&&!/^\/api\/(auth|profiles)(\/|$)/.test(path);
+  const generation=profileGeneration,controller=scoped?new AbortController():null;
+  const headers={};if(scoped)headers['X-MCP-Profile']=S.profileId;
+  if(body!==undefined)headers['Content-Type']='application/json';
   if(revision) {headers['If-Match']=typeof revision==='string'?revision:S.revision;headers['Idempotency-Key']=(S.serverTimeMs??Date.now())+'.'+crypto.randomUUID().replaceAll('-','');}
-  let r;
-  try{r=await fetch(path,{method,headers,credentials:'same-origin',body:body===undefined?undefined:JSON.stringify(body)});}
-  catch{throw Object.assign(new Error('連線中斷；結果未確認，請先讀回狀態，避免重複送出修改。'),{outcome:'unknown'});}
-  let data;try{data=await r.json();}catch{throw Object.assign(new Error('服務回應無法讀取。請重新檢查狀態，避免重複送出修改。'),{outcome:'unknown'});}
-  if(r.status===401){displayLogin();throw new Error('請重新登入管理介面。');}
-  if(!r.ok){let detail=data.detail||data;const code=typeof detail==='string'?detail:detail.code;const outcome=detail.outcome||(r.status>=500?'unknown':'not_sent');throw Object.assign(new Error((messages[code]||code||'操作失敗')+(outcome==='unknown'?'；結果未確認，請先讀回狀態再決定是否重試。':'')),{outcome});}
-  // Core operation IDs reject future timestamps; prefer the editor read's server clock.
-  if(Number.isSafeInteger(data.configuration?.server_time_ms))S.serverTimeMs=data.configuration.server_time_ms;
-  if(r.headers.get('ETag'))S.revision=r.headers.get('ETag');
-  return data;
+  if(controller)activeRequests.set(controller,method);
+  try{
+    let r;
+    try{r=await fetch(path,{method,headers,credentials:'same-origin',body:body===undefined?undefined:JSON.stringify(body),signal:controller?.signal});}
+    catch{if(generation!==profileGeneration)throw staleRequest();throw Object.assign(new Error('連線中斷；結果未確認，請先讀回狀態，避免重複送出修改。'),{outcome:'unknown'});}
+    let data={};
+    if(r.status!==204)try{data=await r.json();}catch{if(generation!==profileGeneration)throw staleRequest();throw Object.assign(new Error('服務回應無法讀取。請重新檢查狀態，避免重複送出修改。'),{outcome:'unknown'});}
+    if(scoped&&generation!==profileGeneration)throw staleRequest();
+    if(r.status===401){displayLogin();throw new Error('請重新登入管理介面。');}
+    if(!r.ok){let detail=data.detail||data;const code=typeof detail==='string'?detail:detail.code;const outcome=detail.outcome||(r.status>=500?'unknown':'not_sent');throw Object.assign(new Error((messages[code]||code||'操作失敗')+(outcome==='unknown'?'；結果未確認，請先讀回狀態再決定是否重試。':'')),{outcome});}
+    // Core operation IDs reject future timestamps; prefer the editor read's server clock.
+    if(scoped&&Number.isSafeInteger(data.configuration?.server_time_ms))S.serverTimeMs=data.configuration.server_time_ms;
+    if(scoped&&r.headers.get('ETag'))S.revision=r.headers.get('ETag');
+    return data;
+  }finally{if(controller)activeRequests.delete(controller);}
 }
-function displayLogin() {$('#login').hidden=false;$('#workspace').hidden=true;S.overview=null;}
+function clearProfileState() {
+  profileGeneration++;routing++;
+  const pendingChange=[...activeRequests.values()].some(method=>method!=='GET'&&method!=='HEAD');
+  for(const controller of activeRequests.keys())controller.abort();activeRequests.clear();
+  S.connection={};S.credentials={};S.tools=[];S.overview=null;S.revision=null;S.policyDigest='';S.serverTimeMs=null;
+  pendingTools=new Set();
+  $('#content').replaceChildren();$('#notice').hidden=true;profileEditMode=null;$('#profile-editor').hidden=true;$('#profile-label').value='';status(false);
+  return pendingChange;
+}
+function displayLogin() {
+  clearProfileState();S.profileId='default';S.profiles=[];
+  try{sessionStorage.removeItem('headscale.profileId');}catch{}
+  $('#password').value='';$('#login').hidden=false;$('#workspace').hidden=true;
+}
 function card(title, description) {const n=el('section',null,{class:'card'});if(title)n.append(el('h2',title));if(description)n.append(el('p',description));return n;}
 function button(title, action, secondary=false) {const b=el('button',title,{type:'button',class:secondary?'secondary':''});b.onclick=async()=>{if(b.disabled)return;b.disabled=true;try{await action();}catch(e){failure(e);}finally{b.disabled=false;}};return b;}
 function label(title, input, help) {const l=el('label',title);l.append(input);if(help)l.append(el('small',help,{class:'help'}));return l;}
@@ -47,6 +71,80 @@ function output(value, container) {
   const details=el('details');details.append(el('summary','詳細結果'),el('pre',JSON.stringify(value,null,2)));container.append(details);
 }
 function status(ok) {const n=$('#status');n.textContent=ok?'控制台 API 可連線':'尚未確認 API 連線';n.className='badge'+(ok?' good':'');}
+let profileBusy=false,profileEditMode=null;
+function renderProfiles() {
+  const chooser=$('#profile-select');chooser.replaceChildren();
+  for(const profile of S.profiles)chooser.append(el('option',profile.label+(profile.is_default?'（預設）':''),{value:profile.id}));
+  chooser.value=S.profileId;
+  chooser.disabled=profileBusy;
+  $('#profile-create').disabled=profileBusy;
+  $('#profile-rename').disabled=profileBusy||S.profileId==='default';
+  $('#profile-delete').disabled=profileBusy||S.profileId==='default';
+}
+function setProfileBusy(value) {
+  profileBusy=value;renderProfiles();
+  $('#profile-label').disabled=value;$('#profile-save').disabled=value;$('#profile-cancel').disabled=value;
+}
+function closeProfileEditor() {profileEditMode=null;$('#profile-editor').hidden=true;$('#profile-label').value='';$('#profile-label').setCustomValidity('');}
+function openProfileEditor(mode) {
+  profileEditMode=mode;
+  $('#profile-editor').hidden=false;
+  $('#profile-label').value=mode==='rename'?S.profiles.find(p=>p.id===S.profileId)?.label||'':'';
+  $('#profile-save').textContent=mode==='create'?'建立設定檔':'儲存名稱';
+  $('#profile-label').focus();$('#profile-label').select();
+}
+async function loadProfiles() {
+  const data=await api('/api/profiles');
+  if(!Array.isArray(data.profiles)||!data.profiles.some(p=>p.id==='default'))throw new Error('無法讀取預設設定檔。');
+  S.profiles=data.profiles;
+  if(!S.profiles.some(p=>p.id===S.profileId)){
+    S.profileId='default';
+    try{sessionStorage.setItem('headscale.profileId','default');}catch{}
+  }
+  renderProfiles();
+}
+async function switchProfile(id) {
+  if(id===S.profileId)return;
+  if(!S.profiles.some(p=>p.id===id))throw new Error('設定檔已不存在，請重新整理清單。');
+  const pendingChange=clearProfileState();S.profileId=id;
+  try{sessionStorage.setItem('headscale.profileId',id);}catch{}
+  renderProfiles();await route();
+  if(pendingChange&&$('#notice').hidden)show('前一個設定檔有未確認的請求；請返回該設定檔讀回狀態，再決定是否重試。',true);
+}
+$('#profile-select').onchange=async e=>{try{await switchProfile(e.target.value);}catch(error){failure(error);renderProfiles();}};
+$('#profile-create').onclick=()=>openProfileEditor('create');
+$('#profile-rename').onclick=()=>openProfileEditor('rename');
+$('#profile-cancel').onclick=closeProfileEditor;
+$('#profile-editor').onsubmit=async e=>{
+  e.preventDefault();if(profileBusy||!profileEditMode)return;
+  const label=$('#profile-label').value.trim(),mode=profileEditMode,id=S.profileId;
+  if(!label){$('#profile-label').setCustomValidity('請填寫設定檔名稱。');$('#profile-label').reportValidity();return;}
+  $('#profile-label').setCustomValidity('');setProfileBusy(true);
+  try{
+    if(mode==='create'){
+      const before=new Set(S.profiles.map(p=>p.id));
+      const created=await api('/api/profiles',{method:'POST',body:{label}});
+      await loadProfiles();closeProfileEditor();
+      const newId=created.profile?.id||created.id||S.profiles.find(p=>!before.has(p.id))?.id;
+      if(newId&&S.profiles.some(p=>p.id===newId))await switchProfile(newId);
+      show('設定檔已建立。');
+    }else{
+      await api('/api/profiles/'+encodeURIComponent(id),{method:'PATCH',body:{label}});
+      await loadProfiles();closeProfileEditor();show('設定檔名稱已更新。');
+    }
+  }catch(error){failure(error);}finally{setProfileBusy(false);}
+};
+$('#profile-label').oninput=e=>e.target.setCustomValidity('');
+$('#profile-delete').onclick=async()=>{
+  if(profileBusy||S.profileId==='default')return;
+  const profile=S.profiles.find(p=>p.id===S.profileId);
+  if(!profile||!confirm('確定刪除「'+profile.label+'」設定檔及其連線設定？'))return;
+  setProfileBusy(true);
+  try{
+    await api('/api/profiles/'+encodeURIComponent(profile.id),{method:'DELETE'});
+    await switchProfile('default');await loadProfiles();show('設定檔已刪除。');
+  }catch(error){failure(error);}finally{setProfileBusy(false);}
+};
 async function loadConnection(){const data=await api('/api/headscale/connection');S.connection=data.connection;S.credentials=data.credentials;return data;}
 async function loadOverview(){S.overview=await api('/api/headscale/overview');status(S.overview.database===true);return S.overview;}
 async function tool(name,args){const data=await api('/api/headscale/tools/'+encodeURIComponent(name),{method:'POST',body:{arguments:args}});return data;}
@@ -124,6 +222,7 @@ function routeSummary(data,container) {
     el('p','裝置公告路由：'+((node.availableRoutes||[]).join('、')||'無')+'。公告不等於控制台核准。',{class:'help'}));
 }
 function renderTask(root,spec){
+  const pendingForProfile=pendingTools;
   const c=card(toolTitles[spec.name]||spec.name);c.dataset.tool=spec.name;
   if(!spec.enabled){c.append(el('p','此工具目前已停用。請到 MCP 連線與權限調整。'));root.append(c);return;}
   const schema=spec.input_schema,variants=(schema.oneOf||schema.anyOf||[schema]).map(s=>resolved(s,schema));
@@ -184,10 +283,10 @@ function renderTask(root,spec){
     }
     const setBusy=value=>{busy=value;picker.disabled=value;form.setAttribute('aria-busy',String(value));for(const n of form.elements)n.disabled=value;submit.disabled=value||denied||needsReview;for(const n of actions.querySelectorAll('.danger'))n.disabled=value||denied||needsReview;};
     form.onsubmit=async e=>{
-      e.preventDefault();if(busy||needsReview||denied||pendingTools.has(spec.name)||!form.reportValidity())return;
+      e.preventDefault();if(busy||needsReview||denied||pendingForProfile.has(spec.name)||!form.reportValidity())return;
       let args;try{args=Object.fromEntries(Object.entries(getters).map(([k,f])=>[k,f()]).filter(([,v])=>v!==undefined));}catch{failure(new Error('請檢查輸入格式；JSON 欄位需填寫有效 JSON。'));return;}
       let sent=false,written=false,data;
-      pendingTools.add(spec.name);setBusy(true);
+      pendingForProfile.add(spec.name);setBusy(true);
       const readCurrent=async()=>{
         const request=readbackRequest(spec.name,args,data);
         if(!request)return false;
@@ -215,6 +314,7 @@ function renderTask(root,spec){
           show(isRoutes&&!args.routes.length?'已讀回確認：全部核准路由已撤銷。':read?'已收到寫入回應並重新讀取目前狀態，請核對下方結果。':'已收到寫入回應；此操作沒有獨立的原生讀回介面，請核對結果。');
         }else show(data.operation?'作業已受理，請查看作業進度確認結果。':'讀取／檢查已完成。');
       }catch(error){
+        if(error.stale)return;
         needsReview=mutation&&sent&&(written||error.outcome==='unknown');
         if(needsReview){
           S.overview=null;
@@ -225,7 +325,7 @@ function renderTask(root,spec){
             show(written?'已重新讀取目前狀態；請核對下方結果。':'已讀取目前狀態；請核對是否已生效，再決定下一步。');
           },true));
         }else failure(error);
-      }finally{pendingTools.delete(spec.name);setBusy(false);}
+      }finally{pendingForProfile.delete(spec.name);setBusy(false);}
     };slot.append(form);
   }picker.onchange=build;build();
 }
@@ -260,9 +360,21 @@ async function renderMcp(root){
 }
 
 let routing=0;
-async function route(){const run=++routing;const page=location.hash.slice(1)||({logs:'mcp',config:'setup',tokens:'mcp'}[location.pathname.replaceAll('/','')]||'overview');const chosen=pages[page]?page:'overview';$('#page-title').textContent=pages[chosen];for(const a of $('#navigation').children)a.classList.toggle('active',a.hash==='#'+chosen);$('#notice').hidden=true;const root=$('#content');root.replaceChildren();try{await loadConnection();if(run!==routing)return;if(!S.tools.length)S.tools=(await api('/api/headscale/catalog')).tools;if(chosen==='setup')await renderSetup(root);else if(chosen==='overview')await renderOverview(root);else if(chosen==='mcp')await renderMcp(root);else await renderTasks(root,chosen);}catch(e){failure(e);}}
+async function route(){
+  const run=++routing,page=location.hash.slice(1)||({logs:'mcp',config:'setup',tokens:'mcp'}[location.pathname.replaceAll('/','')]||'overview'),chosen=pages[page]?page:'overview';
+  $('#page-title').textContent=pages[chosen];for(const a of $('#navigation').children)a.classList.toggle('active',a.hash==='#'+chosen);
+  $('#notice').hidden=true;$('#content').replaceChildren();const root=document.createDocumentFragment();
+  try{
+    await loadConnection();if(run!==routing)return;
+    if(!S.tools.length)S.tools=(await api('/api/headscale/catalog')).tools;
+    if(run!==routing)return;
+    if(chosen==='setup')await renderSetup(root);else if(chosen==='overview')await renderOverview(root);else if(chosen==='mcp')await renderMcp(root);else await renderTasks(root,chosen);
+    if(run===routing)$('#content').replaceChildren(root);
+  }catch(e){if(run===routing)failure(e);}
+}
 for(const [name,title]of Object.entries(pages))$('#navigation').append(el('a',title,{href:'#'+name}));
-$('#login-form').onsubmit=async e=>{e.preventDefault();const b=$('button',e.target);b.disabled=true;try{await api('/api/auth/login',{method:'POST',body:{password:$('#password').value}});$('#password').value='';$('#login').hidden=true;$('#workspace').hidden=false;await route();}catch(error){$('#login-error').textContent=error.message;}finally{b.disabled=false;}};
-$('#logout').onclick=async()=>{await api('/api/auth/logout',{method:'POST'});S.tools=[];displayLogin();};
+$('#login-form').onsubmit=async e=>{e.preventDefault();const b=$('button',e.target);b.disabled=true;try{await api('/api/auth/login',{method:'POST',body:{password:$('#password').value}});$('#password').value='';await loadProfiles();$('#login').hidden=true;$('#workspace').hidden=false;await route();}catch(error){$('#login-error').textContent=error.message;}finally{b.disabled=false;}};
+$('#logout').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST'});displayLogin();}catch(error){failure(error);}};
 window.addEventListener('hashchange',route);
-try{await loadConnection();$('#workspace').hidden=false;await route();}catch{displayLogin();}
+try{S.profileId=sessionStorage.getItem('headscale.profileId')||'default';}catch{}
+try{await loadProfiles();$('#workspace').hidden=false;await route();}catch{displayLogin();}

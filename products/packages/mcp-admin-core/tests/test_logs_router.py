@@ -62,3 +62,51 @@ def test_install_is_idempotent():
     create("phase1b_idem")
     admin_handlers = [h for h in logger.handlers if type(h).__name__ == "_AdminLogHandler"]
     assert len(admin_handlers) == 1
+
+
+def test_search_and_sse_keep_profile_logs_separate(make_app):
+    import asyncio
+
+    from mcp_admin_core.profiles import get_profile_registry
+    from mcp_admin_core.routers import logs
+
+    client = make_app({"mcp_server": {"command": "", "args": [], "port": 59999, "env": {}}})
+    client.app.include_router(logs.router)
+    login = client.post("/api/auth/login", json={"password": "admin"})
+    auth = {"Authorization": "Bearer " + login.json()["token"]}
+    first = client.post("/api/profiles", headers=auth, json={"label": "first"}).json()["id"]
+    second = client.post("/api/profiles", headers=auth, json={"label": "second"}).json()["id"]
+    registry = get_profile_registry()
+    logs.install_log_capture()
+    with registry.activate(first):
+        logging.getLogger("mcp_admin_core.process").info("[mcp-server] first-private-log-needle")
+    with registry.activate(second):
+        logging.getLogger("mcp_admin_core.process").info("[mcp-server] second-private-log-needle")
+    logs._install_admin_log_capture(("uvicorn.access",))
+    logging.getLogger("uvicorn.access").info("access-log-private-needle")
+
+    for profile_id, expected, hidden in (
+        (first, "first-private-log-needle", "second-private-log-needle"),
+        (second, "second-private-log-needle", "first-private-log-needle"),
+    ):
+        selected = {**auth, "X-MCP-Profile": profile_id}
+        response = client.get("/api/logs/search", params={"q": "private-log-needle"}, headers=selected)
+        assert response.status_code == 200
+        messages = [entry["message"] for entry in response.json()["entries"]]
+        assert expected in messages and hidden not in messages
+        assert "access-log-private-needle" not in messages
+        assert response.json()["total_buffered"] >= 1
+
+        async def tail():
+            generator = logs._sse_log_generator(tail_lines=1, profile_id=profile_id)
+            try:
+                await generator.__anext__()  # connected event
+                return await generator.__anext__()
+            finally:
+                await generator.aclose()
+
+        event = asyncio.run(tail())
+        assert expected in event and hidden not in event
+
+    default_logs = client.get("/api/logs/search", params={"q": "access-log-private-needle"}, headers=auth)
+    assert default_logs.json()["matched"] == 0

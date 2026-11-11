@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from mcp_admin_core.app import create_app
 from mcp_admin_core.auth.middleware import authenticate_request
 from mcp_admin_core.config import get_config_store
+from mcp_admin_core.profiles import get_profile_registry
 from mcp_admin_core.launch_policy import LaunchPolicy
 from mcp_admin_core.request_limits import McpRequestLimits
 from mcp_admin_core.routers.tools import create_tools_router
@@ -100,8 +101,11 @@ async def lifespan(application):
     if not password or password == "admin" or len(password) < 12:
         raise RuntimeError("Seed a unique management password of at least 12 characters before startup")
     await application.state.admin_session_policy.initialize()
-    conn = await get_config_store().get("connection", {}) or {}
-    log_redaction.set_secrets(*(conn.get(k, "") for k in connection.SECRET_FIELDS))
+    profile_registry = get_profile_registry()
+    for profile_id in ("default", *await profile_registry.index()):
+        with profile_registry.activate(profile_id):
+            conn = await get_config_store().get("connection", {}) or {}
+        log_redaction.set_secrets(*(conn.get(k, "") for k in connection.SECRET_FIELDS))
     async with _core_lifespan(application):
         async with anyio.create_task_group() as tasks:
             tasks.start_soon(application.state.admin_session_policy.maintain)

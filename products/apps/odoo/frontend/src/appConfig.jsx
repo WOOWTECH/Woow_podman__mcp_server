@@ -22,7 +22,7 @@ export const appConfig = {
   ],
   healthBadges: [],
   connection: {
-    description: 'Configure the connection to the Odoo instance',
+    description: 'Configure the Odoo account for this Profile. Changing its URL, database or username revokes the old MCP URL; copy the new one from Tokens. A password or API Key refresh for the same account keeps the URL.',
     saveEndpoint: '/config/connection',
     saveLabel: 'Save',
     sections: [

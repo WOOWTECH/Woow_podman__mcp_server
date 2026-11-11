@@ -66,3 +66,21 @@ def test_clearing_secrets(caplog):
     log_redaction.set_secrets(None)
     logging.getLogger("x").info("value %s", "Sup3r")
     assert "value Sup3r" in caplog.text
+
+
+def test_multiple_profiles_keep_all_masks_and_release_deleted_profile(caplog):
+    caplog.set_level(logging.WARNING)
+    other_password = "different-nextcloud-password"
+    log_redaction.set_secrets(PASSWORD, LOGIN)
+    log_redaction.set_profile_secrets("second", other_password, "second-user")
+    try:
+        logger = logging.getLogger("nextcloud_mcp_admin")
+        logger.warning("default=%s other=%s", PASSWORD, other_password)
+        assert PASSWORD not in caplog.text
+        assert other_password not in caplog.text
+        log_redaction.remove_profile_secrets("second")
+        assert log_redaction.registered_secret_count() == 2
+        logger.warning("default=%s", PASSWORD)
+        assert PASSWORD not in caplog.text
+    finally:
+        log_redaction.remove_profile_secrets("second")

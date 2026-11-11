@@ -30,6 +30,7 @@ coverage.xml
 # --- Secrets / runtime state ----------------------------------------------
 .env
 .env.*
+!products/apps/hermes/.env.example
 config.json
 data/
 /data/

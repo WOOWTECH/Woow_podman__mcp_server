@@ -205,7 +205,10 @@ async def mcp_proxy(token: str, path: str, request: Request) -> StreamingRespons
     #     （transport_security.py:_validate_origin `if not origin: return True`）。
     #     ⇒ MCP endpoint 不得透傳外部 Origin。
     forward_headers = {}
-    skip = {"host", "origin", "connection", "transfer-encoding", "keep-alive"}
+    # Caller-provided profile hints and bearer credentials must never select or
+    # authenticate the backend. URL token -> saved profile -> saved credentials.
+    skip = {"host", "origin", "connection", "transfer-encoding", "keep-alive",
+            "authorization", "x-mcp-profile"}
     for key, value in request.headers.items():
         if key.lower() not in skip:
             forward_headers[key] = value
@@ -252,7 +255,8 @@ async def mcp_proxy(token: str, path: str, request: Request) -> StreamingRespons
     # Streamable HTTP 的 /mcp。帶 Mcp-Session-Id 的 POST／DELETE 從這裡（token 已驗過）開始算進行中，回應送完才結束。
     # GET 的 SSE 串流不算使用中、也不算活動：與上游一樣（上游只在 POST 更新 lastAccess，開著 GET 串流的 session 照樣
     # 逾時清掉），而真的 Claude Code 連上後一直開著 GET 串流，算使用中的話執行中的 Claude Code 永遠回收不到。
-    sessions = getattr(request.app.state, "session_reclaimer", None)
+    sessions = getattr(getattr(request, "state", None), "session_reclaimer",
+                       getattr(request.app.state, "session_reclaimer", None))
     if not streamable:
         sessions = None
     session_id = request.headers.get("mcp-session-id") if sessions is not None else None

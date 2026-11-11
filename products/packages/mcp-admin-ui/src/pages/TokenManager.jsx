@@ -40,9 +40,11 @@ export default function TokenManager() {
   const [revealError, setRevealError] = useState('');
   const [revealing, setRevealing] = useState(false);
   const revealGeneration = useRef(0);
+  const revealInvalidationReason = useRef(null);
   const revealTimer = useRef(null);
-  const hideRevealedToken = useCallback(() => {
+  const hideRevealedToken = useCallback((reason) => {
     revealGeneration.current += 1;
+    revealInvalidationReason.current = reason === 'metadata' ? 'metadata' : null;
     if (revealTimer.current !== null) clearTimeout(revealTimer.current);
     revealTimer.current = null;
     setCurrentToken(null);
@@ -84,7 +86,7 @@ export default function TokenManager() {
   // Another administrator may rotate/revoke while this page stays mounted.
   // A metadata refresh must never leave a previously revealed credential visible.
   useEffect(() => {
-    hideRevealedToken();
+    hideRevealedToken('metadata');
   }, [hideRevealedToken, info?.state, info?.last_rotated, info?.token_masked, settings?.mcp_auth_token_masked]);
 
   useEffect(() => {
@@ -131,7 +133,13 @@ export default function TokenManager() {
     const generation = revealGeneration.current;
     try {
       const result = await apiPost('/settings/mcp_auth_token/reveal');
-      if (generation !== revealGeneration.current || document.hidden) return '';
+      if (generation !== revealGeneration.current) {
+        if (revealInvalidationReason.current === 'metadata' && !document.hidden) {
+          setRevealError('Token changed while loading. Please try again.');
+        }
+        return '';
+      }
+      if (document.hidden) return '';
       const value = result.value || '';
       if (value) {
         if (revealTimer.current !== null) clearTimeout(revealTimer.current);
@@ -211,14 +219,14 @@ export default function TokenManager() {
     <div>
       <div className="mb-6">
         <h2 className="text-xl sm:text-2xl font-bold text-ink">Token Manager</h2>
-        <p className="text-sm text-muted mt-1">One shared token is used by every MCP client. Rotation or revocation affects all clients.</p>
+        <p className="text-sm text-muted mt-1">This profile has one token shared by its MCP clients. Rotation or revocation affects this profile.</p>
       </div>
 
       <div className="bg-bg border border-border rounded-xl p-6 max-w-xl mb-6">
         <div className="flex items-center gap-2 mb-4">
           <KeyRound size={18} className="text-muted" />
           <h3 className="text-sm font-semibold text-ink-2 uppercase tracking-wide">
-            Shared MCP Token
+            Profile MCP Token
           </h3>
         </div>
 
@@ -226,7 +234,7 @@ export default function TokenManager() {
 
         <div className="flex items-center gap-2 mb-4">
           <div className="flex-1 px-3 py-2.5 bg-panel border border-border rounded-lg font-mono text-sm text-ink-2 overflow-hidden">
-            {revoked ? 'Revoked — all clients blocked' : showToken ? (effectiveToken || 'No token') : maskedToken}
+            {revoked ? "Revoked — this profile's clients blocked" : showToken ? (effectiveToken || 'No token') : maskedToken}
           </div>
           <button
             onClick={toggleTokenVisibility}
@@ -249,7 +257,7 @@ export default function TokenManager() {
         {rotateMutation.isSuccess && !revoked && (
           <div className="mb-4 flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm bg-emerald-500/10 border border-emerald-500/20 text-emerald-600">
             <CheckCircle2 size={16} />
-            <span>New shared token generated. Copy it and update every MCP client.</span>
+            <span>New token generated for this profile. Copy it and update its MCP clients.</span>
           </div>
         )}
 
@@ -280,7 +288,7 @@ export default function TokenManager() {
         </div>
 
         <p className="text-xs text-muted-2 mb-4">
-          Every MCP client connects to this URL; the token in it is the credential. A new service gets its token automatically on first start. Revealed tokens and URLs are hidden after 60 seconds or when you leave this window; Copy always uses the real token.
+          MCP clients for this profile connect to this URL; the token in it is the credential. A new profile gets its own token automatically. Revealed tokens and URLs are hidden after 60 seconds or when you leave this window; Copy always uses the real token.
         </p>
 
         {!confirmRotate ? (
@@ -299,7 +307,7 @@ export default function TokenManager() {
               <div>
                 <p className="text-sm font-medium text-amber-300">Confirm Token Rotation</p>
                 <p className="text-xs text-amber-600/70 mt-0.5">
-                  This will generate a new token. All clients using the old token will lose access, including existing proxy streams. Already dispatched backend work may continue.
+                  This will generate a new token. Clients of this profile using the old token will lose access, including existing proxy streams. Already dispatched backend work may continue.
                 </p>
               </div>
             </div>
@@ -332,16 +340,16 @@ export default function TokenManager() {
       </div>
 
       <div className="bg-bg border border-border rounded-xl p-6 max-w-xl mb-6">
-        <h3 className="font-semibold mb-2">Revoke shared access</h3>
-        <p className="text-sm text-muted mb-4">Revocation blocks new requests and closes existing proxy streams. It survives restarts. Already dispatched backend work may continue; completed effects are not undone. Issue a new token to restore access.</p>
+        <h3 className="font-semibold mb-2">Revoke this profile's access</h3>
+        <p className="text-sm text-muted mb-4">Revocation blocks this profile's new requests and closes its proxy streams. It survives restarts. Already dispatched backend work may continue; completed effects are not undone. Issue a new token to restore access.</p>
         {!confirmRevoke ? <button onClick={() => { setConfirmRevision(info?.configuration?.revision); setConfirmRevoke(true); setConfirmRotate(false); }} disabled={busy || revoked || !tokenConfigured}
           className="px-4 py-2 border border-red-600/30 text-red-600 rounded-lg disabled:opacity-50">Revoke Token</button>
-          : <div role="alert"><p className="text-sm mb-3">Revoke access for every client using this shared token?</p>
+          : <div role="alert"><p className="text-sm mb-3">Revoke access for every client using this profile's token?</p>
             <button onClick={() => revokeMutation.mutate()} disabled={busy || conflict} className="px-4 py-2 bg-red-600 text-white rounded-lg mr-2">Confirm Revoke</button>
             <button onClick={() => setConfirmRevoke(false)} disabled={busy} className="px-4 py-2 border border-border rounded-lg">Cancel</button>
           </div>}
         {revokeMutation.isError && <p className="mt-3 text-red-600">{revokeMutation.error.message}</p>}
-        {revoked && <p className="mt-3 text-sm" role="status">Shared access is revoked. Rotate Token issues a new credential.</p>}
+        {revoked && <p className="mt-3 text-sm" role="status">This profile's access is revoked. Rotate Token issues a new credential.</p>}
       </div>
       {conflict && <div role="alert">設定版本已變更，請重新載入再確認。
         <button onClick={async () => { await refreshAccess(); if (rotateMutation.error?.code === 'config_conflict') rotateOperation.clear(); if (revokeMutation.error?.code === 'config_conflict') revokeOperation.clear(); setConfirmRotate(false); setConfirmRevoke(false); setConflict(false); }}>重新載入設定</button>

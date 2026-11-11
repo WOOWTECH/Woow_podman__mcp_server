@@ -1,6 +1,7 @@
 """Shared token UI against isolated API fixtures; no deployed credentials used."""
 import json
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -16,7 +17,9 @@ class Handler(SimpleHTTPRequestHandler):
 
 def api(route):
     path = route.request.url.split('/api', 1)[1].split('?', 1)[0]
-    if path == '/tokens/revoke':
+    if path == '/profiles':
+        body = {'profiles': [{'id': 'default', 'label': 'Default', 'port': 8000, 'is_default': True}]}
+    elif path == '/tokens/revoke':
         if state['fail']:
             route.fulfill(status=503, json={'detail':'Fixture write unavailable'}); return
         state.update(token='', revoked=True)
@@ -27,7 +30,8 @@ def api(route):
         state['history'].insert(0, {'action':'rotate','rotated_at':'fixture-time','previous_token_masked':''})
         body = {'status':'ok','token_state':'applied','token':state['token']}
     elif path == '/tokens':
-        body = {'state':'revoked' if state['revoked'] else 'active','shared':True,'token_set':bool(state['token']), 'history':state['history']}
+        body = {'state':'revoked' if state['revoked'] else 'active','shared':True,'token_set':bool(state['token']), 'history':state['history'],
+                'configuration': {'revision': 'fixture-r1', 'server_time_ms': int(time.time() * 1000)}}
     elif path == '/settings/mcp_auth_token/reveal': body = {'value': state['token']}
     elif path == '/settings':
         body = {'mcp_auth_token_masked': 'fi***en' if state['token'] else '',
@@ -47,7 +51,7 @@ try:
         url=f'http://127.0.0.1:{server.server_port}/tokens'
         for width in [360,1280]:
             page.set_viewport_size({'width':width,'height':950});page.goto(url,wait_until='networkidle')
-            expect(page.get_by_text('One shared token is used',exact=False)).to_be_visible()
+            expect(page.get_by_text('This profile has one token',exact=False)).to_be_visible()
             assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
         checks.append('shared-token text and responsive layout')
         state['fail']=True
@@ -58,11 +62,11 @@ try:
         checks.append('failed revoke keeps active state')
         state['fail']=False
         page.get_by_role('button',name='Confirm Revoke',exact=True).click()
-        expect(page.get_by_text('Revoked — all clients blocked')).to_be_visible()
+        expect(page.get_by_text("Revoked — this profile's clients blocked")).to_be_visible()
         expect(page.get_by_role('button',name='Copy command',exact=True)).to_be_disabled()
         expect(page.get_by_role('button',name='Copy token',exact=True)).to_be_disabled()
         page.reload(wait_until='networkidle')
-        expect(page.get_by_text('Revoked — all clients blocked')).to_be_visible()
+        expect(page.get_by_text("Revoked — this profile's clients blocked")).to_be_visible()
         checks.append('revoke clears copy controls and survives reload')
         page.get_by_role('button',name='Rotate Token',exact=True).click()
         page.get_by_role('button',name='Confirm Rotate',exact=True).click()

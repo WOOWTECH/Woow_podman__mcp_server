@@ -1,6 +1,7 @@
 """Connection saves acknowledge persistence separately from process application."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterable, Mapping
 
 from fastapi import HTTPException, status
@@ -9,6 +10,32 @@ from .util import ssrf
 
 #: 存檔時被 SSRF 規則擋下的錯誤代碼（HTTP 400 的 ``detail.code``；前端顯示 ``detail.message``）。
 SSRF_BLOCKED = "ssrf_blocked"
+logger = logging.getLogger(__name__)
+
+
+async def save_bound_connection(store, pm, updates: dict[str, Any], *, identity_keys: frozenset[str], make_token):
+    """Stop an old account before publishing its replacement token and creds."""
+    stopped = False
+
+    async def stop_old_child():
+        nonlocal stopped
+        if pm.is_running:
+            stopped = True
+            await pm.stop()
+
+    try:
+        return await store.patch_connection_bound(
+            updates, identity_keys=identity_keys, make_token=make_token,
+            before_rotate=stop_old_child)
+    except BaseException:
+        # A failed durable write leaves the old token/account intact. Restore
+        # the old child if it was stopped before that failed write.
+        if stopped:
+            try:
+                await pm.start()
+            except Exception:
+                logger.warning("Could not restore MCP child after failed connection save")
+        raise
 
 
 def connection_outcome(requested: bool, applied: bool, *, started: bool = False) -> dict:
