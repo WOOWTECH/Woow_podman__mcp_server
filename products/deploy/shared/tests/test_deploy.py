@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,22 @@ def test_catalog_covers_active_paas_apps_and_uses_separate_ports():
     }
     assert len({item["default_port"] for item in catalog["products"].values()}) == len(names)
     assert "odoo-manage" not in names
+
+
+def test_opendesign_image_tag_changes_without_other_product_tag_drift():
+    catalog = module("catalog").load()
+    old_tag = "paas-c077be9-podman.1"
+    new_tag = "paas-f0146c8-podman.1"
+    assert catalog["image_version"] == old_tag
+    assert {
+        name: item["image_version"] for name, item in catalog["products"].items()
+        if "image_version" in item
+    } == {"opendesign": new_tag}
+    for name in catalog["products"]:
+        raw = subprocess.check_output([sys.executable, str(SHARED / "catalog.py"), "get", name])
+        fields = raw.rstrip(b"\0").decode().split("\0")
+        assert len(fields) == 5
+        assert fields[3] == (new_tag if name == "opendesign" else old_tag)
 
 
 def test_first_boot_keeps_existing_config_and_n8n_child_bearer(tmp_path):

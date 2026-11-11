@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
 import sys
-
+from pathlib import Path
 
 CATALOG = Path(__file__).resolve().parents[1] / "catalog.json"
 NAME = re.compile(r"[a-z][a-z0-9-]{1,31}\Z")
@@ -42,7 +41,7 @@ def main() -> None:
             raise SystemExit(f"unknown product: {sys.argv[2]}")
         fields = (
             product["package"], product["module"], str(product["default_port"]),
-            data["image_version"], product.get("installer", "shared"),
+            product.get("image_version", data["image_version"]), product.get("installer", "shared"),
         )
         sys.stdout.buffer.write("\0".join(fields).encode() + b"\0")
     else:
