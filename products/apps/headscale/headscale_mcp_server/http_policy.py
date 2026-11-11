@@ -151,12 +151,29 @@ class PinnedNetwork(AnyIOBackend):
         # A timed-out lookup must not free its slot while its worker is still running.
         future.add_done_callback(lambda f: f.exception() if not f.cancelled() else None)
         budget = min(timeout if timeout is not None else 5.0, 5.0)
+        deadline = asyncio.get_running_loop().time() + budget
         try:
             async with asyncio.timeout(budget):
                 addresses = await asyncio.shield(future)
-                # Numeric IP only, with TLS SNI left as the original host by httpcore.
-                return await super().connect_tcp(addresses[0], port, timeout=budget,
-                                                 socket_options=socket_options)
+                # Every DNS answer was validated before any TCP attempt. A stale
+                # first answer must not hide a healthy replacement after restart.
+                last_error = None
+                for index, address in enumerate(addresses):
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        break
+                    # Keep one bounded deadline for DNS and all addresses.
+                    attempt_timeout = remaining / (len(addresses) - index)
+                    try:
+                        # Numeric IP only; httpcore retains the host for TLS SNI.
+                        return await super().connect_tcp(address, port,
+                                                         timeout=attempt_timeout,
+                                                         socket_options=socket_options)
+                    except (httpcore.ConnectError, httpcore.ConnectTimeout, OSError) as exc:
+                        last_error = exc
+                if isinstance(last_error, (httpcore.ConnectTimeout, TimeoutError)):
+                    raise httpcore.ConnectTimeout("HEADSCALE_CONNECT_TIMEOUT") from None
+                raise httpcore.ConnectError("HEADSCALE_CONNECT_FAILED") from None
         except TimeoutError:
             raise httpcore.ConnectTimeout("HEADSCALE_CONNECT_TIMEOUT") from None
         except OSError:
