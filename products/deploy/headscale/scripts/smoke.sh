@@ -42,7 +42,12 @@ mcp_code() {
     | curl -s -o /dev/null -w '%{http_code}' -m 15 -K - -X POST \
         "${headers[@]}" --data "$init"
 }
-[[ $(mcp_code "$token") == 200 ]] || ql_die "MCP initialize failed"
+mcp_state=$(curl -fsS -m 10 "$BASE/healthz" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("mcp", ""))')
+if [[ $mcp_state == not_configured ]]; then
+  ql_info "Headscale connection is not configured yet; complete it in the GUI before testing MCP initialize"
+else
+  [[ $(mcp_code "$token") == 200 ]] || ql_die "MCP initialize failed ($mcp_state)"
+fi
 [[ $(mcp_code invalid-smoke-token) == 403 ]] || ql_die "wrong MCP token was not rejected"
 [[ $(mcp_code "$token" https://untrusted.example) == 403 ]] \
   || ql_die "untrusted Origin was not rejected"

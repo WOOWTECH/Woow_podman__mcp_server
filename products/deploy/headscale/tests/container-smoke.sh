@@ -36,29 +36,11 @@ start() {
 
 start
 [[ $(podman exec "$C" python -c 'import os; print(oct(os.stat("/data/config.json").st_mode & 0o777))') == 0o600 ]]
-login=$(podman exec "$C" python -c \
-  'import json; c=json.load(open("/data/config.json")); print(json.dumps({"password":c["admin_password"]}))' \
-  | curl -s -o /dev/null -w '%{http_code}' -m 10 -H 'Content-Type: application/json' \
-      --data @- "http://127.0.0.1:$PORT/api/auth/login")
-[[ $login == 200 ]]
-token=$(podman exec "$C" python -c \
-  'import json; print(json.load(open("/data/config.json")).get("mcp_auth_token", ""))')
-[[ -n $token ]]
-init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"headscale-podman-ci","version":"1"}}}'
-rpc_code() {
-  local candidate=$1 origin=${2:-}
-  local -a headers=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
-  [[ -z $origin ]] || headers+=(-H "Origin: $origin")
-  printf 'url = "http://127.0.0.1:%s/private_%s/mcp"\n' "$PORT" "$candidate" \
-    | curl -s -o /dev/null -w '%{http_code}' -m 15 -K - -X POST \
-        "${headers[@]}" --data "$init"
-}
-[[ $(rpc_code "$token") == 200 ]]
-[[ $(rpc_code invalid-smoke-token) == 403 ]]
-[[ $(rpc_code "$token" https://untrusted.example) == 403 ]]
+python3 "$REPO/products/deploy/headscale/tests/container-smoke.py" "$C" "$PORT"
+before=$(podman exec "$C" sha256sum /data/config.json | cut -d' ' -f1)
 podman rm -f "$C" >/dev/null
 start
-after=$(podman exec "$C" python -c \
-  'import json; print(json.load(open("/data/config.json")).get("mcp_auth_token", ""))')
-[[ $after == "$token" ]]
-printf 'Headscale container boot, authentication, Origin, MCP and restart persistence passed\n'
+python3 "$REPO/products/deploy/headscale/tests/container-smoke.py" "$C" "$PORT"
+after=$(podman exec "$C" sha256sum /data/config.json | cut -d' ' -f1)
+[[ $after == "$before" ]]
+printf 'Headscale container boot, GUI setup, authentication and restart persistence passed\n'

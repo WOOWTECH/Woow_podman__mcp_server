@@ -86,5 +86,7 @@ cd products
 .venv/bin/pytest -q apps/headscale/tests deploy/headscale/tests
 ```
 
-CI 另行建置映像，在一次性容器中測試健康檢查、管理登入、MCP 初始化、錯誤 token、
-不可信 Origin 及重啟後的資料保留。原有 Podman 主機產品使用 repo 根目錄的另一組測試。
+CI 另行建置映像，在一次性容器中經由 GUI API 儲存測試連線設定，確認 MCP 子行程
+啟動及工具目錄可觀測，再測管理登入、MCP 初始化、錯誤 token、不可信 Origin 和重啟
+後的資料保留。測試連線設定不代表已驗證外部 Headscale API；29 項原生 API 的行為由
+Headscale 產品測試套件驗證。原有 Podman 主機產品使用 repo 根目錄的另一組測試。
