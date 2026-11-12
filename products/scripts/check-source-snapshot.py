@@ -46,9 +46,17 @@ def snapshot() -> dict:
     pin = catalog["paas_source_commit"]
     version = (ROOT / "deploy/headscale/VERSION").read_text().strip()
     quadlet = (ROOT / "deploy/headscale/quadlet/headscale-mcp-admin.container").read_text()
-    image = f"Image=localhost/woow-headscale-mcp-admin:{version}"
-    if quadlet.count(image + "\n") != 1:
-        raise ValueError("Headscale Quadlet image and VERSION differ")
+    tagged_image = f"Image=localhost/woow-headscale-mcp-admin:{version}"
+    signed_image = "Image=@@IMAGE@@"
+    if quadlet.count(tagged_image + "\n") != 1:
+        if quadlet.count(signed_image + "\n") != 1:
+            raise ValueError("Headscale Quadlet image and VERSION differ")
+        install = (ROOT / "deploy/headscale/scripts/install.sh").read_text()
+        render_vars = (ROOT / "deploy/headscale/quadlet/render-vars").read_text().splitlines()
+        if ("mcp_release_gate \"$APP\" headscale" not in install
+                or "IMAGE=$IMAGE" not in install
+                or "IMAGE" not in render_vars):
+            raise ValueError("Headscale signed image renderer is not wired to release gate")
     if not catalog["image_version"].startswith(f"paas-{pin[:7]}-podman."):
         raise ValueError("shared image version and canonical pin differ")
     headscale_paths = tuple(runpy.run_path(str(HEADSCALE))["SOURCE_PATHS"])

@@ -115,14 +115,16 @@ The parity scripts check the defined canonical-to-Podman source surface, not
 every possible runtime behavior. Service smoke and backend acceptance remain
 separate rollout gates.
 
-## Current release blockers
+## Current release state
 
-The canonical source reviews ([#132](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/132),
-[#133](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/133),
-and EMQX [Draft #135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135)),
-the corresponding catalog pin, reviewed per-product images, signed manifest,
-and external trust key must all be available before production use. Against
-the current clean `49c9a66` canonical checkout, both real parity checkers
-reject the unmerged shared logout and Headscale DNS changes in Podman main.
-This draft includes none of the release artifacts and makes no claim that the
-current live Quadlets passed the guard.
+The Headscale DNS and shared logout changes were merged as canonical Gitea
+`0e432c3ebd7a481b8994105a187f29837d941fd6`. The Podman catalog pins
+that exact commit, and both direct parity checks passed against a clean
+canonical checkout. The Headscale product version is `0.1.3-podman.1`.
+
+The signing key, reviewed image identity, signed manifest, and live Quadlet
+upgrade are separate release artifacts. This source branch does not include
+them. The EMQX [Draft #135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135)
+is outside the Headscale release and must be reviewed before an EMQX image is
+signed. Existing running Quadlets are not evidence that the release guard has
+passed.
