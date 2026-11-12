@@ -13,7 +13,7 @@ Ed25519 key held outside the deployment host. The detached signature is the
 manifest path plus `.sig`. The review process must independently establish:
 
 1. The canonical Gitea commit is merged and the Podman catalog pins exactly
-   that commit. The canonical and Podman `git archive --format=tar` SHA256
+   that commit. The canonical and Podman `git -c tar.umask=0000 archive --format=tar` SHA256
    values cover their reviewed commits. The Podman commit includes the
    vendored application, Quadlet templates, installer, and verifier.
 2. The image was built from that reviewed Podman commit in a controlled build

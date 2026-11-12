@@ -168,7 +168,7 @@ class ReleaseRollbackTests(unittest.TestCase):
                              "ql_wait_container_healthy() { :; }\n")
             executable(root / "products/deploy/release-gate.sh", """
                 #!/usr/bin/env bash
-                mcp_release_gate() { RELEASE_IMAGE_ID=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
+                mcp_release_gate() { RELEASE_IMAGE_ID=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; }
             """)
             executable(deploy / "scripts/backup.sh", """
                 #!/usr/bin/env bash
@@ -176,6 +176,7 @@ class ReleaseRollbackTests(unittest.TestCase):
             """)
             executable(deploy / "scripts/install.sh", """
                 #!/usr/bin/env bash
+                [[ $(cat "$QA_SYSTEMD_STATE") == inactive ]] || exit 9
                 printf 'Image=synthetic-new\n' > "$QA_OLD_UNIT"
                 printf 'newhash  %s\n' "$QA_OLD_UNIT" > "$QA_STATE/manifest"
                 exit 7
@@ -187,20 +188,43 @@ class ReleaseRollbackTests(unittest.TestCase):
             executable(root / "bin/systemctl", """
                 #!/usr/bin/env bash
                 [[ $1 == --user ]] || exit 9
-                case $2 in daemon-reload|restart) exit 0;; *) exit 9;; esac
+                case $2 in
+                  is-active) [[ $(cat "$QA_SYSTEMD_STATE") == active ]];;
+                  stop) printf 'inactive\n' > "$QA_SYSTEMD_STATE";;
+                  restart) printf 'active\n' > "$QA_SYSTEMD_STATE";;
+                  daemon-reload) :;;
+                  *) exit 9;;
+                esac
+            """)
+            executable(root / "bin/podman", """
+                #!/usr/bin/env bash
+                case "$1 $2" in
+                  'container exists') exit 0;;
+                  'container inspect') printf '%s\n' "$QA_OLD_IMAGE_ID";;
+                  'image exists') [[ $3 == "sha256:$QA_OLD_IMAGE_ID" ]];;
+                  *) exit 9;;
+                esac
             """)
             unit = root / "units/headscale-mcp-admin.container"
             unit.parent.mkdir()
             unit.write_text("Image=synthetic-old\n")
             original_sha = hashlib.sha256(unit.read_bytes()).hexdigest()
+            old_image_id = "a" * 64
+            pinned_unit = f"Image=sha256:{old_image_id}\n"
+            pinned_sha = hashlib.sha256(pinned_unit.encode()).hexdigest()
             state = root / "state/headscale-mcp-admin"
             state.mkdir(parents=True)
             original_manifest = f"{original_sha}  {unit}\n"
             (state / "manifest").write_text(original_manifest)
+            systemd_state = root / "systemd-state"
+            systemd_state.write_text("active\n")
             env = dict(os.environ,
                        PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
                        QL_STATE_ROOT=str(root / "state"),
+                       QL_QUADLET_DIR=str(unit.parent),
+                       QA_OLD_IMAGE_ID=old_image_id,
                        QA_OLD_UNIT=str(unit), QA_STATE=str(state),
+                       QA_SYSTEMD_STATE=str(systemd_state),
                        QA_BACKUP_MARKER=str(root / "backup-called"),
                        QA_SMOKE_MARKER=str(root / "smoke-called"))
             outcome = subprocess.run(
@@ -212,5 +236,6 @@ class ReleaseRollbackTests(unittest.TestCase):
             self.assertIn("rolled back", outcome.stderr)
             self.assertTrue((root / "backup-called").exists())
             self.assertTrue((root / "smoke-called").exists())
-            self.assertEqual(hashlib.sha256(unit.read_bytes()).hexdigest(), original_sha)
-            self.assertEqual((state / "manifest").read_text(), original_manifest)
+            self.assertEqual(unit.read_text(), pinned_unit)
+            self.assertEqual((state / "manifest").read_text(), f"{pinned_sha}  {unit}\n")
+            self.assertEqual(systemd_state.read_text(), "active\n")

@@ -53,9 +53,33 @@ jobs:
         run: |
           set -euo pipefail
           img="localhost/woow-headscale-mcp-admin:$(cat products/deploy/headscale/VERSION)"
+          canonical=$(python3 -c 'import json; print(json.load(open("products/deploy/catalog.json"))["paas_source_commit"])')
+          build_id="github-actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           podman build --format docker --build-arg "VCS_REF=$GITHUB_SHA" \
+            --build-arg "CANONICAL_SOURCE=$canonical" --build-arg "RELEASE_BUILD_ID=$build_id" \
             -t "$img" -f products/deploy/headscale/Dockerfile products
           test "$(podman image inspect -f '{{json .HealthCheck}}' "$img")" != null
+          python3 - "$img" "$GITHUB_SHA" "$canonical" "$build_id" <<'PY'
+          import json, subprocess, sys
+          sys.path.insert(0, "products/deploy")
+          from release_preflight import verify_image
+          image, revision, canonical, build_id = sys.argv[1:]
+          labels = json.loads(subprocess.check_output(
+              ["podman", "image", "inspect", "--format", "{{json .Labels}}", image]))
+          expected = {"org.opencontainers.image.revision": revision,
+                      "io.woowtech.canonical-source": canonical,
+                      "io.woowtech.release-build": build_id}
+          assert all(labels.get(key) == value for key, value in expected.items())
+          image_id = subprocess.check_output(
+              ["podman", "image", "inspect", "--format", "{{.Id}}", image],
+              text=True).strip()
+          if not image_id.startswith("sha256:"):
+              image_id = "sha256:" + image_id
+          manifest = {"images": {"headscale": {"linux/amd64": {
+              "reference": image, "image_id": image_id, "build_id": build_id,
+              "labels": expected}}}}
+          assert verify_image(manifest, "headscale", image, revision, canonical) == image_id
+          PY
       - name: Start disposable container and exercise MCP boundary
         run: |
           set -euo pipefail

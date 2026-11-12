@@ -10,7 +10,8 @@
 #      units and restarts what changed, then runs tests/smoke.sh
 #   4. on any failure: put the snapshot back, restart, re-run tests/smoke.sh, exit 1
 #
-# The previous image ID is never deleted, so the restored units start the old version.
+# The snapshot records the previous immutable image ID, so a retag cannot
+# redirect rollback to the candidate image.
 # SMOKE_FORCE_FAIL=1 makes step 3 fail on purpose to exercise the rollback.
 # shellcheck source-path=SCRIPTDIR
 set -euo pipefail
@@ -42,6 +43,22 @@ mcp_release_gate "$APP" headscale "$release_manifest" "$source_checkout"
 ql_require_user_systemd
 STATE=${QL_STATE_ROOT:-$HOME/.local/state/woow-quadlet}/$APP
 [[ -s $STATE/manifest ]] || ql_die "$APP is not installed (no $STATE/manifest); run scripts/install.sh"
+QDIR=${QL_QUADLET_DIR:-$HOME/.config/containers/systemd}
+installed_unit=$QDIR/$APP.container
+[[ -f $installed_unit ]] || ql_die "installed Headscale Quadlet is missing: $installed_unit"
+
+# Prefer the image actually running in the existing container. If the service
+# is stopped, resolve its current unit reference before changing anything.
+if podman container exists "$HEALTH_CONTAINER"; then
+  old_image_id=$(podman container inspect "$HEALTH_CONTAINER" --format '{{.Image}}')
+else
+  old_image_ref=$(sed -n 's/^Image=//p' "$installed_unit")
+  [[ -n $old_image_ref ]] || ql_die "installed Headscale Quadlet has no image"
+  old_image_id=$(podman image inspect "$old_image_ref" --format '{{.Id}}')
+fi
+old_image_id=${old_image_id#sha256:}
+[[ $old_image_id =~ ^[0-9a-f]{64}$ ]] || ql_die "cannot identify the previous Headscale image"
+podman image exists "sha256:$old_image_id" || ql_die "previous Headscale image is unavailable for rollback"
 
 # ---- 1. snapshot ------------------------------------------------------------------------------
 snap=$STATE/rollback/$(date +%Y%m%d-%H%M%S)
@@ -52,6 +69,31 @@ while read -r _ path; do
   mkdir -p -- "$snap/files${path%/*}"
   cp -p -- "$path" "$snap/files$path"
 done <"$STATE/manifest"
+python3 - "$snap/files$installed_unit" "$snap/manifest" "$installed_unit" "$old_image_id" <<'PY'
+import hashlib
+from pathlib import Path
+import sys
+
+unit = Path(sys.argv[1])
+manifest = Path(sys.argv[2])
+installed, image_id = sys.argv[3:5]
+lines = unit.read_bytes().splitlines(keepends=True)
+images = [i for i, line in enumerate(lines) if line.startswith(b"Image=")]
+if len(images) != 1:
+    raise SystemExit("rollback Quadlet must contain exactly one image")
+lines[images[0]] = f"Image=sha256:{image_id}\n".encode()
+unit.write_bytes(b"".join(lines))
+digest = hashlib.sha256(unit.read_bytes()).hexdigest()
+entries = manifest.read_text().splitlines(keepends=True)
+found = 0
+for index, line in enumerate(entries):
+    if line.partition("  ")[2].strip() == installed:
+        entries[index] = f"{digest}  {installed}\n"
+        found += 1
+if found != 1:
+    raise SystemExit("installed Quadlet is missing from the rollback manifest")
+manifest.write_text("".join(entries))
+PY
 ql_info "snapshot of the installed units: $snap"
 snaps=("$STATE"/rollback/*/) # timestamp names: glob order is age order
 if ((${#snaps[@]} > KEEP_SNAPSHOTS)); then rm -rf -- "${snaps[@]:0:${#snaps[@]}-KEEP_SNAPSHOTS}"; fi
@@ -88,6 +130,12 @@ if ((backup)); then
 fi
 
 # ---- 3. install + smoke (install.sh runs tests/smoke.sh) ------------------------------------
+# A direct install must refuse an active service on another image. An upgrade
+# has already snapshotted and backed up that service, so stop it before handing
+# control to the same fail-closed installer.
+if systemctl --user is-active --quiet "${UNITS[0]}"; then
+  systemctl --user stop "${UNITS[0]}" || rollback
+fi
 if ! "$DEPLOY/scripts/install.sh" --release-manifest "$release_manifest" \
     --source-checkout "$source_checkout"; then rollback; fi
 ql_info "upgrade to $(<"$DEPLOY/VERSION") complete; rollback snapshot kept in $snap"

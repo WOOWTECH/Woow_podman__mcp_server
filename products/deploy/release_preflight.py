@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 from pathlib import Path
 import re
@@ -64,10 +65,12 @@ def signed_manifest(path: Path, trust_key: Path) -> dict:
         fail("release manifest signature or trusted public key is missing")
     if trust_key == TRUST_KEY:
         # The installer never supplies a different key. Reject a key or parent
-        # directory writable by the deployment user, including symlink tricks.
+        # directory writable by the deployment user, including ACLs and symlink
+        # tricks. Mode bits alone do not reveal an ACL grant to this process.
         for component in (trust_key, *trust_key.parents):
             meta = component.lstat()
-            if meta.st_uid != 0 or meta.st_mode & 0o022 or component.is_symlink():
+            if (meta.st_uid != 0 or meta.st_mode & 0o022 or component.is_symlink()
+                    or os.access(component, os.W_OK, effective_ids=True)):
                 fail("release trust anchor is not root-owned and read-only")
     # Verify the exact bytes read later. A local caller may choose the manifest
     # path, but the installer always uses the independent /etc trust anchor.
@@ -104,7 +107,8 @@ def archive_sha256(repo: Path, commit: str) -> str:
     # Archive bytes include all tracked paths, not merely a self-reported label.
     try:
         child = subprocess.Popen(
-            ("git", "-C", str(repo), "archive", "--format=tar", commit),
+            ("git", "-C", str(repo), "-c", "tar.umask=0000",
+             "archive", "--format=tar", commit),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
     except OSError:

@@ -10,7 +10,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -62,6 +64,9 @@ class ReleasePreflightTests(unittest.TestCase):
         version = repo / "products/deploy/headscale/VERSION"
         version.parent.mkdir(parents=True)
         version.write_text("test-headscale.1\n")
+        executable = repo / "products/deploy/test-release-tool"
+        executable.write_text("#!/bin/sh\nexit 0\n")
+        executable.chmod(0o755)
         self.git(repo, "add", ".")
         self.git(repo, "commit", "-qm", "Podman fixture")
         podman_commit = self.git(repo, "rev-parse", "HEAD")
@@ -69,7 +74,8 @@ class ReleasePreflightTests(unittest.TestCase):
 
     def archive_hash(self, repo: Path, commit: str) -> str:
         return hashlib.sha256(subprocess.check_output(
-            ("git", "-C", str(repo), "archive", "--format=tar", commit))).hexdigest()
+            ("git", "-C", str(repo), "-c", "tar.umask=0000",
+             "archive", "--format=tar", commit))).hexdigest()
 
     def signed_release(self, base: Path, source: Path, repo: Path,
                        canonical_commit: str, podman_commit: str) -> tuple[Path, Path, Path]:
@@ -165,6 +171,41 @@ class ReleasePreflightTests(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unrecognized arguments: --trust-key", result.stderr)
+
+    def test_root_owned_mode_bits_do_not_hide_a_trust_anchor_writable_by_deployer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source, repo, source_commit, repo_commit = self.fixture(base)
+            manifest, public, _ = self.signed_release(base, source, repo,
+                                                       source_commit, repo_commit)
+            spec = __import__("importlib.util").util.spec_from_file_location(
+                "release_preflight_acl_test", PREFLIGHT)
+            module = __import__("importlib.util").util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            module.TRUST_KEY = public
+            original_lstat = Path.lstat
+
+            def root_owned_mode(path):
+                metadata = original_lstat(path)
+                return SimpleNamespace(st_uid=0, st_mode=metadata.st_mode & ~0o022)
+
+            self.assertTrue(os.access(public, os.W_OK))
+            with mock.patch.object(Path, "lstat", root_owned_mode):
+                with self.assertRaisesRegex(module.ReleaseError, "trust anchor.*read-only"):
+                    module.signed_manifest(manifest, public)
+
+    def test_archive_identity_ignores_global_tar_umask(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = base / "gitconfig"
+            with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config)}):
+                config.write_text("[tar]\n\tumask = 0002\n")
+                source, repo, source_commit, repo_commit = self.fixture(base)
+                manifest, public, image = self.signed_release(
+                    base, source, repo, source_commit, repo_commit)
+                config.write_text("[tar]\n\tumask = 0022\n")
+                result = self.verify(repo, source, manifest, public, image, "headscale")
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_signed_manifest_matching_source_and_exact_image_is_accepted(self):
         with tempfile.TemporaryDirectory() as directory:

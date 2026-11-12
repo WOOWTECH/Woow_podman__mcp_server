@@ -1,13 +1,18 @@
 # syntax=docker/dockerfile:1.7
-# Build with: podman build -f products/deploy/headscale/Dockerfile -t local/headscale-mcp-admin:VERSION products/
+# Release builds must pass VCS_REF, CANONICAL_SOURCE and RELEASE_BUILD_ID.
 FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:0.12.10 /uv /uvx /bin/
 RUN python -m pip uninstall --yes pip && rm -rf /usr/local/lib/python3.12/ensurepip
 
 ARG VCS_REF
+ARG CANONICAL_SOURCE
+ARG RELEASE_BUILD_ID
+RUN test -n "$VCS_REF" && test -n "$CANONICAL_SOURCE" && test -n "$RELEASE_BUILD_ID"
 LABEL org.opencontainers.image.title="Headscale MCP Podman" \
       org.opencontainers.image.source="https://github.com/WOOWTECH/Woow_podman__mcp_server" \
-      org.opencontainers.image.revision="${VCS_REF}"
+      org.opencontainers.image.revision="${VCS_REF}" \
+      io.woowtech.canonical-source="${CANONICAL_SOURCE}" \
+      io.woowtech.release-build="${RELEASE_BUILD_ID}"
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
