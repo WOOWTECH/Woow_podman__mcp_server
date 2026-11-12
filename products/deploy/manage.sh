@@ -6,6 +6,8 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 DEPLOY=$REPO/products/deploy
 # shellcheck source=../../../scripts/lib/quadlet-lib.sh
 . "$REPO/scripts/lib/quadlet-lib.sh"
+# shellcheck source=release-gate.sh
+. "$DEPLOY/release-gate.sh"
 
 if [[ ${1:-} == list ]]; then
   python3 "$DEPLOY/shared/catalog.py" list
@@ -20,11 +22,9 @@ mapfile -d '' -t META < <(python3 "$DEPLOY/shared/catalog.py" get "$PRODUCT")
 PACKAGE=${META[0]}
 MODULE=${META[1]}
 DEFAULT_PORT=${META[2]}
-VERSION=${META[3]}
 INSTALLER=${META[4]}
 APP=$PRODUCT-mcp-admin
 UNIT=$APP.service
-IMAGE=localhost/woow-$PRODUCT-mcp-admin:$VERSION
 VOLUME=${APP//-/_}_data
 ENV_FILE=$HOME/.config/$APP/$APP.env
 QDIR=${QL_QUADLET_DIR:-$HOME/.config/containers/systemd}
@@ -55,15 +55,17 @@ read_settings() {
 
 case $ACTION in
   install)
-    sets=() build=auto no_start=0
+    sets=() no_start=0 release_manifest='' source_checkout=''
     while (($#)); do
       case $1 in
         --port) sets+=("MCP_ADMIN_PORT=${2:?--port needs a value}"); shift ;;
         --bind) sets+=("MCP_ADMIN_BIND=${2:?--bind needs an address}"); shift ;;
         --backend-network) sets+=("MCP_BACKEND_NETWORK=${2:?--backend-network needs a network name}"); shift ;;
         --ssrf-mode) sets+=("WEBHOOK_SECURITY_MODE=${2:?--ssrf-mode needs strict, moderate or permissive}"); shift ;;
-        --rebuild) build=always ;;
-        --no-build) build=never ;;
+        --rebuild) ql_die "installer builds are disabled; use a reviewed immutable release image" ;;
+        --no-build) : ;;
+        --release-manifest) release_manifest=${2:?--release-manifest needs a file}; shift ;;
+        --source-checkout) source_checkout=${2:?--source-checkout needs a directory}; shift ;;
         --no-start) no_start=1 ;;
         --dry-run) export QL_DRY_RUN=1 ;;
         *) ql_die "unknown install option $1" ;;
@@ -71,15 +73,16 @@ case $ACTION in
       shift
     done
     DRY=${QL_DRY_RUN:-0}
-    ql_preflight 4.9
     command -v curl >/dev/null || ql_die "curl not found"
     command -v python3 >/dev/null || ql_die "python3 not found"
-    ql_enable_linger
-    ql_lock "$APP"
+    ql_require_rootless
+    mcp_release_gate "$APP" "$PRODUCT" "$release_manifest" "$source_checkout"
+    IMAGE=$RELEASE_IMAGE_ID
+    mcp_release_check_active_collision "$APP" "$UNIT" "$QDIR"
+    ql_preflight 4.9
     WORK=$(mktemp -d "${TMPDIR:-/tmp}/$APP-install.XXXXXX")
     ql_cleanup work rm -rf "$WORK"
     printf 'MCP_ADMIN_BIND=127.0.0.1\nMCP_ADMIN_PORT=%s\nMCP_BACKEND_NETWORK=\nWEBHOOK_SECURITY_MODE=strict\n' "$DEFAULT_PORT" >"$WORK/example.env"
-    ql_env_ensure "$WORK/example.env" "$ENV_FILE"
     envsrc=$WORK/$APP.env
     if [[ -f $ENV_FILE ]]; then cp -- "$ENV_FILE" "$envsrc"; else cp -- "$WORK/example.env" "$envsrc"; fi
     chmod 600 "$envsrc"
@@ -120,29 +123,21 @@ case $ACTION in
       unit=$(ql_unit_for "$file")
       [[ -z $unit ]] || ql_check_unit_shadow "$unit" "$APP"
     done
+    mcp_release_recheck "$APP" "$PRODUCT" "$release_manifest" "$source_checkout"
+    ql_enable_linger
+    ql_env_ensure "$WORK/example.env" "$ENV_FILE"
     env_changed=0
     if [[ $DRY != 1 ]] && ! cmp -s -- "$envsrc" "$ENV_FILE"; then
       install -m 600 -- "$envsrc" "$ENV_FILE"
       env_changed=1
     fi
-    built=0
-    if [[ $build == always ]] || ! podman image exists "$IMAGE"; then
-      [[ $build != never ]] || ql_die "image $IMAGE missing and --no-build set"
-      if [[ $DRY == 1 ]]; then
-        ql_info "[dry-run] would build $IMAGE"
-      else
-        podman build --format docker -t "$IMAGE" -f "$REPO/products/apps/$PRODUCT/Dockerfile" \
-          "$REPO/products" || ql_die "image build failed; units were not changed"
-        built=1
-      fi
-    fi
-    if podman image exists "$IMAGE"; then ql_pull_images "$WORK/out"; fi
+    ql_pull_images "$WORK/out"
     ql_secret_ensure "$APP-jwt-secret" random:64
     ql_secret_ensure "$APP-password" random:32
     changed=$(ql_install_files "$WORK/out" "$APP" --prune)
     [[ -z $changed ]] || ql_info "changed: $(tr '\n' ' ' <<<"$changed")"
     if [[ $DRY == 1 ]]; then ql_info "dry-run complete; no deployment changed"; exit 0; fi
-    ((built == 0 && env_changed == 0)) || ql_mark_changed "$APP" "$UNIT"
+    ((env_changed == 0)) || ql_mark_changed "$APP" "$UNIT"
     if ((no_start)); then
       systemctl --user daemon-reload
       ql_info "installed; start with systemctl --user start $UNIT"

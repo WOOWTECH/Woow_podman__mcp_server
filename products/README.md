@@ -19,12 +19,16 @@
 
 ## 安裝與連線
 
-主機需求：Podman 4.9 以上、使用者 systemd、Quadlet、linger、Python 3.12、可存取映像建置相依。請以持有容器的普通使用者執行：
+主機需求：Podman 4.9 以上、使用者 systemd、Quadlet、linger、Python 3.12、已審查映像與[發行證明](../docs/release-provenance-guard.md)。請以持有容器的普通使用者執行：
 
 ```bash
 products/deploy/manage.sh list
-products/deploy/manage.sh emqx install --dry-run
-products/deploy/manage.sh emqx install
+products/deploy/manage.sh emqx install --dry-run \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
+products/deploy/manage.sh emqx install \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
 products/deploy/manage.sh emqx smoke
 ```
 
@@ -39,8 +43,10 @@ podman secret inspect --showsecret --format '{{.SecretData}}' emqx-mcp-admin-pas
 若後端也是同一個 rootless Podman 使用者的容器，可以讓 MCP 同時加入它的現有網路：
 
 ```bash
-products/deploy/manage.sh hermes install --backend-network hermes --ssrf-mode permissive
-products/deploy/manage.sh odoo install --backend-network odoo18-network
+products/deploy/manage.sh hermes install --backend-network hermes --ssrf-mode permissive \
+  --release-manifest /path/to/reviewed-release.json --source-checkout /path/to/merged-canonical-checkout
+products/deploy/manage.sh odoo install --backend-network odoo18-network \
+  --release-manifest /path/to/reviewed-release.json --source-checkout /path/to/merged-canonical-checkout
 ```
 
 `--backend-network` 僅接受已存在的 Podman network 名稱。連線頁可填該網路內的容器 DNS 名稱與內部 port；各產品仍保有自己的獨立網路。Hermes、n8n、EMQX 等對私網 URL 有 SSRF 檢查；本機私網服務需由部署者明確指定 `--ssrf-mode permissive`，這會放行私有位址但仍封鎖雲端 metadata 位址。預設維持 `strict`。需要對外提供 GUI 時可用 `--bind <單一 LAN IPv4> --port <port>`，不接受 `0.0.0.0`。
@@ -48,7 +54,8 @@ products/deploy/manage.sh odoo install --backend-network odoo18-network
 Headscale 沿用其專用安裝、Origin 與 cookie 檢查。若本機 18081 已被其他服務使用，指定另一個 port 與相同 Origin：
 
 ```bash
-products/deploy/manage.sh headscale install --port 18500 --origin http://127.0.0.1:18500
+products/deploy/manage.sh headscale install --port 18500 --origin http://127.0.0.1:18500 \
+  --release-manifest /path/to/reviewed-release.json --source-checkout /path/to/merged-canonical-checkout
 ```
 
 K8s 需要在 GUI 提供可用的 kubeconfig 或掛載叢集內 ServiceAccount，空白初次安裝只驗證管理頁；VK 也需設定 Vibe Kanban 後端才可驗證實際操作。其他產品未設定後端時，安裝 smoke 會區分 MCP 協定已啟動、工具可觀測及後端尚未設定的狀態。
@@ -59,7 +66,9 @@ K8s 需要在 GUI 提供可用的 kubeconfig 或掛載叢集內 ServiceAccount�
 products/deploy/manage.sh emqx status
 products/deploy/manage.sh emqx backup
 products/deploy/manage.sh emqx restore /path/to/backup --yes
-products/deploy/manage.sh emqx upgrade
+products/deploy/manage.sh emqx upgrade \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
 products/deploy/manage.sh emqx uninstall --dry-run
 ```
 
