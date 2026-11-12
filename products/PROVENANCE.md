@@ -2,7 +2,7 @@
 
 The ten active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`49c9a66e95e94ba9ab8630fc2a86488d1c649b2e` (Gitea). The Headscale app
+`0e432c3ebd7a481b8994105a187f29837d941fd6` (Gitea). The Headscale app
 implements the Headscale v0.29.4 29-operation native contract, its dedicated
 management GUI, operation policy, Origin checks, session revocation, and the
 optional PaaS binding. The HA Add-on's Headscale child came from the same
