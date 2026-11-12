@@ -122,9 +122,11 @@ The Headscale DNS and shared logout changes were merged as canonical Gitea
 that exact commit, and both direct parity checks passed against a clean
 canonical checkout. The Headscale product version is `0.1.3-podman.1`.
 
-The signing key, reviewed image identity, signed manifest, and live Quadlet
-upgrade are separate release artifacts. This source branch does not include
-them. The EMQX [Draft #135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135)
+The published Headscale release remains `0.1.3-podman.1`; the reviewed
+security-base update advances the next candidate to `0.1.3-podman.2` so the
+prior immutable image remains available for rollback. Its reviewed image
+identity, signed manifest, and live Quadlet upgrade are separate release
+artifacts. This source branch does not include them. The EMQX [Draft #135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135)
 is outside the Headscale release and must be reviewed before an EMQX image is
 signed. Existing running Quadlets are not evidence that the release guard has
 passed.
