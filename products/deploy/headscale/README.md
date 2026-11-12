@@ -13,14 +13,21 @@
 由預計持有容器的普通使用者執行：
 
 ```bash
-products/deploy/headscale/scripts/install.sh --dry-run
-products/deploy/headscale/scripts/install.sh
+products/deploy/headscale/scripts/install.sh --dry-run \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
+products/deploy/headscale/scripts/install.sh \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
 ```
 
 初次安裝會在 `~/.config/headscale-mcp-admin/headscale-mcp-admin.env` 建立 0600 的公開
-設定檔，在 Podman secrets 中產生獨立的首次管理密碼及 JWT 金鑰，建置固定版本映像，
+設定檔，在 Podman secrets 中產生獨立的首次管理密碼及 JWT 金鑰，使用已審查映像，
 驗證 Quadlet，安裝並啟動 `headscale-mcp-admin.service`。GUI 預設僅監聽
 `127.0.0.1:18081`。首次密碼可在安裝主機查閱：
+
+安裝與升級都要帶相同的 `--release-manifest` 與 `--source-checkout`；來源驗證與
+信任邊界見 [發行證明文件](../../../docs/release-provenance-guard.md)。
 
 ```bash
 podman secret inspect --showsecret --format '{{.SecretData}}' headscale-mcp-admin-password
@@ -46,7 +53,9 @@ HTTPS 反向代理，在安裝時指定實際瀏覽器 Origin，並啟用 Secure
 ```bash
 products/deploy/headscale/scripts/install.sh \
   --origin https://mcp.example.com \
-  --set HEADSCALE_MCP_SECURE_COOKIE=true
+  --set HEADSCALE_MCP_SECURE_COOKIE=true \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
 ```
 
 可編輯 env 檔再重跑 install；Origin 只接受完整且精確的 HTTP(S) origin，不接受路徑或
@@ -61,15 +70,17 @@ products/deploy/headscale/scripts/install.sh \
 
 持久資料放在獨立 Podman volume `headscale_mcp_data`，包括 `config.json`、
 管理 session 撤銷資料和操作紀錄。首次密碼 secret 只在空 volume 時 seed；重啟或再次
-安裝均不覆蓋已儲存的密碼、API key 或 MCP token。更新程式碼時請先提高 `VERSION`
-版本，再執行 `upgrade.sh`；它會先備份 volume 並保留舊映像及 Quadlet 設定供回復。
+安裝均不覆蓋已儲存的密碼、API key 或 MCP token。更新時先取得已審查發行證明，
+再執行 `upgrade.sh`；它會先備份 volume 並保留舊映像及 Quadlet 設定供回復。
 卸載 Quadlet 時保留 volume；要清除資料須明確使用 `--purge`。
 
 使用產品腳本備份、升級、還原與卸載：
 
 ```bash
 products/deploy/headscale/scripts/backup.sh
-products/deploy/headscale/scripts/upgrade.sh
+products/deploy/headscale/scripts/upgrade.sh \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
 products/deploy/headscale/scripts/restore.sh /path/to/backup --yes
 products/deploy/headscale/scripts/uninstall.sh --dry-run
 ```

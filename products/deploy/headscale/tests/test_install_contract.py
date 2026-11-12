@@ -49,7 +49,7 @@ def test_unit_has_independent_state_and_no_podman_socket():
     assert "Secret=headscale-mcp-admin-jwt-secret,type=env,target=JWT_SECRET" in unit
 
 
-def test_image_tag_matches_pinned_product_version():
-    version = (DEPLOY / "VERSION").read_text().strip()
+def test_image_is_rendered_from_verified_immutable_id():
     unit = (DEPLOY / "quadlet/headscale-mcp-admin.container").read_text()
-    assert f"Image=localhost/woow-headscale-mcp-admin:{version}" in unit
+    assert "Image=@@IMAGE@@" in unit
+    assert "IMAGE" in (DEPLOY / "quadlet/render-vars").read_text().splitlines()

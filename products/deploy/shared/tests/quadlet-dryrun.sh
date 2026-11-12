@@ -13,7 +13,8 @@ chmod 600 "$envfile"
 ql_env_load "$envfile"
 for product in $(python3 "$DEPLOY/shared/catalog.py" list | awk '$1 != "headscale" {print $1}'); do
   app=$product-mcp-admin
-  image=localhost/woow-$product-mcp-admin:test
+  # The installer renders the signed manifest's immutable image ID, not its tag.
+  image=sha256:$(printf 'a%.0s' {1..64})
   volume=${app//-/_}_data
   mkdir -p "$work/src" "$work/out"
   for ext in container volume network; do

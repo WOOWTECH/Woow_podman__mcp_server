@@ -2,15 +2,15 @@
 # scripts/upgrade.sh: move headscale-mcp-admin to the version this checkout pins, with an
 # automatic rollback when the new version fails its smoke test.
 #
-#   git pull && scripts/upgrade.sh [--no-backup]
+#   scripts/upgrade.sh --release-manifest REVIEWED.json --source-checkout CANONICAL
 #
 #   1. snapshot the installed unit files and the install manifest
 #   2. scripts/backup.sh (volume export)          (skipped with --no-backup)
-#   3. scripts/install.sh: builds localhost/woow-headscale-mcp-admin:$(cat VERSION) if missing,
-#      re-renders the units and restarts what changed, then runs tests/smoke.sh
+#   3. scripts/install.sh: verifies the reviewed local image ID, re-renders the
+#      units and restarts what changed, then runs tests/smoke.sh
 #   4. on any failure: put the snapshot back, restart, re-run tests/smoke.sh, exit 1
 #
-# The previous image tag is never deleted, so the restored units start the old version.
+# The previous image ID is never deleted, so the restored units start the old version.
 # SMOKE_FORCE_FAIL=1 makes step 3 fail on purpose to exercise the rollback.
 # shellcheck source-path=SCRIPTDIR
 set -euo pipefail
@@ -18,15 +18,19 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 DEPLOY=$REPO/products/deploy/headscale
 # shellcheck source=lib/quadlet-lib.sh
 . "$REPO/scripts/lib/quadlet-lib.sh"
+# shellcheck source=../../release-gate.sh
+. "$REPO/products/deploy/release-gate.sh"
 APP=headscale-mcp-admin
 UNITS=(headscale-mcp-admin.service)
 HEALTH_CONTAINER=headscale-mcp-admin
 KEEP_SNAPSHOTS=5
 
-backup=1
+backup=1 release_manifest='' source_checkout=''
 while (($#)); do
   case $1 in
     --no-backup) backup=0 ;;
+    --release-manifest) release_manifest=${2:?--release-manifest needs a file}; shift ;;
+    --source-checkout) source_checkout=${2:?--source-checkout needs a directory}; shift ;;
     -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
     *) ql_die "unknown option $1 (see --help)" ;;
   esac
@@ -34,6 +38,7 @@ while (($#)); do
 done
 export QL_APP=$APP
 ql_require_rootless
+mcp_release_gate "$APP" headscale "$release_manifest" "$source_checkout"
 ql_require_user_systemd
 STATE=${QL_STATE_ROOT:-$HOME/.local/state/woow-quadlet}/$APP
 [[ -s $STATE/manifest ]] || ql_die "$APP is not installed (no $STATE/manifest); run scripts/install.sh"
@@ -83,5 +88,6 @@ if ((backup)); then
 fi
 
 # ---- 3. install + smoke (install.sh runs tests/smoke.sh) ------------------------------------
-if ! "$DEPLOY/scripts/install.sh"; then rollback; fi
+if ! "$DEPLOY/scripts/install.sh" --release-manifest "$release_manifest" \
+    --source-checkout "$source_checkout"; then rollback; fi
 ql_info "upgrade to $(<"$DEPLOY/VERSION") complete; rollback snapshot kept in $snap"
