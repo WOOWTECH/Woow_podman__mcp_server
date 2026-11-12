@@ -9,6 +9,13 @@ permissions:
   contents: read
 
 jobs:
+  source-snapshot:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify reviewed Gitea source snapshot and image bindings
+        run: python3 products/scripts/check-source-snapshot.py
+
   source-and-tests:
     runs-on: ubuntu-24.04
     steps:

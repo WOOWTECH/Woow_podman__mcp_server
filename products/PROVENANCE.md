@@ -2,7 +2,7 @@
 
 The ten active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`49c9a66e95e94ba9ab8630fc2a86488d1c649b2e` (Gitea). The Headscale app
+`0e432c3ebd7a481b8994105a187f29837d941fd6` (Gitea). The Headscale app
 implements the Headscale v0.29.4 29-operation native contract, its dedicated
 management GUI, operation policy, Origin checks, session revocation, and the
 optional PaaS binding. The HA Add-on's Headscale child came from the same
@@ -36,6 +36,11 @@ and `python products/scripts/check-all-parity.py --source-checkout PATH` against
 a checkout containing the pinned PaaS commit before refreshing the vendored
 source. The latter checks every tracked application, core-test and frontend file
 against the exact deployment-specific transformations listed above.
+After both pass, run `python3 products/scripts/check-source-snapshot.py
+--refresh-from PATH`. GitHub CI checks this reviewed snapshot because GitHub
+Hosted Runners are redirected to Cloudflare Access when cloning Gitea.
+The snapshot detects vendored-file and image-version drift in the Podman repo;
+it does not independently prove that Gitea's live `main` still equals the pin.
 
 The HA Add-on Store includes Headscale alongside Odoo, n8n, Hermes, EMQX,
 LiteLLM and Nextcloud. OpenDesign is a source candidate; K8s and VK are absent.

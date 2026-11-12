@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import subprocess
 import sys
 
-PIN = "49c9a66e95e94ba9ab8630fc2a86488d1c649b2e"
 ROOT = Path(__file__).resolve().parents[1]
+PIN = json.loads((ROOT / "deploy/catalog.json").read_text())["paas_source_commit"]
 SOURCE_PATHS = ("apps/headscale", "packages/mcp-admin-core/mcp_admin_core",
                 "packages/mcp-admin-core/pyproject.toml")
 MAIN = "apps/headscale/headscale_mcp_admin/main.py"
