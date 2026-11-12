@@ -36,6 +36,11 @@ and `python products/scripts/check-all-parity.py --source-checkout PATH` against
 a checkout containing the pinned PaaS commit before refreshing the vendored
 source. The latter checks every tracked application, core-test and frontend file
 against the exact deployment-specific transformations listed above.
+After both pass, run `python3 products/scripts/check-source-snapshot.py
+--refresh-from PATH`. GitHub CI checks this reviewed snapshot because GitHub
+Hosted Runners are redirected to Cloudflare Access when cloning Gitea.
+The snapshot detects vendored-file and image-version drift in the Podman repo;
+it does not independently prove that Gitea's live `main` still equals the pin.
 
 The HA Add-on Store includes Headscale alongside Odoo, n8n, Hermes, EMQX,
 LiteLLM and Nextcloud. OpenDesign is a source candidate; K8s and VK are absent.

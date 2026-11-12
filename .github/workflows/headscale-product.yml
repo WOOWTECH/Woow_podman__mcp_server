@@ -9,16 +9,12 @@ permissions:
   contents: read
 
 jobs:
-  source-parity:
+  source-snapshot:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch canonical Gitea source
-        run: git clone --quiet --no-checkout https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server.git "$RUNNER_TEMP/paas-source"
-      - name: Verify Headscale and shared MCP source parity
-        run: |
-          python3 products/scripts/check-headscale-parity.py --source-checkout "$RUNNER_TEMP/paas-source"
-          python3 products/scripts/check-all-parity.py --source-checkout "$RUNNER_TEMP/paas-source"
+      - name: Verify reviewed Gitea source snapshot and image bindings
+        run: python3 products/scripts/check-source-snapshot.py
 
   source-and-tests:
     runs-on: ubuntu-24.04
