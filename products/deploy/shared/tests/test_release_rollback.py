@@ -200,8 +200,14 @@ class ReleaseRollbackTests(unittest.TestCase):
                 #!/usr/bin/env bash
                 case "$1 $2" in
                   'container exists') exit 0;;
-                  'container inspect') printf '%s\n' "$QA_OLD_IMAGE_ID";;
+                  'container inspect')
+                    if [[ $* == *State.Running* ]]; then
+                      [[ $(cat "$QA_SYSTEMD_STATE") == active ]] && echo true || echo false
+                    else
+                      printf '%s\n' "$QA_STALE_CONTAINER_IMAGE_ID"
+                    fi;;
                   'image exists') [[ $3 == "sha256:$QA_OLD_IMAGE_ID" ]];;
+                  'image inspect') printf '%s\n' "$QA_OLD_IMAGE_ID";;
                   *) exit 9;;
                 esac
             """)
@@ -217,7 +223,6 @@ class ReleaseRollbackTests(unittest.TestCase):
             original_manifest = f"{original_sha}  {unit}\n"
             (state / "manifest").write_text(original_manifest)
             systemd_state = root / "systemd-state"
-            systemd_state.write_text("active\n")
             env = dict(os.environ,
                        PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
                        QL_STATE_ROOT=str(root / "state"),
@@ -227,15 +232,24 @@ class ReleaseRollbackTests(unittest.TestCase):
                        QA_SYSTEMD_STATE=str(systemd_state),
                        QA_BACKUP_MARKER=str(root / "backup-called"),
                        QA_SMOKE_MARKER=str(root / "smoke-called"))
-            outcome = subprocess.run(
-                ["bash", str(upgrade), "--release-manifest", str(root / "approved.json"),
-                 "--source-checkout", str(root / "canonical")],
-                env=env, text=True, capture_output=True, timeout=20,
-            )
-            self.assertNotEqual(outcome.returncode, 0)
-            self.assertIn("rolled back", outcome.stderr)
-            self.assertTrue((root / "backup-called").exists())
-            self.assertTrue((root / "smoke-called").exists())
-            self.assertEqual(unit.read_text(), pinned_unit)
-            self.assertEqual((state / "manifest").read_text(), f"{pinned_sha}  {unit}\n")
-            self.assertEqual(systemd_state.read_text(), "active\n")
+            for initial_state, stale_container_id in (
+                ("active", old_image_id),
+                ("inactive", "b" * 64),
+            ):
+                with self.subTest(initial_state=initial_state):
+                    unit.write_text("Image=synthetic-old\n")
+                    (state / "manifest").write_text(original_manifest)
+                    systemd_state.write_text(initial_state + "\n")
+                    env["QA_STALE_CONTAINER_IMAGE_ID"] = stale_container_id
+                    outcome = subprocess.run(
+                        ["bash", str(upgrade), "--release-manifest", str(root / "approved.json"),
+                         "--source-checkout", str(root / "canonical")],
+                        env=env, text=True, capture_output=True, timeout=20,
+                    )
+                    self.assertNotEqual(outcome.returncode, 0)
+                    self.assertIn("rolled back", outcome.stderr)
+                    self.assertTrue((root / "backup-called").exists())
+                    self.assertTrue((root / "smoke-called").exists())
+                    self.assertEqual(unit.read_text(), pinned_unit)
+                    self.assertEqual((state / "manifest").read_text(), f"{pinned_sha}  {unit}\n")
+                    self.assertEqual(systemd_state.read_text(), "active\n")

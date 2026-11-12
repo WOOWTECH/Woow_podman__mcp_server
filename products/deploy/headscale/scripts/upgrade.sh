@@ -47,9 +47,11 @@ QDIR=${QL_QUADLET_DIR:-$HOME/.config/containers/systemd}
 installed_unit=$QDIR/$APP.container
 [[ -f $installed_unit ]] || ql_die "installed Headscale Quadlet is missing: $installed_unit"
 
-# Prefer the image actually running in the existing container. If the service
-# is stopped, resolve its current unit reference before changing anything.
-if podman container exists "$HEALTH_CONTAINER"; then
+# Trust the container image only while systemd and the container both report
+# it running. A stopped container may be a stale candidate from a failed run.
+if systemctl --user is-active --quiet "${UNITS[0]}"; then
+  running=$(podman container inspect "$HEALTH_CONTAINER" --format '{{.State.Running}}' 2>/dev/null || true)
+  [[ $running == true ]] || ql_die "active Headscale service has no running container for rollback"
   old_image_id=$(podman container inspect "$HEALTH_CONTAINER" --format '{{.Image}}')
 else
   old_image_ref=$(sed -n 's/^Image=//p' "$installed_unit")
