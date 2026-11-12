@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1.7
 # Release builds must pass VCS_REF, CANONICAL_SOURCE and RELEASE_BUILD_ID.
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 COPY --from=ghcr.io/astral-sh/uv:0.12.10 /uv /uvx /bin/
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+ && apt-get dist-clean
 RUN python -m pip uninstall --yes pip && rm -rf /usr/local/lib/python3.12/ensurepip
 
 ARG VCS_REF
