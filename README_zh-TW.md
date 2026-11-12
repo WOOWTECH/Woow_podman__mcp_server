@@ -9,9 +9,21 @@ port、volume 與憑證，且不掛載 Podman socket。
 
 ```bash
 products/deploy/manage.sh list
-products/deploy/manage.sh emqx install --dry-run
-products/deploy/manage.sh emqx install
+products/deploy/manage.sh emqx install --dry-run \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
+products/deploy/manage.sh emqx install \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
+products/deploy/manage.sh emqx upgrade \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
 ```
+
+這十支產品的安裝與升級都需要獨立審查的簽章發行清單、乾淨的來源 checkout，及已審查映像的
+精確 ID；[發行證明與信任限制](docs/release-provenance-guard.md)有完整步驟。上方路徑是
+佔位範例；此 Draft 尚無正式簽章清單或映像 ID。產品安裝程式會拒絕 `--rebuild`，只接受
+事先建置及審查的映像。下文根目錄 Podman 主機 MCP 使用另一套安裝腳本。
 
 Headscale 的專用安裝與 GUI 預設網址 `http://127.0.0.1:18081/`、首次登入、Origin、
 Headscale API 連線和備份方式見[產品說明](products/deploy/headscale/README.md)。
@@ -36,7 +48,10 @@ Headscale API 連線和備份方式見[產品說明](products/deploy/headscale/R
 
 ---
 
-## 安裝（rootless Podman + Quadlet + systemd）
+## 安裝原有 Podman 主機 MCP（rootless Podman + Quadlet + systemd）
+
+本節及下方根目錄的 `scripts/upgrade.sh` 只適用於原有的 Podman 主機 MCP；不適用於
+`products/deploy/` 下十支產品。
 
 支援的部署方式是一組由使用者 systemd 管理的 [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)
 單元。已在 Ubuntu 24.04、podman 4.9.3（本 repo 接受的最低版本為 4.9）、systemd 255、rootless 並啟用
@@ -60,7 +75,7 @@ scripts/install.sh                 # 或：scripts/install.sh --port 18080
 4. 用 env 檔渲染 [`quadlet/`](quadlet/) 內的單元（`@@VAR@@` 標記，白名單在 `quadlet/render-vars`），
    並在安裝任何東西之前，先用 podman 4.9.3 的產生器與 `systemd-analyze --user verify` 檢查；
 5. 若 `localhost/woow-podman-mcp-admin:<VERSION>` 這個 tag 還不存在，就從 [`Dockerfile`](Dockerfile)
-   建置（`--rebuild` 強制重建，`--no-build` 禁止建置）；
+   建置（`--rebuild` 強制重建，`--no-build` 禁止建置；這兩個旗標只適用根目錄安裝腳本）；
 6. 若三個 podman secret 不存在就建立（隨機產生，從不印出）：JWT 簽章金鑰、首次開機的管理員密碼、
    首次開機的連線器 token；
 7. 只安裝有變更的檔案，只重啟檔案有變更的單元。沒有任何變更時重新執行，不會重啟任何東西；
@@ -187,7 +202,7 @@ scripts/install.sh --bind 192.168.1.20        # 本機的區網 IP；拒絕 0.0.
 
 ---
 
-## 升級
+## 升級原有 Podman 主機 MCP
 
 ```bash
 git pull

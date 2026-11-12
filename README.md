@@ -14,12 +14,21 @@ products/deploy/manage.sh list
 products/deploy/manage.sh emqx install --dry-run \
   --release-manifest /path/to/reviewed-release.json \
   --source-checkout /path/to/merged-canonical-checkout
+products/deploy/manage.sh emqx install \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
+products/deploy/manage.sh emqx upgrade \
+  --release-manifest /path/to/reviewed-release.json \
+  --source-checkout /path/to/merged-canonical-checkout
 ```
 
 Product install and upgrade require an independently reviewed release manifest,
 clean source checkouts and an exact local image ID. See the
 [release proof and trust limits](docs/release-provenance-guard.md). The product
 release proof does not apply to the separate Podman host MCP described below.
+These paths are placeholders; this draft has no production signed manifest or
+image IDs yet. Product installers reject `--rebuild` and require a prebuilt,
+reviewed image.
 
 Headscale retains its [dedicated guide](products/deploy/headscale/README.md),
 including its default `http://127.0.0.1:18081/` GUI, Origin settings and backups.
@@ -45,7 +54,11 @@ credential; see [Authentication](#authentication).
 
 ---
 
-## Install (rootless Podman + Quadlet + systemd)
+## Install the original Podman host MCP (rootless Podman + Quadlet + systemd)
+
+This section and the later root-level `scripts/upgrade.sh` instructions apply
+only to the original Podman host MCP. They do not describe the ten product
+installers under `products/deploy/`.
 
 The supported deployment is a set of [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)
 units run by the user's systemd manager. Tested on Ubuntu 24.04 with podman 4.9.3 (the minimum
@@ -73,7 +86,8 @@ scripts/install.sh                 # or: scripts/install.sh --port 18080
    `quadlet/render-vars`) and checks them with the podman 4.9.3 generator and
    `systemd-analyze --user verify` before anything is installed;
 5. builds `localhost/woow-podman-mcp-admin:<VERSION>` from the [`Dockerfile`](Dockerfile) when
-   that tag does not exist yet (`--rebuild` forces it, `--no-build` forbids it);
+   that tag does not exist yet (`--rebuild` forces it, `--no-build` forbids it;
+   these flags are for this root-level installer only);
 6. creates three podman secrets if they are missing (random, never printed): the JWT signing key,
    the first-boot admin password and the first-boot connector token;
 7. installs only the files that changed and restarts only the units whose files changed. A
@@ -216,7 +230,7 @@ cloudflared on the Podman host pointing at localhost instead.
 
 ---
 
-## Upgrade
+## Upgrade the original Podman host MCP
 
 ```bash
 git pull

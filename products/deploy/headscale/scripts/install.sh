@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the Headscale product as an independent rootless Quadlet stack.
 # Usage: install.sh [--port N] [--bind IP] [--origin URL] [--set KEY=VALUE]...
-#                   [--rebuild | --no-build] [--no-start] [--dry-run]
+#                   --release-manifest FILE --source-checkout DIR [--no-start] [--dry-run]
 set -euo pipefail
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 DEPLOY=$REPO/products/deploy/headscale
