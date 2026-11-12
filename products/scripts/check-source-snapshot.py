@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import runpy
 import subprocess
 import sys
@@ -46,7 +47,8 @@ def snapshot() -> dict:
     pin = catalog["paas_source_commit"]
     version = (ROOT / "deploy/headscale/VERSION").read_text().strip()
     quadlet = (ROOT / "deploy/headscale/quadlet/headscale-mcp-admin.container").read_text()
-    image_lines = [line for line in quadlet.splitlines() if line.startswith("Image=")]
+    image_lines = [line for line in quadlet.splitlines()
+                   if re.match(r"^\s*Image\s*=", line)]
     if image_lines != ["Image=@@IMAGE@@"]:
         raise ValueError("Headscale Quadlet must have exactly one signed image placeholder")
     install = (ROOT / "deploy/headscale/scripts/install.sh").read_text()
