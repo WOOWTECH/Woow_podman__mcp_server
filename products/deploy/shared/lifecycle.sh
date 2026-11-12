@@ -5,6 +5,8 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)
 DEPLOY=$REPO/products/deploy
 # shellcheck source=../../../scripts/lib/quadlet-lib.sh
 . "$REPO/scripts/lib/quadlet-lib.sh"
+# shellcheck source=../release-gate.sh
+. "$DEPLOY/release-gate.sh"
 PRODUCT=${1:?product required}
 ACTION=${2:?action required}
 shift 2
@@ -20,8 +22,10 @@ STATE=${QL_STATE_ROOT:-$HOME/.local/state/woow-quadlet}/$APP
 export QL_APP=$APP
 
 ql_require_rootless
-ql_require_user_systemd
-ql_lock "$APP"
+if [[ $ACTION != upgrade ]]; then
+  ql_require_user_systemd
+  ql_lock "$APP"
+fi
 
 backup() {
   local dest=${1:-$HOME/backups/$APP} out base n=2
@@ -95,7 +99,17 @@ case $ACTION in
     restore "$@"
     ;;
   upgrade)
-    ((${#} == 0)) || ql_die "upgrade takes no options"
+    release_manifest='' source_checkout=''
+    while (($#)); do
+      case $1 in
+        --release-manifest) release_manifest=${2:?--release-manifest needs a file}; shift ;;
+        --source-checkout) source_checkout=${2:?--source-checkout needs a directory}; shift ;;
+        *) ql_die "unknown upgrade option $1" ;;
+      esac
+      shift
+    done
+    mcp_release_gate "$APP" "$PRODUCT" "$release_manifest" "$source_checkout"
+    ql_require_user_systemd
     [[ -s $STATE/manifest ]] || ql_die "$APP is not installed"
     snapshot=$STATE/rollback/$(date +%Y%m%d-%H%M%S)
     (umask 077 && mkdir -p -- "$snapshot/files")
@@ -106,7 +120,8 @@ case $ACTION in
       cp -p -- "$path" "$snapshot/files$path"
     done <"$STATE/manifest"
     backup_dir=$(backup) || ql_die "backup failed; upgrade not attempted"
-    if ! "$DEPLOY/manage.sh" "$PRODUCT" install; then
+    if ! "$DEPLOY/manage.sh" "$PRODUCT" install --release-manifest "$release_manifest" \
+        --source-checkout "$source_checkout"; then
       ql_warn "upgrade failed; restoring previous units and volume"
       if [[ -f $STATE/manifest ]]; then
         while read -r _ path; do

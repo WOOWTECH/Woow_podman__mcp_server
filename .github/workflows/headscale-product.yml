@@ -23,7 +23,7 @@ jobs:
         run: .venv/bin/pytest -q apps/headscale/tests deploy/headscale/tests --disable-warnings --tb=short
         working-directory: products
       - name: Shell syntax
-        run: bash -n products/deploy/headscale/scripts/*.sh products/deploy/headscale/tests/*.sh
+        run: bash -n products/deploy/release-gate.sh products/deploy/headscale/scripts/*.sh products/deploy/headscale/tests/*.sh
       - name: No Podman socket or committed product credentials
         run: |
           set -euo pipefail
