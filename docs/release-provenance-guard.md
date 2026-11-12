@@ -37,6 +37,30 @@ has `commit` and `archive_sha256`. The `images` object maps product names to
 required labels above). A different architecture or missing product fails.
 No placeholder values or test keys are valid release evidence.
 
+After the independent review has produced the actual manifest and image IDs,
+the release authority signs it **outside the deployment host** with its
+existing private key. This command signs the exact JSON bytes and creates the
+detached file the installer expects:
+
+```sh
+openssl pkeyutl -sign -inkey /path/to/offline-release-private-key.pem \
+  -rawin -in reviewed-release.json -out reviewed-release.json.sig
+```
+
+An authorized host administrator provisions only that authority's reviewed
+**public** key. The installer rejects a key or parent directory that is
+writable by the deployment user:
+
+```sh
+sudo install -d -o root -g root -m 0755 /etc/woowtech
+sudo install -o root -g root -m 0644 /path/to/reviewed-release-public-key.pem \
+  /etc/woowtech/mcp-release-ed25519.pub
+```
+
+Transport the reviewed manifest and its `.sig` together to the host. The
+private signing key never goes to the host. These commands do not supply a
+manifest, key, or image ID; those are separate reviewed release artifacts.
+
 On a host with clean checkouts at those commits and the reviewed image
 already present locally, use the appropriate install or upgrade command:
 
