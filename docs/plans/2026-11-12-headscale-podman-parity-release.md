@@ -23,7 +23,7 @@
 **Files:** `products/scripts/check-headscale-parity.py`, `products/deploy/catalog.json`, `products/PROVENANCE.md`, `.github/workflows/headscale-product.yml`, `.github/workflows/all-products.yml`, `products/deploy/headscale/VERSION`.
 
 1. Update both source pins to the exact merged Gitea commit, then run `python3 products/scripts/check-headscale-parity.py --source-checkout PATH` and `python3 products/scripts/check-all-parity.py --source-checkout PATH`; both must report zero differences.
-2. Add a CI job that fetches that exact canonical commit and runs both parity scripts, so a later vendor edit fails CI.
+2. Refresh the reviewed local source snapshot only after both direct Gitea parity scripts pass. Run its offline verification in GitHub CI, because Hosted Runners are redirected to Cloudflare Access when cloning Gitea; a later vendor edit must fail CI.
 3. Advance the Headscale Podman version and image binding together; keep the prior image available for rollback.
 4. Run the Headscale product tests, shared auth tests, shell syntax checks, and image/Quadlet smoke when a Podman runtime is available.
 
