@@ -45,8 +45,10 @@ def build_client() -> httpx.AsyncClient:
     )
     limits = httpx.Limits(
         max_connections=50,
-        max_keepalive_connections=20,
-        keepalive_expiry=30.0,
+        # A recovered gateway can accept fresh health probes while an old
+        # pooled socket remains blackholed. Reusing it makes the first MCP
+        # tool call time out; a fresh connection avoids that failure.
+        max_keepalive_connections=0,
     )
     return httpx.AsyncClient(
         base_url=cfg.base_url,
