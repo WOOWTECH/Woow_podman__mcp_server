@@ -71,9 +71,13 @@ def _install_stdout_audit() -> None:
 _install_stdout_audit()
 
 MARKER = "owner_defaults_20261025"
+# Offline restore records this until a compatible runtime atomically records
+# the ordinary marker, without applying the all-enabled migration.
+RESTORE_POLICY_HOLD = "restore_guard_preserve_policy_20261112"
 DECISION = "負責人 2026-10-25「預設全開」"
 APPLIED_FRESH = "fresh_install"
 APPLIED_MIGRATED = "migrated"
+APPLIED_RESTORE_PRESERVED = "restore_preserved"
 #: 標記的 ``source``：這個 admin 行程自己建立的 config.json／已經存在但還沒有使用痕跡的部署 seed／
 #: 已經有使用痕跡的既有設定（見 :func:`config_source`）。
 SOURCE_NEW_CONFIG = "new_config"
@@ -190,7 +194,9 @@ def all_on_config(cfg: Mapping[str, Any], fresh_env: Mapping[str, str], applied:
 
 
 async def apply_owner_defaults(store=None) -> list[str] | None:
-    """沒有標記時套用全開並寫上標記；回傳改動清單（已有標記回 None）。
+    """沒有標記時套用全開並寫上標記；還原保留標記則保留原政策。
+
+    回傳改動清單（已有標記或保留還原政策回 None）。
 
     讀取失敗（壞檔、懸空 symlink、型別錯）時 ``ConfigUnavailable`` 往上拋，呼叫端（lifespan）因此不會啟動子行程。
     """
@@ -205,6 +211,13 @@ async def apply_owner_defaults(store=None) -> list[str] | None:
 
     def migrate(cfg: dict[str, Any]) -> dict[str, Any] | None:
         tools = cfg.get("tools") or {}
+        if RESTORE_POLICY_HOLD in tools and MARKER not in tools:
+            # Only the restore workflow sets this after validating both policy
+            # sections. Preserve the old policy and product env byte-for-byte.
+            updated = copy.deepcopy(cfg)
+            updated["tools"].pop(RESTORE_POLICY_HOLD)
+            updated["tools"][MARKER] = marker_value(APPLIED_RESTORE_PRESERVED, SOURCE_EXISTING_CONFIG)
+            return updated
         if MARKER in tools:
             return None
         changes = all_on_changes(cfg, fresh_env, union_keys)
@@ -245,13 +258,16 @@ def token_facts(cfg: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def owner_defaults_view(cfg: Mapping[str, Any]) -> dict[str, Any] | None:
-    """給管理頁顯示：這份設定是否已套用 2026-10-25 的全開預設（以及怎麼套用的），加上 MCP token 的事實（:func:`token_facts`）。
+    """給管理頁顯示預設決定或還原時保留政策的狀態，加上 MCP token 的事實（:func:`token_facts`）。
 
     ``source`` 舊標記沒有，回 None。
     """
-    value = (cfg.get("tools") or {}).get(MARKER)
+    tools = cfg.get("tools") or {}
+    value = tools.get(MARKER)
     if value is None:
-        return None
+        if RESTORE_POLICY_HOLD not in tools:
+            return None
+        value = {"applied": APPLIED_RESTORE_PRESERVED, "source": SOURCE_EXISTING_CONFIG}
     view = {"decision": DECISION, "applied": APPLIED_FRESH, "source": None, "at": None}
     if isinstance(value, dict):
         view["applied"] = str(value.get("applied") or APPLIED_FRESH)

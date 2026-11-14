@@ -21,6 +21,8 @@ PATHS = tuple(f"apps/{name}" for name in APPS + RETIRED_APPS) + (
     "packages/mcp-admin-core/pyproject.toml", "packages/mcp-admin-core/tests",
     "packages/mcp-admin-ui", "pyproject.toml",
     "uv.lock", "package.json", "package-lock.json",
+    # Read by packages/mcp-admin-core/tests/test_restore_runbook.py.
+    "docs/paas-config-restore-runbook.md",
 )
 IGNORE_DIRS = {"__pycache__", ".pytest_cache", "node_modules", "dist"}
 

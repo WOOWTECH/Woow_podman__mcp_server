@@ -9,11 +9,14 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from mcp_admin_core.request_limits import McpRequestLimits
+from mcp_admin_core.process import McpProcessManager
+from managed_proxy_fixture import trust_listener
 from mcp_admin_core.session_reclaim import IDLE_FLOOR_SECONDS as FLOOR
 from mcp_admin_core.session_reclaim import SessionReclaimer
 
@@ -99,8 +102,15 @@ class AsyncFakeN8n:
 def gw(make_app, monkeypatch):
     from mcp_admin_core import proxy
 
+    # Exercise the fenced prototype; production defaults to 429 passthrough.
+    monkeypatch.setattr(proxy, '_AUTOMATIC_RECLAIM_EXPERIMENTAL', True)
     upstream = AsyncFakeN8n()
     clock = Clock()
+    pm = McpProcessManager()
+    pm._process = SimpleNamespace(pid=101, returncode=None)
+    pm._running = True
+    trust_listener(pm)  # blocker 3: synthetic stand-in for the OS listener check
+    monkeypatch.setattr(proxy, 'get_process_manager', lambda: pm)
     monkeypatch.setattr(proxy, "_get_client",
                         lambda timeout=86400: httpx.AsyncClient(transport=httpx.MockTransport(upstream)))
     client = make_app({"mcp_auth_token": TOKEN, "proxy": {"timeout": 30, "bearer_token": "child-bearer"},
@@ -143,7 +153,7 @@ async def test_two_concurrent_initializes_with_one_idle_session_end_only_that_on
     app, upstream, clock, reclaimer = gw
     async with _ac(app) as ac:
         a, b = await _open(ac, 2, clock)
-        finish_b = reclaimer.begin(b, None)  # 例如 B 有一個還沒回完的 tools/call
+        finish_b = reclaimer.begin(b, reclaimer.tracked()[b]['generation'])  # B 有還沒回完的 tools/call
         clock.advance(FLOOR + 20)
         replies = await asyncio.gather(_init(ac), _init(ac))
         finish_b()
@@ -188,7 +198,7 @@ async def test_slot_stolen_and_nothing_else_idle_still_answers_429(gw):
     app, upstream, clock, reclaimer = gw
     async with _ac(app) as ac:
         a, b = await _open(ac, 2, clock)
-        finish_b = reclaimer.begin(b, None)
+        finish_b = reclaimer.begin(b, reclaimer.tracked()[b]['generation'])
         clock.advance(FLOOR + 20)
         reply, thief = await _with_thief(app, upstream, ac)
         finish_b()

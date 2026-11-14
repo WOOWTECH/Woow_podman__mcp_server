@@ -117,10 +117,10 @@ separate rollout gates.
 
 ## Current release state
 
-The Headscale DNS and shared logout changes were merged as canonical Gitea
-`0e432c3ebd7a481b8994105a187f29837d941fd6`. The Podman catalog pins
+The multi-profile hardening (Gitea #140-#146) was merged as canonical Gitea
+`443e95a942c7ef0484d963631382aab94d0e0567`. The Podman catalog pins
 that exact commit, and both direct parity checks passed against a clean
-canonical checkout. The Headscale product version is `0.1.3-podman.1`.
+checkout of it. The Headscale product version is `0.1.4-podman.1`.
 
 The signing key, reviewed image identity, signed manifest, and live Quadlet
 upgrade are separate release artifacts. This source branch does not include

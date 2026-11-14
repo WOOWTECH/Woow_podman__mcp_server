@@ -16,14 +16,21 @@ Session Timeout 的實際粒度（商用驗收 DATA-NMCP-003-3）：上游 ``dis
 0～5 分鐘內才結束並釋放名額，最小有效粒度約 5 分鐘；上游沒有可調短清掃週期的環境變數。管理頁欄位說明照此寫，
 映像建置時以 ``verify_upstream_session_sweep()`` 確認上游週期沒變（變了就在 CI 失敗，提醒同步改說明）。
 
-名額已滿（2026-10-26 第二輪驗證）：上游名額滿時新的 ``initialize`` 回 429＋-32000 ``Session limit reached (N)…``；
-Claude.ai 等用戶端重連時不送 DELETE，舊 session 一直占名額，改版前的預設（10 個、3600 秒）會讓新連線被拒約 1 小時。
-現在由閘道回收（``mcp_admin_core.session_reclaim``，main.py 宣告）：名額滿時對最久沒活動、閒置超過 5 分鐘的 session
-送 ``DELETE /mcp``（上游 ``removeSession`` 立刻釋放名額、回 204）再重試（名額被別人先用掉就再回收下一個，次數有上限）。這裡提供判斷「名額已滿」的
-``is_session_limit_reply`` 與「閒置多久上游一定已清掉」的 ``upstream_session_lifetime_seconds``；映像建置時
-``verify_upstream_session_limit_reply()`` 確認上游的 429 文字與 DELETE 行為沒變（變了閘道就認不出、回收不了）。
+名額已滿時的行為（本版：自動回收維持關閉，名額滿回 429）：上游名額滿時新的 ``initialize`` 回 429＋-32000
+``Session limit reached (N)…``；閘道原樣把這個 429 回給用戶端，**不會**主動結束任何 session（proxy 的
+``_AUTOMATIC_RECLAIM_EXPERIMENTAL`` 固定為 False，環境與請求都無法開啟）。Claude.ai 等用戶端重連時不送 DELETE，
+舊 session 會一直占名額，直到它逾時：Session Timeout（進位成分鐘）之後，再加上上游最多 5 分鐘的清掃週期
+（預設 900 秒 → 約 15～20 分鐘）。這段時間新連線一律 429。維運可以：調高 Max Sessions、縮短 Session Timeout
+（最小有效粒度約 5 分鐘），或在 Settings 重啟 MCP Server 子行程立即清空所有 session（連線中的用戶端會斷線，
+需重新 initialize）。
 
-預設值同時調整：Session Timeout 3600 → 900 秒（被丟下的 session 最晚約 15～20 分鐘清掉；名額滿時不必等它）；
+閘道回收（``mcp_admin_core.session_reclaim``，main.py 仍宣告但 proxy 不會呼叫）是 0e432c3 之前的行為，對最久沒活動、
+閒置超過 5 分鐘的 session 送 ``DELETE /mcp`` 再重試；DELETE 沒有身分檢查，開啟前需另外審查
+（見 docs/security/mcp-child-identity.md）。這裡仍提供判斷「名額已滿」的 ``is_session_limit_reply`` 與「閒置多久上游
+一定已清掉」的 ``upstream_session_lifetime_seconds``，映像建置時 ``verify_upstream_session_limit_reply()`` 確認上游
+的 429 文字與 DELETE 行為沒變（供未來重新啟用回收時使用）。
+
+預設值同時調整：Session Timeout 3600 → 900 秒（被丟下的 session 最晚約 15～20 分鐘清掉）；
 Max Sessions 10 → 20。上限依實測（n8n-mcp 2.96.2、Node 26.12.1、與映像相同的三個建置期修補）：每個用過工具的 session
 約 1.6～3.1 MiB，子行程 1 個 session 約 141 MiB、80 個約 265 MiB；pod limits 1Gi（requests 256Mi），多 10 個名額約多
 30 MiB。已存過 Connection 頁的服務沿用存檔的值，只有沒存過的才吃新預設。
@@ -50,7 +57,7 @@ UPSTREAM_SESSION_CLEANUP_SECONDS = 300
 _UPSTREAM_SESSION_FILE = os.path.join("dist", "http-server-single-session.js")
 _UPSTREAM_SWEEP_RE = re.compile(r"^const SESSION_CLEANUP_INTERVAL = (\d+) \* (\d+) \* 1000;$", re.MULTILINE)
 
-# 上游名額已滿的回應（dist/http-server-single-session.js handleRequest）與 DELETE /mcp 立刻釋放名額；閘道回收靠這兩件事。
+# 上游名額已滿的回應（dist/http-server-single-session.js handleRequest）與 DELETE /mcp 立刻釋放名額；閘道回收（目前關閉）靠這兩件事。
 SESSION_LIMIT_PREFIX = "Session limit reached ("
 _UPSTREAM_LIMIT_REPLY_RE = re.compile(
     r"res\.status\(429\)\.json\(\{\s*jsonrpc: '2\.0',\s*error: \{\s*code: -32000,\s*"
@@ -176,7 +183,7 @@ def verify_upstream_session_sweep(package_dir: str | None = None) -> int:
 
 
 def upstream_session_limit_contract(package_dir: str) -> list[str]:
-    """閘道回收依賴的上游行為，缺了哪幾項（空清單＝都在）。"""
+    """閘道回收（目前關閉）依賴的上游行為，缺了哪幾項（空清單＝都在）。"""
     try:
         with open(os.path.join(package_dir, _UPSTREAM_SESSION_FILE), encoding="utf-8") as fh:
             source = fh.read()

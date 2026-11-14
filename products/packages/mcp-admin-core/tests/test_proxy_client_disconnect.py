@@ -15,6 +15,9 @@ import pytest
 
 from mcp_admin_core.request_limits import McpRequestLimits
 
+# Blocker 3: these tests own their upstream; stand in for the OS listener check (conftest.py).
+pytestmark = pytest.mark.usefixtures("synthetic_child")
+
 TOKEN = "disconnect-test-token-0123456789"
 
 

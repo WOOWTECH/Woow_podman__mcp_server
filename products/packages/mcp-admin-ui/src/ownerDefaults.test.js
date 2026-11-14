@@ -77,3 +77,9 @@ test('tokenSentence ignores an auto flag without an active token', () => {
   assert.equal(tokenSentence({ token_auto_issued: true }), '');
   assert.equal(tokenSentence(null), '');
 });
+
+test('restored policy is not described as all enabled', () => {
+  const text = ownerDefaultsMessage({ applied: 'restore_preserved', source: 'existing_config' });
+  assert.match(text, /保留備份內的工具與寫入限制/);
+  assert.doesNotMatch(text, /本來就是全開/);
+});

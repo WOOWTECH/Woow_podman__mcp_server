@@ -8,6 +8,7 @@ admin app 的 proxy 指向它；用 Streamable HTTP 走 initialize → tools/lis
 from __future__ import annotations
 
 from management_client import revision_headers
+from managed_proxy_fixture import attach
 
 import json
 import socket
@@ -89,6 +90,7 @@ def admin(tmp_config_path, monkeypatch):
     restarts: list[int] = []
 
     def factory(port: int):
+        attach(monkeypatch)
         cfg = json.loads(json.dumps(store_mod._DEFAULT_CONFIG))
         cfg.update({"mcp_auth_token": "secret",
                     "mcp_server": {"command": "", "args": [], "port": port, "env": {}}})
@@ -240,6 +242,7 @@ def test_real_sdk_client_gets_a_tool_result_with_is_error(store_env, monkeypatch
     from mcp.client.streamable_http import streamable_http_client
 
     from mcp_admin_core import create_app
+    attach(monkeypatch)
 
     class _PM:
         async def start(self):

@@ -537,4 +537,4 @@ async def mcp_restart(response: Response = None, if_match: Annotated[str | None,
             return {"status": "ok", "message": "MCP server restarted"}
         return {"status": "error", "message": "Failed to restart MCP server — check command config"}
 
-    return await run_configuration_transition(get_config_store(), get_process_manager(), if_match, apply_update, response, request=request, operation_kind="mcp.restart")
+    return await run_configuration_transition(get_config_store(), get_process_manager(), if_match, apply_update, response, request=request, operation_kind="mcp.restart", two_phase_restart=True)

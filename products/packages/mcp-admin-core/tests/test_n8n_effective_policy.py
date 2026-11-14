@@ -9,6 +9,9 @@ from mcp_admin_core import operation_policy, proxy
 from mcp_admin_core.request_limits import McpRequestLimits
 from n8n_mcp_admin import tool_registry
 
+# Blocker 3: these tests own their upstream; stand in for the OS listener check (conftest.py).
+pytestmark = pytest.mark.usefixtures("synthetic_child")
+
 MIXED = [
     ("n8n_manage_credentials", "action", "list", "delete", {"id": "synthetic"}),
     ("n8n_manage_datatable", "action", "listTables", "deleteTable", {"tableId": "synthetic"}),

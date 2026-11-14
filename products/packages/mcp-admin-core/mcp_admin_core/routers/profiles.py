@@ -23,8 +23,8 @@ async def create_profile(body: ProfileInput):
     registry = get_profile_registry()
     result = await registry.create(body.label)
     with registry.activate(result["id"]):
-        if await registry.ready_to_start(result["id"]):
-            await registry.manager_for(result["id"]).start()
+        # The manager does not spawn a product child that still lacks its required connection fields.
+        await registry.manager_for(result["id"]).start()
     return result
 
 

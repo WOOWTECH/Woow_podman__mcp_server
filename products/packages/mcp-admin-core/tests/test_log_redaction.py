@@ -52,6 +52,26 @@ def test_redact_masks_url_credentials(raw, expected):
     assert TOKEN not in log_redaction.redact(raw)
 
 
+@pytest.mark.parametrize("raw", [
+    f"/api/logs/search?%74oken={TOKEN}",
+    f"/api/logs/search?t%6Fken={TOKEN}",
+    f"/api/logs/search?%74%6f%6b%65%6e={TOKEN}",
+    f"/api/logs/search?access%5Ftoken={TOKEN}",
+    f"/api/logs/search?x=1&%54OK%45N={TOKEN}&y=2",
+])
+def test_redact_masks_percent_encoded_query_key(raw):
+    assert TOKEN not in log_redaction.redact(raw)
+
+
+@pytest.mark.parametrize("raw", [
+    f"/p%72ivate_{TOKEN}/mcp",
+    f"/private%5F{TOKEN}/mcp",
+    f"https://example.test%2Fprivate_{TOKEN}%2Fmcp",
+])
+def test_redact_masks_percent_encoded_path_prefix(raw):
+    assert TOKEN not in log_redaction.redact(raw)
+
+
 @pytest.mark.parametrize(
     "text",
     ["", "/api/settings", "/private", "GET /healthz", "/x?session_token=abc", "token rotated", "/x?q=token"],
@@ -167,6 +187,8 @@ def test_uvicorn_access_log_has_no_url_credentials(app, tmp_path: Path):
     # Never pass provider credentials into these local subprocesses.
     env = {k: os.environ[k] for k in ("PATH", "SYSTEMROOT", "LANG", "LC_ALL") if k in os.environ}
     env.update({"MCP_ADMIN_CONFIG": str(config), "JWT_SECRET": jwt_secret, "PYTHONUNBUFFERED": "1"})
+    repo = Path(__file__).resolve().parents[3]
+    env["PYTHONPATH"] = os.pathsep.join((str(repo / "packages/mcp-admin-core"), str(repo / "apps" / app)))
     out_path = tmp_path / "container.log"
     with out_path.open("wb") as out:
         proc = subprocess.Popen(
@@ -199,6 +221,10 @@ def test_uvicorn_access_log_has_no_url_credentials(app, tmp_path: Path):
                 # 管理頁 Logs（EventSource 只能用 ?token= 帶 JWT）
                 r = c.get("/api/logs/search", params={"q": "private_", "limit": 1000, "token": admin_jwt})
                 assert r.status_code == 200, r.text
+                # Query parsing accepts the percent-encoded key. Uvicorn logs
+                # the raw spelling, which must not bypass record redaction.
+                r = c.get(f"/api/logs/search?%74oken={admin_jwt}&q=not-present")
+                assert r.status_code == 200
                 time.sleep(0.3)
                 # 管理頁 Logs 只顯示目前 profile 的應用日誌；Uvicorn access log
                 # 在 request context 結束後才寫入，不能安全地歸屬某個 profile。

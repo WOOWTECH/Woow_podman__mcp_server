@@ -7,8 +7,15 @@ from enum import Enum
 from types import SimpleNamespace
 
 from fastapi import FastAPI
+import pytest
 from fastapi.testclient import TestClient
 from mcp_admin_core.operation_policy import OperationSpec
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(store_env):
+    """tools router 會經 get_config_store() 讀設定；沒有隔離時預設落在真的 /data/config.json
+    （root 的 CI 容器會去建立它，非 root 則 PermissionError）。一律指到 tmp_path。"""
 
 
 class _Cat(str, Enum):

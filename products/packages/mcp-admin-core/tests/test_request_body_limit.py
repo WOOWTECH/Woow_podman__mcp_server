@@ -19,6 +19,9 @@ from starlette.testclient import TestClient
 from mcp_admin_core import request_body
 from mcp_admin_core.request_body import DRAIN_BYTES, MAX_REQUEST_BODY_BYTES
 
+# Blocker 3: these tests own their upstream; stand in for the OS listener check (conftest.py).
+pytestmark = pytest.mark.usefixtures("synthetic_child")
+
 MiB = 1024 * 1024
 HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 INIT = {"jsonrpc": "2.0", "id": 1, "method": "initialize",

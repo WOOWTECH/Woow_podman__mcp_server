@@ -129,6 +129,23 @@ def test_gateway_refuses_every_2026_only_method_and_notifications(admin_app):
     assert child.methods == ["initialize"]
 
 
+def test_listening_unmanaged_child_is_not_sent_initialize(make_app, monkeypatch):
+    """An accepting loopback socket alone does not establish child ownership."""
+    from mcp_admin_core import process, proxy
+    manager = process.McpProcessManager()
+    monkeypatch.setattr(process, '_instance', manager)
+    monkeypatch.setattr(proxy, 'get_process_manager', lambda: manager)
+    child = _child()
+    with _Uvicorn(child) as upstream:
+        client = make_app({'mcp_auth_token': 'secret', 'mcp_server': {'port': upstream.port}})
+        response = client.post('/private_secret/mcp', headers=_H, json={
+            'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+            'params': {'protocolVersion': '2025-11-25', 'capabilities': {}, 'clientInfo': {'name': 't', 'version': '0'}}})
+    assert response.status_code == 200
+    assert response.headers['mcp-session-id'].startswith('woow-')
+    assert child.methods == []
+
+
 @pytest.mark.parametrize("stateless", [False, True], ids=["stateful", "stateless"])
 def test_sdk2_auto_client_negotiates_the_2025_era_through_the_gateway(admin_app, stateless):
     """mcp 2.x Client 預設 mode="auto"：先送 discover，被閘道回 -32601 後退回 initialize（2025-11-25）。"""

@@ -14,9 +14,11 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+from starlette.middleware import Middleware
+
 from mcp_admin_core.app import create_app
 from mcp_admin_core.config import get_config_store
-from mcp_admin_core.profiles import get_profile_registry
+from mcp_admin_core.profiles import ProfileContextMiddleware, get_profile_registry
 from mcp_admin_core.profiles import current_profile_id
 from mcp_admin_core.launch_policy import LaunchPolicy
 from mcp_admin_core.routers.health import make_health_router
@@ -62,8 +64,10 @@ app = create_app(
     tool_registry=tool_registry,
 )
 
-# Tools 頁開放原本被停用的工具時重啟子行程（子行程啟動時才依政策註冊工具，見 tool_policy）。
-app.add_middleware(tool_policy.ToolPolicyMiddleware)
+# 必須在認證及 profile 選取之內：前後讀取與重啟都屬於選定的設定檔。
+profile_layer = next(i for i, layer in enumerate(app.user_middleware)
+                     if layer.cls is ProfileContextMiddleware)
+app.user_middleware.insert(profile_layer + 1, Middleware(tool_policy.ToolPolicyMiddleware))
 
 # path token 與 app password 不進 log。
 log_redaction.install()
