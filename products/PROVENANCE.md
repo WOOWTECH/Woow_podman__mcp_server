@@ -25,8 +25,9 @@ volume ownership live in `products/deploy/shared` and do not change any MCP
 operation or GUI code. The archived `odoo-manage` frontend directory is present
 only to satisfy the PaaS npm workspace lock and is not a deployed product.
 VK was retired from the Podman products on 2026-11-14. `apps/vk` stays
-vendored byte for byte from PaaS, without the Podman edits, only so the uv
-and npm workspace locks still match; no VK image is built or installed.
+vendored with the same edits as the other apps, because the uv and npm
+workspace locks include it and the shared core tests iterate every app; no
+VK image is built or installed.
 
 The existing root Podman-host MCP uses MCP SDK 1.x and remains in its own
 environment. New MCP products use this `products/` workspace and the same

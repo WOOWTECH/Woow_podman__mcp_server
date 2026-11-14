@@ -49,6 +49,6 @@ app = create_app(
     ],
     launch_policy=LAUNCH_POLICY,
     product_id="vk",
-    deployment_kind="paas",
+    deployment_kind="podman",
     tool_registry=tool_registry,
 )

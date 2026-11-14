@@ -92,9 +92,10 @@ COPY --from=frontend-builder /app/apps/vk/frontend/dist /app/static
 RUN groupadd --gid 1000 app \
  && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/app --shell /usr/sbin/nologin app \
  && mkdir -p /data && chown 1000:1000 /data && chmod 0770 /data
+COPY deploy/shared/bootstrap.py /app/bootstrap.py
 USER 1000:1000
 VOLUME /data
 EXPOSE 8080
 # entrypoint 廢除：image 只跑 uvicorn admin；supergateway + vibe-kanban-mcp 由 McpProcessManager
 # 於執行期依 seed 的 mcp_server.command 拉起，此處不啟動任何 MCP 子行程。
-CMD ["uvicorn", "vk_mcp_admin.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "/app/bootstrap.py", "vk_mcp_admin.main:app"]

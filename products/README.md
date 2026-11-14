@@ -15,7 +15,7 @@
 | K8s | 18508 | PaaS；HA 尚無產品 |
 
 `odoo-manage` 已封存，不安裝其服務；保留它的 frontend 目錄只是為了符合 PaaS npm workspace lock。
-`vk`（Vibe Kanban）自 2026-11-14 起不再部署：`apps/vk` 照 PaaS 原樣保留、不套 Podman 修改，只為符合 PaaS 的 uv 與 npm workspace lock，不建置也不安裝映像。
+`vk`（Vibe Kanban）自 2026-11-14 起不再部署：`apps/vk` 仍和其他 app 一樣收編（PaaS 的 uv 與 npm workspace lock 包含它，共用核心測試也逐一檢查每個 app），但不建置也不安裝映像。
 
 ## 安裝與連線
 
