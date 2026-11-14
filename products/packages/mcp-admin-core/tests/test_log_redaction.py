@@ -74,7 +74,7 @@ def test_redact_masks_percent_encoded_path_prefix(raw):
 
 @pytest.mark.parametrize(
     "text",
-    ["", "/api/settings", "/private", "GET /healthz", "/x?session_token=abc", "token rotated", "/x?q=token"],
+    ["", "/api/settings", "/private", "GET /healthz", "/x?mytoken=abc", "token rotated", "/x?q=token"],
 )
 def test_redact_leaves_other_text_untouched(text):
     assert log_redaction.redact(text) == text
