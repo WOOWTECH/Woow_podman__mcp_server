@@ -117,10 +117,11 @@ separate rollout gates.
 
 ## Current release state
 
-The multi-profile hardening (Gitea #140-#146) was merged as canonical Gitea
-`443e95a942c7ef0484d963631382aab94d0e0567`. The Podman catalog pins
+The multi-profile hardening (Gitea #140-#146) and the gateway queue fixes
+(Gitea #147, #148, #150) are in canonical Gitea
+`5a06d533eb433ad511bba8e2db946a0de922925d`. The Podman catalog pins
 that exact commit, and both direct parity checks passed against a clean
-checkout of it. The Headscale product version is `0.1.4-podman.1`.
+checkout of it. The Headscale product version is `0.1.5-podman.1`.
 
 The signing key, reviewed image identity, signed manifest, and live Quadlet
 upgrade are separate release artifacts. This source branch does not include

@@ -42,6 +42,12 @@ logger = logging.getLogger(__name__)
 #: 遮罩會把整行換成「[redacted: ...]」，前綴「[mcp-server] 」就不見了。
 CHILD_OUTPUT_ATTR = "mcp_child_output"
 
+#: 子行程輸出的一行最多留這麼多位元組（不含換行）；更長的部分丟掉、行尾標上 ``…[truncated N bytes]``。與
+#: ``asyncio.StreamReader`` 的預設 limit 相同：以前整行收得下的（≤ 64 KiB）一個位元組都不動，更長的行才會被截斷
+#: （以前那種行讓 ``_drain_logs`` 因 ``ValueError`` 離開迴圈、不再讀 pipe）。
+MAX_CHILD_LINE_BYTES = 64 * 1024
+_CHILD_READ_BYTES = 64 * 1024
+
 
 class _ChildOutputExcluded(logging.Filter):
     """子行程自己的 stdout／stderr（``_drain_logs`` 帶 :data:`CHILD_OUTPUT_ATTR` 的 record）只進管理頁 Logs，不進容器 stdout（可能含後端錯誤內容）。"""
@@ -105,6 +111,47 @@ CHILD_PORT_CONFLICT = "child_port_conflict"
 CHILD_PEER_MISMATCH = "child_peer_mismatch"
 #: 已驗證的世代在轉發連不上之後重新檢查：子行程不再擁有 listener。
 CHILD_PEER_LOST = "child_peer_lost"
+
+
+async def _child_output_lines(stream):
+    """子行程輸出的每一行，``(內容, 丟掉的位元組數)``：每行最多留 :data:`MAX_CHILD_LINE_BYTES`，記憶體有上限。
+
+    不用 ``readline()``：``StreamReader`` 遇到超過 limit 的行會拋 ``ValueError``，而且已經把那一段丟掉，連前面能留的部分
+    都拿不到；呼叫端一旦放棄迴圈就沒有人讀 pipe 了。這裡直接讀區塊自己切行，超過上限的部分只計數、不存。被丟掉的部分
+    **不會另外成行**：token 若被切在兩行，第二行沒有 ``/private_`` 前綴就遮不到。最後沒有換行的一行（EOF）照樣交出。
+
+    只能逐行迭代的輸出（測試替身，沒有 ``read``）照舊一行一行讀，超過上限的行同樣截斷。
+    """
+    read = getattr(stream, "read", None)
+    if not callable(read):
+        async for line in stream:
+            body = line[:-1] if line.endswith(b"\n") else line
+            yield body[:MAX_CHILD_LINE_BYTES], max(0, len(body) - MAX_CHILD_LINE_BYTES)
+        return
+    pending = bytearray()
+    dropped = 0
+    while True:
+        chunk = await read(_CHILD_READ_BYTES)
+        if not chunk:
+            break
+        start = 0
+        while True:
+            end = chunk.find(b"\n", start)
+            piece = chunk[start:] if end < 0 else chunk[start:end]
+            room = MAX_CHILD_LINE_BYTES - len(pending)
+            if len(piece) > room:
+                pending += piece[:room]
+                dropped += len(piece) - room
+            else:
+                pending += piece
+            if end < 0:
+                break
+            yield bytes(pending), dropped
+            pending.clear()
+            dropped = 0
+            start = end + 1
+    if pending or dropped:
+        yield bytes(pending), dropped
 
 
 class InitializeDrainPending(RuntimeError):
@@ -994,8 +1041,11 @@ class McpProcessManager:
         if not proc or not proc.stdout:
             return
         try:
-            async for line in proc.stdout:
+            async for line, dropped in _child_output_lines(proc.stdout):
                 text = line.decode("utf-8", errors="replace").rstrip()
+                if dropped:
+                    # 一行超過上限：留前段、標上丟掉多少。標記前有一個空白，前段結尾若是 token 的一部分，遮罩到空白就結束。
+                    text += f" …[truncated {dropped} bytes]"
                 if text:
                     self._last_output.append(text)
                     logger.info("[mcp-server] %s", text, extra={CHILD_OUTPUT_ATTR: True})

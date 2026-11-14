@@ -2,15 +2,21 @@
 
 The nine active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`443e95a942c7ef0484d963631382aab94d0e0567` (Gitea, 2026-11-13). Since the
-previous pin `0e432c3ebd7a481b8994105a187f29837d941fd6`, Gitea merged #140
-(security release: Origin report-only default, restore without old tokens,
-child identity checks), #141 (Logs buffer per profile), #142 (profile
-management and startup robustness), #143 and #146 (restore runbook and
-Headscale restore), #144 (redaction of encoded `/private_` paths) and #145
-(per-profile gateway connection quota, clean errors when a child exits or a
-token changes mid-response). The refresh changes no tool registry, lock file,
-Dockerfile or package manifest. The Headscale app
+`5a06d533eb433ad511bba8e2db946a0de922925d` (Gitea, 2026-11-14). Since the
+previous pin `443e95a942c7ef0484d963631382aab94d0e0567`, Gitea merged #147
+(restore runbook follow-ups), #148 (gateway queue: a queued write no longer
+runs after its client disconnects, queue limits, notifications are not
+turned into 503, `-32004` names its cause, redirect `Location` rewriting keeps
+clients under their `/private_` path, and an over-long child output line no
+longer stalls the log reader) and #150 (documentation and test follow-ups to
+#148). The pin before, `0e432c3ebd7a481b8994105a187f29837d941fd6`, was
+followed by #140 (security release: Origin report-only default, restore
+without old tokens, child identity checks), #141 (Logs buffer per profile),
+#142 (profile management and startup robustness), #143 and #146 (restore
+runbook and Headscale restore), #144 (redaction of encoded `/private_` paths)
+and #145 (per-profile gateway connection quota, clean errors when a child
+exits or a token changes mid-response). Neither refresh changes a tool
+registry, lock file, Dockerfile or package manifest. The Headscale app
 implements the Headscale v0.29.4 29-operation native contract, its dedicated
 management GUI, operation policy, Origin checks, session revocation, and the
 optional PaaS binding. The HA Add-on's Headscale child came from the same
