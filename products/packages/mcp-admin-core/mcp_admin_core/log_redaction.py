@@ -1,15 +1,18 @@
 """admin 行程的 log 衛生：URL 裡的憑證不進 log（woow_paas_platform#1614）。
 
-兩種憑證會跟著請求路徑一起被印出來：
+三種憑證會跟著請求路徑一起被印出來：
 
 1. **MCP path token**：MCP client 連 ``/private_{token}/mcp``，token 等於整個 MCP 端點的憑證。
-2. **管理頁 JWT**：Logs 頁用 EventSource 連 ``/api/logs/stream?token=<JWT>``（EventSource 不能帶 header，
-   見 ``auth/middleware.py``），JWT 等於管理頁登入。
+2. **管理頁 JWT**：``/api/logs/stream?token=<JWT>``（auth middleware 接受 query 裡的 token，見
+   ``auth/middleware.py``），JWT 等於管理頁登入。
+3. **其他 query 憑證參數**（2026-11-13 上線前重測）：``?api_key=``、``?key=``、``?secret=``、``?password=``、
+   ``?sig=``…（:data:`CREDENTIAL_PARAM_NAMES`）。例如 LiteLLM 子行程查詢虛擬金鑰的 ``/key/info?key=sk-…``，
+   子行程輸出經 McpProcessManager 轉錄成本行程的 log。
 
-uvicorn access log 會印完整請求路徑（含 query string）；``routers/logs.py`` 又把 ``uvicorn.access``、
-``httpx``、``mcp_admin_core`` 收進 Logs 頁 ring buffer，容器 stdout（``kubectl logs``）也看得到。這裡在
-record 建立當下就把 ``/private_<token>`` 改寫成 ``/private_***``、``?token=<值>`` 改寫成 ``?token=***``，
-之後不論哪個 handler（stdout、ring buffer）拿到的都是遮好的內容。
+uvicorn access log 會印完整請求路徑（含 query string），容器 stdout（``kubectl logs``）看得到；``routers/logs.py``
+把 ``httpx``、``mcp_admin_core`` 與 app 自己的 logger 收進 Logs 頁 ring buffer（uvicorn access 紀錄從多帳號實測
+P3-e 起不進 Logs 頁）。這裡在 record 建立當下就把 ``/private_<token>`` 改寫成 ``/private_***``、憑證參數的值改寫成
+``***``，之後不論哪個 handler（stdout、ring buffer）拿到的都是遮好的內容。
 
 做法（兩層；同一筆 record 只實際遮一次，第二層看到已遮的 record 就跳過）：
 
@@ -65,6 +68,28 @@ ACCESS_PATH_MARKER_SLACK = 32
 ACCESS_PATH_SCAN_CHARS = 2 * ACCESS_PATH_MAX_CHARS
 MAX_DECODE_ROUNDS = 16
 
+_REPL_1 = r"\1" + MASK
+_REPL_12 = r"\1\2" + MASK
+# 先 ``search`` 的字串長度上限（見 :func:`_sub`）：更長的字串掃描本身遠大於 10 µs，而第一個 match 很晚才出現的輸入（``api;`` 重複
+# 上萬次、結尾才有鍵名）會讓 ``search`` 加 ``sub`` 掃兩遍（演化式搜尋找到的最壞形狀慢約 30%）。
+_SEARCH_FIRST_MAX_CHARS = 8192
+
+
+def _sub(pattern: re.Pattern[str], repl: str, text: str) -> str:
+    """``pattern.sub(repl, text)``，短字串沒有 match 時不呼叫 ``sub``（結果相同，只是更快）。
+
+    ``Pattern.sub`` 的 repl 含反斜線（``\\1``）時，每次呼叫都要查 ``re._compile_template`` 的 lru_cache，而查快取要雜湊整個
+    編譯後的 pattern——``Pattern.__hash__`` 每次重算整段 code：大的鍵名 pattern（乾淨值規則、``_NAMED_VALUE_RE`` 系列）每次約
+    10 µs，``search`` 只要 0.5 µs。一般的 log 行幾乎沒有 match，先 ``search`` 一次就省掉這筆（``cpu=45% mem=70%`` 這類短行
+    22 µs → 4 µs）；有 match 的行多一次 ``search``（只掃到第一個 match）。只用在大的 pattern：路徑、裸 query 的 pattern 雜湊
+    只要 0.6 µs，而 ``/private_`` 的行幾乎都有 match，多一次 ``search`` 反而慢；超過 :data:`_SEARCH_FIRST_MAX_CHARS` 的字串直接
+    ``sub``。
+    """
+    if len(text) <= _SEARCH_FIRST_MAX_CHARS and pattern.search(text) is None:
+        return text
+    return pattern.sub(repl, text)
+
+
 # 有些伺服器／proxy 會忽略反斜線，過長 UTF-8（%e0%80%af）解碼後成為 U+FFFD；這兩種字元可以夾在標記字元之間而
 # 仍被當成同一個路徑，所以 pattern 一律容許它們穿插在標記內（只是多遮，不會少遮）。
 _NOISE = r"[\\\ufffd]*"
@@ -93,7 +118,10 @@ def _spelled_word(word: str) -> str:
 # 所有 pattern 都以固定字面前綴開頭、中間沒有巢狀量詞，單次掃描為線性。
 # 反斜線當分隔符時用 lookbehind 擋掉「從噪音連續段中間起算」的起點，否則 ``\\\\\\…`` 長串會從每個位置各掃一次。
 # 前綴在解碼前（紀錄原本的拼法）與解碼後共用；任意層編碼的寫法解碼後一定也認得，所以對解碼後的字串沒有差別。
-_PRIVATE_PREFIX = r"(?:/|%(?:25)*+(?:2f|5c)|(?<![\\\ufffd])\\)" + _NOISE + _spelled_word("private_")
+# 反斜線分支的 lookbehind 寫在吃掉反斜線之後（``\\(?<![\\\ufffd]\\)``，與寫在前面的 ``(?<![\\\ufffd])\\`` 逐字等價）：
+# 三個分支都以字面字元開頭，sre 才能用第一個字元的集合（``/ % \``）直接跳過不可能的位置；lookbehind 寫在前面時每個位置
+# 都要進入比對，128 KiB 的一般文字每一次 ``sub``／``search`` 多約 4 ms。
+_PRIVATE_PREFIX = r"(?:/|%(?:25)*+(?:2f|5c)|\\(?<![\\\ufffd]\\))" + _NOISE + _spelled_word("private_")
 # 解碼後先套用的區段規則（與 e0a80d6 相同）：token 到下一個 / 、空白、? 、# 或引號為止。
 _PATH_TOKEN_RE = re.compile("(" + _PRIVATE_PREFIX + r")[^/\s?#\"']++", re.IGNORECASE)
 # N7（2026-11-13）：token 區段。開頭先跳過 / ? # " '（``/private_//<token>``；``/private_%2F<token>`` 在 access log 是
@@ -120,16 +148,39 @@ _STRICT_PATH_SEGMENT_RE = re.compile(
 # （先跑上面的區段規則）。``***`` 之後的路徑與 lookahead 掃描的 query 都不跨過 ``*`` 與 ``?``：``*`` 只會出現在遮罩裡
 # （access log 的 path 經 quote，字面 ``*`` 是 ``%2A``），下一個 ``/private_***`` 就是邊界，所以每個字元最多被一個起點
 # 掃到，``/private_***/x?a=1`` 重複上萬次也是 O(n)；整段 query 只在真的要遮的時候被吃掉一次。
-_BARE_QUERY_RE = re.compile(
-    "(" + _PRIVATE_PREFIX + r"\*\*\*[^\s?#\"'*]*+\?)"
-    r"(?=(?:[^=&;\s#\"'?*]*+=[^&;\s#\"'?*]*+[&;]|[&;])*+[^=&;\s#\"'?*]++(?!=))"
-    r"[^\s#\"']++",
-    re.IGNORECASE)
+# 例外是緊接在 ``=`` 後面的 ``***``（已遮的憑證值，2026-11-13）：路徑與參數都可以跨過它，``api_key=***&<token>`` 仍是
+# 「有 = 的參數」加上裸參數，整段照樣遮（否則先遮了憑證值，後面的 token 反而留下）。``前綴***`` 的 ``***`` 前面是 ``_``
+# 或噪音、不是 ``=``，所以掃描仍停在下一個 ``/private_***``，維持線性。
+_BARE_QUERY_TAIL = (r"\*\*\*(?:=\*\*\*|[^\s?#\"'*])*+\?)"
+                    r"(?=(?:[^=&;\s#\"'?*]*+=(?:\*\*\*)?+[^&;\s#\"'?*]*+[&;]|[&;])*+[^=&;\s#\"'?*]++(?!=))"
+                    r"[^\s#\"']++")
+_BARE_QUERY_RE = re.compile("(" + _PRIVATE_PREFIX + _BARE_QUERY_TAIL, re.IGNORECASE)
+# 解碼後的字串專用（效能，2026-11-13）：解碼到不再改變的字串裡沒有任何有效的 ``%XX``，前綴的 ``%(25)*HH`` 分支永遠比對
+# 不到，拿掉之後結果逐字相同。字母改用明確的字元類別、不開 IGNORECASE（IGNORECASE 的字面比對要逐字元折疊，比較慢）；
+# 類別內容就是 IGNORECASE 下會比對到該字母的全部字元（全 Unicode 窮舉：只有 i 多了 U+0130／U+0131、k 多了 U+212A、
+# s 多了 U+017F，見 ``_FOLDS``）。
+_FOLDS = {"i": "iI\u0130\u0131", "k": "kK\u212a", "s": "sS\u017f"}
+
+
+def _decoded_word(word: str) -> str:
+    """:func:`_spelled_word` 的解碼後版本：只有字面字母（含 IGNORECASE 會折疊進來的字元）與噪音。"""
+    return "".join(("[" + _FOLDS.get(char, char + char.upper()) + "]" if char.isalpha() else re.escape(char)) + _NOISE
+                   for char in word)
+
+
+_DECODED_PREFIX = r"(?:/|\\(?<![\\\ufffd]\\))" + _NOISE + _decoded_word("private_")
+_PATH_TOKEN_DECODED_RE = re.compile("(" + _DECODED_PREFIX + r")[^/\s?#\"']++")
+_PATH_SEGMENT_DECODED_RE = re.compile("(" + _DECODED_PREFIX + r")[/?#\"']*+[^/\s?#\"']++")
+_BARE_QUERY_DECODED_RE = re.compile("(" + _DECODED_PREFIX + _BARE_QUERY_TAIL)
+# 解碼後還有「後面不是 ``***`` 加分隔字元（或字串結尾）」的前綴，才需要在解碼後的字串上再套區段規則：拼法階段已經把認得的
+# 區段都遮成 ``前綴***``，``前綴***`` 加分隔字元再套 ``_PATH_TOKEN_RE``／``_PATH_SEGMENT_RE`` 結果不變（只有解碼後才認得的
+# 前綴，例如 ``p%5Crivate_``，後面才會是別的東西）。單一 ``search``，128 KiB 約 1 ms，省掉兩次整串 ``sub``。
+_UNMASKED_PREFIX_RE = re.compile(_DECODED_PREFIX + r"(?!\*\*\*(?:[/\s?#\"']|\Z))")
 # F10：開頭的 lookahead 只檢查「分隔符、噪音之後的第一個字元是 a／t（或 ``%`` 開頭的編碼寫法）」這個必要條件，
 # 讓 ``&&&…`` 這類長串在每個起點只做一次單字元檢查就失敗（實測 64KB 從 5 ms 降到 1.4 ms）；不改變 match 結果。
-_QUERY_TOKEN_RE = re.compile(r"(?=[?&;]" + _NOISE + r"[aAtT%])"
-                             + r"([?&;]" + _NOISE + r"(?:" + _url_word("access_") + r")?" + _url_word("token")
-                             + r"=)[^&#\s\"']+", re.IGNORECASE)
+# lookahead 放在分隔符之後（與放在最前面逐字等價）：pattern 以字面字元集合 ``[?&;]`` 開頭，sre 直接跳過其他位置。
+_QUERY_TOKEN_RE = re.compile(r"([?&;](?=" + _NOISE + r"[aAtT%])" + _NOISE + r"(?:" + _url_word("access_") + r")?"
+                             + _url_word("token") + r"=)[^&#\s\"']+", re.IGNORECASE)
 # 憑證鍵名的「寬鬆」比對（取代原本「每個 [?&;] 起點先吃 128 字元再回溯找 =」的 key 字元類別，那是 O(128×n)，
 # r2co-1）。被拒絕的 URL 可能在鍵名的字母之間夾標點、空白、反斜線、U+FFFD，甚至解碼後出現的 ``&``、``;``
 # （``token%26=``、``token%3B=``、``token%20=``），所以不能用「key 遇到分隔符就停」——那會讓這些已有測試的寫法外洩。
@@ -194,14 +245,255 @@ _KEY_TAIL = re.compile(r"((?:" + _KEY_ACCESS + r")?" + _KEY_TOKEN + r")=([^&#;\s
 #     等於原本「lead 從 last 起算」的規則，不需要 lookbehind；
 #   - possessive 量詞不回溯，每個字元最多被一個 lead 與一次 ``_KEY_TAIL`` 看過，仍是 O(n)。
 # 不可改成 CLAUDE.md 列為禁止的寫法（key 字元類別含 ``&;``、遇分隔符就停、可為空 lead 的單一 regex）。
-# 開頭的 lookahead 同樣只檢查必要條件（lead 之後的第一個字元是 a／t），不改變 match 結果。
-_LOOSE_KEY_RE = re.compile(r"(?=[?&;][^A-Za-z0-9=#\"'?&;]*+[aAtT])"
-                           r"([?&;][^A-Za-z0-9=#\"'?&;]*+)(?i:" + _KEY_TAIL.pattern + r")")
+# 開頭的 lookahead 同樣只檢查必要條件（lead 之後的第一個字元是 a／t），不改變 match 結果；與 ``_QUERY_TOKEN_RE`` 一樣
+# 放在分隔符之後，pattern 以字面字元集合開頭。
+_LOOSE_KEY_RE = re.compile(r"([?&;](?=[^A-Za-z0-9=#\"'?&;]*+[aAtT])[^A-Za-z0-9=#\"'?&;]*+)(?i:"
+                           + _KEY_TAIL.pattern + r")")
 _LOOSE_KEY_REPL = r"\g<1>\g<2>=" + MASK
+
+# ---------------------------------------------------------------------------
+# query 憑證參數（2026-11-13：#144 二次審查建議 1、上線前重測 info）
+# ---------------------------------------------------------------------------
+#
+# 憑證鍵名的判準：參數名稱「整個」是下列其中一個，前面接 ``? & ;``、後面接 ``=``。
+# - 以字列出；字之間可以是底線、連字號或什麼都沒有（api_key、api-key、apikey），ASCII 大小寫不拘（API_KEY、Api-Key）；
+#   字母、``_``、``-``、lead 與 ``=`` 在紀錄裡可以是任意層編碼（``api%5Fkey``、``%2561pi_key``、``%3Fkey%3D``）。
+# - 只認 ASCII 的大小寫：HTTP 框架不會把 K（U+212A）、ſ（U+017F）這類字元當成 k、s，``?Key=1``（Kelvin）照舊是一般參數
+#   （tests/test_log_redaction_segments.py 釘住）。token／access_token 是既有的鍵名（``_QUERY_TOKEN_RE``、``_LOOSE_KEY_RE``，
+#   字母之間可夾雜字元、沿用 IGNORECASE 的折疊），這一節另外處理它們的值前面或中間夾編碼分隔字元的寫法。
+# - 只認完整名稱，不認前綴、後綴或子字串：``mytoken``、``token_type``、``tokens``、``keys``、``key_id``、``monkey``、``keyword``、
+#   ``signature_version``、``auth_mode``、``refresh_tokens`` 都不算；``limit``、``page``、``q``、``session_id`` 等一般參數保持可讀。
+# 改這份清單時一起改 CLAUDE.md 與 tests/test_log_redaction_query_credentials.py（測試裡有同一份清單）。
+CREDENTIAL_PARAM_NAMES = (
+    ("api", "key"), ("x", "api", "key"), ("key",), ("secret",), ("client", "secret"), ("secret", "key"),
+    ("api", "secret"), ("password",), ("passwd",), ("pwd",), ("auth",), ("authorization",), ("jwt",),
+    ("access", "key"), ("signature",), ("sig",), ("private", "key"),
+    ("x", "amz", "signature"), ("x", "amz", "security", "token"), ("x", "goog", "signature"),
+    # 2026-11-14 獨立審查 N-5：值本身就是憑證的 OAuth／session／應用程式金鑰名稱
+    ("refresh", "token"), ("id", "token"), ("auth", "token"), ("session", "token"), ("app", "key"),
+    ("consumer", "secret"), ("passphrase",),
+)
+_TOKEN_PARAM_NAMES = (("token",), ("access", "token"))
+_WORD_BREAK = "\x00"
+
+
+def _hex_pair(code: str) -> str:
+    """兩位十六進位數字，字母大小寫皆可（這一節的 pattern 不開 IGNORECASE）。"""
+    return "".join(f"[{digit.lower()}{digit.upper()}]" if digit.isalpha() else digit for digit in code)
+
+
+def _letter(char: str, folds: bool) -> str:
+    """字面字元：ASCII 大小寫；``folds`` 時再加上 IGNORECASE 會折進來的字元（與既有 token 規則相同）。"""
+    if not char.isalpha():
+        return re.escape(char)
+    return "[" + (_FOLDS.get(char, char + char.upper()) if folds else char + char.upper()) + "]"
+
+
+def _spelled_char(char: str, folds: bool) -> str:
+    """一個 ASCII 字元在紀錄裡的寫法：字面或任意層百分比編碼（``%61``、``%2561``…，大小寫皆可）。"""
+    codes = sorted({f"{ord(char.lower()):02x}", f"{ord(char.upper()):02x}"})
+    return f"(?:{_letter(char, folds)}|%(?:25)*+(?:{'|'.join(_hex_pair(code) for code in codes)}))"
+
+
+def _name_pattern(names, spelled: bool, folds: bool = False) -> str:
+    """鍵名清單編成一棵字首樹（同一個位置的分支第一個字元互不相同，不回溯）；字之間的分隔字元可有可無。
+
+    ``spelled``＝紀錄原本的拼法（字母、``_``、``-`` 可以是任意層編碼）；否則是解碼後的字串（只有字面）。名稱後面還可以
+    接更長的名稱時（``auth``／``authorization``、``sig``／``signature``）用 possessive 的 ``(?:…)?+``：後面是 ``=`` 時長的
+    名稱一定比對不到，不會吃錯。
+    """
+    trie: dict = {}
+    for words in names:
+        node = trie
+        for index, word in enumerate(words):
+            if index:
+                node = node.setdefault(_WORD_BREAK, {})
+            for char in word:
+                node = node.setdefault(char, {})
+        node[""] = {}
+    word_break = r"(?:[_-]|%(?:25)*+(?:5[fF]|2[dD]))?+" if spelled else r"[_-]?+"
+
+    def emit(node: dict) -> str:
+        branches = []
+        for key in sorted(k for k in node if k):
+            atom = word_break if key == _WORD_BREAK else (
+                _spelled_char(key, folds) if spelled else _letter(key, folds))
+            branches.append(atom + emit(node[key]))
+        if not branches:
+            return ""
+        body = branches[0] if len(branches) == 1 else "(?:" + "|".join(branches) + ")"
+        return "(?:" + body + ")?+" if "" in node else body
+
+    return "(?:" + emit(trie) + ")"
+
+
+# 1) 紀錄原本的拼法上（解碼之前）遮憑證值（N7 同型：``?token=%20<JWT>``、``%22<JWT>%22``、``%E3%80%80<JWT>``、
+#    ``<JWT 前半>%20<JWT 後半>``）。解碼之後這些編碼過的空白、引號是值的結束字元，舊的規則只遮到它之前、或根本比對不到
+#    （443e95a 整個 JWT 外洩；8297aa4 只比對字面，會遮）。在原本的拼法上它們只是一般字元。
+#    - lead ``? & ;``、鍵名的字母與 ``_``／``-``、``=`` 都可以是任意層編碼（網址被當成另一個參數的值時常見）。
+#    - 值可先跳過開頭的字面引號（``?token='<JWT>'``，curl 貼上引號），之後是「乾淨」的字元：不是字面的
+#      ``? ; / \ % *`` 或 U+FFFD，``%`` 只能是完整的 ``%(25)*HH`` 單位，而且解碼後不是 ``/ \ # & ; ?`` 或控制字元。
+#      乾淨的範圍裡不會有 ``/private_`` 前綴的起點（``/``、``\``、``%2F``、``%5C``）與前綴的噪音（U+FFFD：
+#      ``<值>\ufffd\private_`` 遮成 ``***\private_`` 會多出一個前綴起點）、鍵名的 lead（``? & ;``，含解碼後的）、無效跳脫或
+#      ``#``，所以不會吃掉別的規則要用的東西：``_LOOSE_KEY_RE`` 跨過空白的鍵名（``?to ken=``）、裸 query 判斷裡的參數分隔，
+#      都與 443e95a 相同。值裡的 ``*`` 也不算乾淨：``***`` 已遮過，不再動它。
+#    - token／access_token 的值必須**整段**乾淨、一路到下一個字面的 ``& # 空白 " '`` 或字串結尾（lookahead 先確認；中途遇到
+#      別的字元就整個不遮，留給解碼後的規則，結果與 443e95a 相同）：解碼後的 ``_QUERY_TOKEN_RE`` 會從 ``token=***`` 接著往後吞
+#      （它的值字元含 ``; / ?``），只遮前半段的話它會吞掉解碼後才認得的前綴、讓跳過引號的區段整個外洩（開發時差分 fuzz
+#      找到的反例都在 tests/test_log_redaction_query_credentials.py）。
+#    - 非 token 的鍵名遮「乾淨的開頭」就好（``?password=my%20pass/word`` 先遮成 ``***/word``，解碼後第 2 點再遮剩下的）。
+#
+# 這一步會改變舊規則（token 值、``/private_`` 區段、裸 query）看到的字串，所以必須守住單調性：443e95a 遮得到的值，這個版本
+# 一定也遮得到（獨立審查 2026-11-14 MF-1：前一版找到 101 個反例，之後自己的差分 fuzz 又找到同一族的其他成員）。原因——舊規則
+# 的值一路吞到「解碼出來」的空白、引號才停；值先換成 ``***`` 之後空白、引號不見了，舊規則停得比 443e95a 晚，吞掉後面「鍵名字母
+# 之間夾空白」的鍵名 lead、或解碼後才認得的 ``/private_`` 前綴，後面的值就不再被任何規則認得。對策不是在舊規則上加停止條件
+# （試過「遇 ``***`` 就停」：舊規則靠吞過路徑規則寫的 ``***`` 才遮得到後半段，反而退步），而是**只在不會改變舊規則看到的字串時
+# 才做這一步**，依這一行有哪些舊規則會動分三種：
+#    a. 這一行有 token／access_token 鍵（``keys``）：舊的 token 值會一路吞過 ``?``、``;``。``&`` 一定讓它停下，所以 lead 是 ``&``
+#       的值照舊遮乾淨的開頭；lead 是 ``?``、``;`` 的非 token 鍵名改成與 token 相同的規則（值必須整段乾淨、一路到字面的分隔
+#       字元，否則整個不在這裡遮、留給解碼後的規則，結果與 443e95a 相同）。
+#    b. 這一行有 ``/private_`` 前綴（區段、裸 query）：前綴只在解碼後才認得時（``paths``，``p%5Crivate_`` 這類），它的區段
+#       （``_PATH_TOKEN_DECODED_RE``）吞過 ``& ;``，區段規則還會跳過前綴後面的 ``? ' "``。lead 是 ``& ;`` 的值不遮；lead 是
+#       ``?`` 的值只有在「第一個前綴與後面另一個前綴之間夾著遮掉的值」時才不遮（前面的區段會一路吞過遮掉的值、吃掉後面前綴的
+#       起點）；解碼後的值規則（第 2 點）改到最後才做（它們吃掉的字面引號、``?`` 是區段規則與裸 query 用來判斷在哪裡停的字元）。
+#    c. 兩者都沒有（LiteLLM 的 ``/key/info?key=sk-…``、presigned URL…，最常見的一種）：沒有舊規則會動，沒有東西要保護，值一路遮
+#       到下一個字面的 ``& # 空白 " '``（``wide``；token 也一樣）。
+# 非 token 鍵名在 a、b 少了的那一類（值以編碼分隔字元開頭、後面又有 ``/ ? ; \`` 等）與 443e95a 相同：由解碼後的規則遮到值裡
+# 「解碼出來」的空白、引號為止。三種判斷都以輸入為準，輸出再遮一次時判斷可能不同（``token`` 鍵被別的遮罩吞掉就變成 c），所以
+# 第一次就把那一輪做完（``_redact_bounded`` 結尾），結果才冪等。
+# 另一個要守住的是「前置遮罩不能讓解碼後才認得的前綴露出來」：值尾端解碼後是 U+FFFD 的跳脫（``%80``、``%BD``、``%EF%BF%BD``，
+# 無效 UTF-8 的位元組）擋住後面反斜線開頭的前綴（``_DECODED_PREFIX`` 的 lookbehind），值換成 ``***`` 之後前綴露出來，第一次沒遮、
+# 第二次才遮（不冪等，1800 萬行 5 筆）。這些跳脫是合法的值字元，不能排除在乾淨值之外，所以遮完檢查，露出來的話這一行改走 b 的規則。
+# 鍵名第一個字（由名稱清單算出）：讓 ``&=&=…`` 這類長串每個起點只做一次單字元檢查就失敗。拼法階段的第一個字也可以是編碼
+# （``%61pi_key``、``%2561``…），所以另外檢查 ``%(25)*`` 加上那些字母的十六進位碼——不是這些字母的編碼（``?%2Fprivate_``、
+# ``?%`` 重複上萬次）在這裡就失敗，不必進名稱樹試十幾個分支（獨立審查 N-3：原本只檢查 ``%``，``?%`` 重複輸入慢 2.4 倍）。
+_FIRST_LETTERS = sorted({word[0][0] for word in (*CREDENTIAL_PARAM_NAMES, *_TOKEN_PARAM_NAMES)})
+_NAME_START_DECODED = "(?=[" + "".join(char.lower() + char.upper() for char in _FIRST_LETTERS) + "])"
+_NAME_START = ("(?=[" + "".join(char.lower() + char.upper() for char in _FIRST_LETTERS) + "]|%(?:25)*+(?:"
+               + "|".join(_hex_pair(f"{ord(case):02x}") for char in _FIRST_LETTERS for case in (char.lower(), char.upper()))
+               + "))")
+# lead 的每個分支都以字面字元開頭：sre 才能用第一個字元的集合（``? & ; %``）直接跳過不可能的位置；分支開頭是子 pattern 或字元類別
+# 的寫法（``(?:\?|%…)|(?:[&;]|%…)``）每個位置都要進去比對，2 KB 的一般文字慢 3～4 倍。
+_LEAD_ALL = r"(?:\?|&|;|%(?:25)*+(?:3[fF]|26|3[bB]))"
+_LEAD_Q = r"(?:\?|%(?:25)*+3[fF])"
+_LEAD_AMP = r"(?:&|%(?:25)*+26)"
+_LEAD_QS = r"(?:\?|;|%(?:25)*+(?:3[fF]|3[bB]))"
+_SPELLED_EQ = r"(?:=|%(?:25)*+3[dD])"
+# ``%00``～``%1F``、``%7F``（解碼後是控制字元）不用在這裡排除：解碼出控制字元的字串一開始就是「無法判斷」，到不了這一步
+# （獨立審查 N-4：變異測試證實這兩個分支是死碼）。字面字元整段一次吃（``++``），``%`` 單位一個一個吃；兩者第一個字元不同，
+# 不會回溯，線性。
+_CLEAN_VALUE_UNIT = (r"(?:[^&#\s\"'?;/\\%*\ufffd]++"
+                     r"|%(?=(?:25)*+[0-9a-fA-F]{2})(?!(?:25)*+(?:2[fF]|5[cC]|23|26|3[bB]|3[fF])))")
+_CLEAN_TAIL = r"[\"']*+" + _CLEAN_VALUE_UNIT + r"++"
+_CLEAN_WHOLE = "(?=" + _CLEAN_TAIL + r"(?:[&#\s\"']|\Z))"
+
+
+def _clean_names(strict: bool) -> str:
+    """乾淨值規則的鍵名。token 一律要整段乾淨；``strict`` 時其他鍵名也要（見上面 a、b），否則只要乾淨的開頭。"""
+    token = _name_pattern(_TOKEN_PARAM_NAMES, spelled=True, folds=True)
+    credential = _name_pattern(CREDENTIAL_PARAM_NAMES, spelled=True)
+    if strict:
+        return "(?:(?:" + token + "|" + credential + ")" + _SPELLED_EQ + _CLEAN_WHOLE + ")"
+    return "(?:" + token + _SPELLED_EQ + _CLEAN_WHOLE + "|" + credential + _SPELLED_EQ + ")"
+
+
+# 沒有任何舊規則會動的行（見上面）沒有東西要保護：值一路遮到下一個字面的 ``& # 空白 " '``，編碼過的空白、引號、``/``、``\``、
+# ``?``、``;``、``&`` 都只是值的一部分（獨立審查 N-1：``?password=<A>%2F<B>%20<C>`` 原本遮到 ``%2F`` 就停，解碼後的規則又在
+# ``%20`` 停，<C> 外洩）。與解碼後的 ``_NAMED_VALUE_WIDE_RE`` 同一條規則，只是在原本的拼法上做。
+_WIDE_TAIL = r"[\"']*+[^&#\s\"']++"
+_clean_value_res: dict[tuple[str, str], re.Pattern[str]] = {}
+
+
+def _clean_value_re(mode: str, leads: str = "all") -> re.Pattern[str]:
+    """拼法階段的憑證值規則。``mode``：``wide``＝沒有舊規則會動的行（值一路遮到字面分隔字元）、``lenient``＝乾淨的開頭、
+    ``strict``＝整段乾淨（見上面 a）。``leads``：``all``＝``? & ;``、``q``＝只有 ``?``、``amp``＝只有 ``&``、``qs``＝``? ;``。
+    pattern 很大（每個鍵名樹約 11 ms），匯入時只編譯最常用的 ``wide``、``all``；其餘第一次用到才編譯，``install()`` 啟動時全部
+    編好（重複編譯只是浪費，不影響結果）。"""
+    pattern = _clean_value_res.get((mode, leads))
+    if pattern is None:
+        if mode == "wide":
+            names = ("(?:(?:" + _name_pattern(_TOKEN_PARAM_NAMES, spelled=True, folds=True) + "|"
+                     + _name_pattern(CREDENTIAL_PARAM_NAMES, spelled=True) + ")" + _SPELLED_EQ + ")")
+            tail = _WIDE_TAIL
+        else:
+            names, tail = _clean_names(mode == "strict"), _CLEAN_TAIL
+        lead = {"all": _LEAD_ALL, "q": _LEAD_Q, "amp": _LEAD_AMP, "qs": _LEAD_QS}[leads]
+        pattern = _clean_value_res[(mode, leads)] = re.compile("(" + lead + _NAME_START + names + ")" + tail)
+    return pattern
+
+
+_WIDE_VALUE_RE = _clean_value_re("wide")
+_LENIENT_VALUE_RE = _clean_value_re("lenient")
+# 同一條規則的解碼後版本：解碼到不再改變的字串裡沒有有效的 ``%XX``，上面每個 ``%`` 分支都比對不到，拿掉後結果逐字相同。
+_CLEAN_TAIL_DECODED = r"[\"']*+[^&#\s\"'?;/\\%*\ufffd]++"
+_CLEAN_VALUE_DECODED_RE = re.compile(
+    "([?&;]" + _NAME_START_DECODED + "(?:" + _name_pattern(_TOKEN_PARAM_NAMES, spelled=False, folds=True) + "=(?="
+    + _CLEAN_TAIL_DECODED + r"(?:[&#\s\"']|\Z))|" + _name_pattern(CREDENTIAL_PARAM_NAMES, spelled=False) + "=))"
+    + _CLEAN_TAIL_DECODED)
+# 必要條件：鍵名最後一個字（字母或編碼的十六進位數字）緊接著 ``=``（或它的編碼）。
+_CLEAN_HINT_RE = re.compile(r"[A-Za-z0-9](?:=|%(?:25)*+3[dD])")
+
+
+def _mask_clean_values(text: str, mode: str = "lenient", amp: bool = True) -> str:
+    """拼法階段遮憑證值（第 1 點）；``mode`` 見 :func:`_clean_value_re`，``amp=False`` 只遮 lead 是 ``?`` 的鍵。"""
+    if _CLEAN_HINT_RE.search(text) is None:
+        return text
+    if not amp:
+        return _sub(_clean_value_re(mode, "q"), _REPL_1, text)
+    if mode == "strict":
+        # lead 是 ``&`` 的鍵照舊遮乾淨的開頭，lead 是 ``?``、``;`` 的要整段乾淨（見上面 a）
+        text = _sub(_clean_value_re("lenient", "amp"), _REPL_1, text)
+        return _sub(_clean_value_re("strict", "qs"), _REPL_1, text)
+    return _sub(_WIDE_VALUE_RE if mode == "wide" else _LENIENT_VALUE_RE, _REPL_1, text)
+
+
+def _mask_clean_values_decoded(text: str) -> str:
+    """解碼後的字串上的乾淨值規則（第 1 點的解碼後版本）。"""
+    if _CLEAN_HINT_RE.search(text) is None:
+        return text
+    return _sub(_CLEAN_VALUE_DECODED_RE, _REPL_1, text)
+
+
+# 2) 解碼後的字串上遮非 token 鍵名的值（在既有的鍵名規則之後、區段規則與裸 query 之前，所以不會吃掉它們要用的東西）。
+#    - 這一行沒有任何 ``/private_`` 前綴：值一路到下一個 ``& # 空白 " '``（與 ``_QUERY_TOKEN_RE`` 相同）；值是空的、
+#      後面緊接著一個沒有 ``=`` 的參數時（``?token=%26<JWT>`` 解碼後是 ``?token=&<JWT>``），把那個參數遮成 ``***``。
+#    - 有 ``/private_`` 前綴：裸 query 規則（整段 query 有沒有 ``=`` 的參數）要照 443e95a 判斷，所以值不吞進 ``;``（參數
+#      分隔）與 ``/p``、``\p`` 這類可能是前綴起點的地方；lead 是 ``&``／``;`` 的鍵可能在網址的路徑上（``/x;api_key=…?…``），
+#      值裡有 ``?`` 時必須一路到空白、引號或字串結尾才遮（否則可能吞掉裸 query 的開頭 ``?``），而且不跨過 ``*``（已遮過的
+#      ``?***`` 不再吞）。
+#      值也不含 U+FFFD：它是前綴的噪音，``<值>\ufffd\private_`` 的反斜線前面是噪音、不是前綴起點，值遮成 ``***`` 之後就成了
+#      起點，下一次遮罩會多遮一段（不冪等）。
+_NAMED_UNIT = r"(?:[^&#\s\"'/\\%?;\ufffd]|[/\\](?![pP\\\ufffd]))"
+_NAMED_UNIT_Q = r"(?:[^&#\s\"'/\\%;\ufffd]|[/\\](?![pP\\\ufffd]))"
+_NAMED_UNIT_HARD = r"(?:[^&#\s\"'/\\%;*\ufffd]|[/\\](?![pP\\\ufffd]))"
+_DECODED_NAMES = _name_pattern(CREDENTIAL_PARAM_NAMES, spelled=False)
+_NAMED_VALUE_RE = re.compile(
+    r"(?:(\?" + _NAME_START_DECODED + _DECODED_NAMES + r"=)[\"']*+" + _NAMED_UNIT_Q + "++"
+    + r"|([&;]" + _NAME_START_DECODED + _DECODED_NAMES + r"=)[\"']*+(?:"
+    + _NAMED_UNIT_HARD + r"++(?=[\s\"']|\Z)|" + _NAMED_UNIT + "++))")
+# 沒有前綴的行：token 的值也一路遮到字面分隔字元（舊的 token 規則比對不到的寫法：``access-token=;<值>``，值以 ``;`` 開頭）。
+# 拼法階段的 ``wide`` 規則（沒有舊規則會動的行）在原本的拼法上做同一件事；解碼後的規則必須與它一致，否則鍵名寫成只有解碼後才
+# 認得的樣子（``acc%%365ss-token``）時第一次遮不到、輸出成了字面的鍵名第二次才遮到（不冪等）。
+_NAMED_VALUE_WIDE_RE = re.compile("([?&;]" + _NAME_START_DECODED + "(?:" + _name_pattern(_TOKEN_PARAM_NAMES, spelled=False, folds=True)
+                                  + "|" + _DECODED_NAMES + r")=)[\"']*+[^&#\s\"']++")
+_EMPTY_THEN_BARE_RE = re.compile(
+    "([?&;]" + _NAME_START_DECODED + "(?:" + _name_pattern(_TOKEN_PARAM_NAMES, spelled=False, folds=True) + "|"
+    + _DECODED_NAMES + r")=[&;])[^=&;#\s\"']++(?=[&;#\s\"']|\Z)")
+_ANY_PREFIX_DECODED_RE = re.compile(_DECODED_PREFIX)
+_NAMED_HINT_RE = re.compile(r"[A-Za-z]=")
+
+
+def _mask_named_values(text: str) -> str:
+    """解碼後的字串：遮 :data:`CREDENTIAL_PARAM_NAMES` 的值（見上面第 2 點）。單一或兩次 ``sub``，線性。"""
+    if _NAMED_HINT_RE.search(text) is None:
+        return text
+    if _ANY_PREFIX_DECODED_RE.search(text) is None:
+        return _sub(_EMPTY_THEN_BARE_RE, _REPL_1, _sub(_NAMED_VALUE_WIDE_RE, _REPL_1, text))
+    return _sub(_NAMED_VALUE_RE, _REPL_12, text)
 
 
 def _mask_loose_keys(text: str) -> str:
-    return _LOOSE_KEY_RE.sub(_LOOSE_KEY_REPL, text)
+    return _sub(_LOOSE_KEY_RE, _LOOSE_KEY_REPL, text)
 
 
 _VALID_ESCAPE_RE = re.compile(r"%[0-9a-fA-F]{2}")
@@ -214,8 +506,8 @@ _lock = threading.Lock()
 _factory_installed = False
 
 
-def _has_candidate(text: str) -> bool:
-    low = text.lower()
+def _folded(low: str) -> str:
+    """小寫字串去掉噪音（反斜線、U+FFFD）、把 ı／İ 折成 i：IGNORECASE 的前綴 pattern 認得的字，這裡都看得到。"""
     # 反斜線與 U+FFFD 可夾在標記內（p\rivate_、to\ufffdken=），與 _NOISE 一致，比對前先去掉（r2-sec-1）。
     if "\\" in low:
         low = low.replace("\\", "")
@@ -225,7 +517,14 @@ def _has_candidate(text: str) -> bool:
     # 路徑 pattern 遮；必要條件檢查要用同一個範圍，否則這個輸入不會進到 pattern。
     if not low.isascii():
         low = low.replace("\u0131", "i").replace("i\u0307", "i")
-    return "private" in low or "?" in low or "token=" in low or "%" in low
+    return low
+
+
+def _has_candidate(text: str) -> bool:
+    low = _folded(text.lower())
+    # ``&``／``;`` 加 ``=``：沒有 ``?`` 的 query 片段（``&api_key=…``、矩陣參數 ``/x;password=…``）也要進到鍵名規則。
+    return ("private" in low or "?" in low or "token=" in low or "%" in low
+            or ("=" in low and ("&" in low or ";" in low)))
 
 
 # F10：原本對 ``_RUN_RE`` 的每個 run 各跑一次 Python 迴圈（``text.find`` ＋ ``_INVALID_ESCAPE_RE.search``），run 數由
@@ -257,6 +556,7 @@ def _has_invalid_escape_in_url(text: str) -> bool:
 # 含 lone surrogate 的字串無法編成 UTF-8，直接走原本的 ``unquote``（行為相同，只是慢；網路輸入到不了這條路徑：
 # uvicorn 的 path 先經 ``unquote(errors="replace")`` 再 ``quote``）。
 _VALID_PERCENT_RE = re.compile(rb"%(?=[0-9a-fA-F]{2})")
+_INVALID_PERCENT_RE = re.compile(rb"%(?![0-9a-fA-F]{2})")
 
 
 def _unquote(text: str) -> str:
@@ -267,10 +567,16 @@ def _unquote(text: str) -> str:
         data = text.encode("utf-8")
         if b"\\" in data:
             data = data.replace(b"\\", b"\\\\")
-        data, count = _VALID_PERCENT_RE.subn(b"\xff", data)
-        if not count:
-            return text
-        return codecs.escape_decode(data.replace(b"\xff", b"\\x"))[0].decode("utf-8", "replace")
+        if _INVALID_PERCENT_RE.search(data) is None:
+            # 每個 % 都是有效跳脫（最常見）：直接全部換成 \x，與下面的占位寫法結果相同，但 bytes.replace 比每個 % 一次的
+            # regex 取代快約 5 倍（128 KiB、9 千個跳脫：2.8 ms → 0.6 ms）
+            data = data.replace(b"%", b"\\x")
+        else:
+            data, count = _VALID_PERCENT_RE.subn(b"\xff", data)
+            if not count:
+                return text
+            data = data.replace(b"\xff", b"\\x")
+        return codecs.escape_decode(data)[0].decode("utf-8", "replace")
     except (UnicodeError, ValueError):
         return unquote(text, errors="replace")
 
@@ -282,6 +588,22 @@ def _dangling_escape(text: str, cut: int) -> int:
     if cut >= 2 and text[cut - 2] == "%":
         return 2
     return 0
+
+
+# 反過來看的 ``%(25)*`` 加上最多一個十六進位數字：多輪編碼的跳脫被切在中間（``%25``、``%257``、``%2525``…）時，第一輪
+# 解碼把 ``%25`` 換成 ``%``，剩下的就是不完整的 ``%``／``%7``。
+_DANGLING_CHAIN_RE = re.compile(r"[0-9a-fA-F]?(?:52)*+%")
+
+
+def _dangling_chain(text: str, cut: int) -> int:
+    """在 cut 處切開時要往前退幾個字元，才不會留下解碼幾輪之後才變成不完整的跳脫（``%25``、``%257``、``%2525``…）。
+
+    ``_dangling_escape`` 只看 cut 前兩個字元，``%2572`` 切成 ``%25``、``%257`` 時看不到：這段文字第一次遮罩後的結果
+    加上截斷標記，第二次遮罩解碼到不完整的 ``%`` 就整句「無法判斷」，結果不冪等（443e95a 就有，128 KiB 以上、切點剛好
+    落在多輪編碼中間時）。只在真的要截斷時呼叫；``25`` 串可能很長，所以把 cut 之前的字串反過來交給 C 層比對一次。
+    """
+    match = _DANGLING_CHAIN_RE.match(text[cut - 1::-1]) if cut else None
+    return match.end() if match else 0
 
 
 def _split_mask(text: str, cut: int) -> int:
@@ -297,11 +619,29 @@ def _split_mask(text: str, cut: int) -> int:
     return 0
 
 
+# 截斷點落在最後一個參數的中間（``…/private_***?tok``、``…?token=%20a``）：被切下來的名稱在第二次遮罩時是「沒有 = 的參數」，
+# ``/private_`` 網址的裸 query 規則會把整段 query 遮成 ``?***``；切掉後面的 ``/…`` 之後 ``token=%20a`` 又變成「整段乾淨、
+# 一路到字面空白」，乾淨值規則第二次才遮。結果都與第一次不同（獨立審查 N-2：新版保留原本拼法、輸出比 443e95a 長，更容易超過
+# 上限）。所以切點退到最後一個 lead 之前，整個不完整的參數丟掉（計入標記）。只看 cut 之前 128 個字元：更長的值不處理。
+_DANGLING_PARAM_RE = re.compile(r"[?&;][^\s?&;#\"'*]*\Z")
+
+
+def _dangling_param(text: str, cut: int) -> int:
+    """在 cut 處切開時要往前退幾個字元，才不會把最後一個參數切成一半。"""
+    match = _DANGLING_PARAM_RE.search(text[max(0, cut - 128):cut])
+    return len(match.group(0)) if match else 0
+
+
 def _safe_cut(text: str, cut: int) -> int:
-    """cut 往前退到不留下不完整的 ``%x``、也不切開 ``***``（兩個條件互相影響，各最多重複兩次）。"""
-    for _ in range(2):
-        back = _dangling_escape(text, cut) if cut else 0
+    """cut 往前退到不留下不完整的 ``%x``（含多輪編碼切在中間的 ``%25``、``%257``）、也不切開 ``***``、不把最後一個參數切成
+    一半（三個條件互相影響；最後一個參數只退一次：退到 lead 之前，結尾就是完整的參數）。只用在已遮好的字串上，退回去的字元
+    一律丟掉並計入標記。"""
+    param_done = False
+    for _ in range(4):
+        back = max(_dangling_escape(text, cut), _dangling_chain(text, cut)) if cut else 0
         back = back or (_split_mask(text, cut) if cut else 0)
+        if not back and cut and not param_done:
+            back, param_done = _dangling_param(text, cut), True
         if not back:
             break
         cut -= back
@@ -329,7 +669,7 @@ def _truncate(text: str) -> tuple[str, int]:
 
 
 def redact(text: str) -> str:
-    """把字串裡的 ``/private_<token>`` 與 ``?token=<值>`` 遮成 ``***``；沒有就原樣回傳。
+    """把字串裡的 ``/private_<token>`` 與憑證參數的值（``?token=<值>``、``?api_key=<值>``…）遮成 ``***``；沒有就原樣回傳。
 
     耗時與輸入長度成線性（見模組上方的上限說明）；超過 ``MAX_REDACT_CHARS`` 的字串會被截斷。
     """
@@ -386,7 +726,7 @@ def _keyed(text: str, low: str) -> bool:
 
 
 def _mask_keys(text: str) -> str:
-    return _mask_loose_keys(_QUERY_TOKEN_RE.sub(r"\1" + MASK, text))
+    return _mask_loose_keys(_QUERY_TOKEN_RE.sub(_REPL_1, text))
 
 
 def _has_key(text: str) -> bool:
@@ -413,28 +753,57 @@ def _mask_spelled_private_paths(text: str, keys: bool) -> str | None:
     low = text.lower()
     if "_" not in text and "%5f" not in low and "%25" not in low:  # private_ 的底線：字面、%5f 或多層 %255f
         return text
-    masked = _PATH_SEGMENT_RE.sub(r"\1" + MASK, text)
+    if "%" not in text and "private" not in _folded(low):  # 沒有任何編碼時，前綴的字母一定是字面（可夾噪音）
+        return text
+    masked = _PATH_SEGMENT_RE.sub(_REPL_1, text)
     if masked == text:
         return text
     if keys:
-        return masked if _STRICT_PATH_SEGMENT_RE.sub(r"\1" + MASK, text) == masked else None
+        return masked if _STRICT_PATH_SEGMENT_RE.sub(_REPL_1, text) == masked else None
     return _mask_bare_queries(masked, keyed=False) if "?" in masked else masked
 
 
-def _mask_bare_queries(text: str, keyed: bool) -> str:
+def _mask_bare_queries(text: str, keyed: bool, decoded: bool = False) -> str:
     """把 ``/private_***…?<裸參數>`` 的 query 遮成 ``?***``（:data:`_BARE_QUERY_RE`），並收掉遮罩產生的連鎖：
 
     - 前一個網址的 query 吃進了後一個 ``/private_`` 開頭（``/private_***/private_?/`` → ``/private_***/private_?***``），
       區段規則會再把 ``?***`` 收成 ``***``；
     - ``?***`` 加上後面的空白可能接成另一個鍵名的 lead（``?*** to/ken=<值>``），再遮一次鍵名（先鍵名、後區段）。
     兩者都只在這一遍真的遮了東西時才做，之後再遮一次不會有任何改變（冪等）。
+    ``decoded``＝已經解碼到不再改變的字串，用解碼後專用的 pattern（結果相同、比較快）。
     """
-    masked = _BARE_QUERY_RE.sub(r"\1" + MASK, text)
+    start = text.find(MASK)
+    if start < 0 or text.find("?", start) < 0:  # 錨點是「前綴***…?」：第一個 *** 之後沒有 ? 就不可能比對到
+        return text
+    masked = (_BARE_QUERY_DECODED_RE if decoded else _BARE_QUERY_RE).sub(_REPL_1, text)
     if masked == text:
         return text
     if keyed:
         masked = _mask_keys(masked)
-    return _PATH_SEGMENT_RE.sub(r"\1" + MASK, masked)
+    return (_PATH_SEGMENT_DECODED_RE if decoded else _PATH_SEGMENT_RE).sub(_REPL_1, masked)
+
+
+# 寬鬆的前綴判斷：``/``、``\``、U+FFFD 後面接 ``private_``（含噪音與折疊字元）。只用來決定這一行有沒有舊規則會動（見第 1 點），
+# 所以比 ``_DECODED_PREFIX`` 寬：``_DECODED_PREFIX`` 的反斜線分支不認「前面是噪音」的起點（``\ufffd\private_``，各版本都有的漏遮），
+# 但拼法階段的 ``%255c`` 認得；第一次遮罩看到的是拼法、第二次看到的是解碼後的字面，兩次的判斷必須一致（冪等）。
+# 反斜線、U+FFFD 當起點時要擋掉「從噪音連續段中間起算」（與 ``_DECODED_PREFIX`` 的 lookbehind 同一個理由：``/private`` 接上萬個反斜線，
+# 每個位置各掃一次是 O(n²)，64 KB 實測 40 秒），噪音連續段只在開頭起算一次、整段 possessive 吃掉。
+_LOOSE_PREFIX_RE = re.compile(r"(?:/|(?<![\\\ufffd])[\\\ufffd])[\\\ufffd]*+" + _decoded_word("private_"))
+
+
+def _has_prefix(decoded: str, low: str) -> bool:
+    """解碼後的字串有沒有 ``/private_`` 前綴的樣子（``low`` 是 ``decoded.lower()``）。先用子字串排除多數的行。"""
+    return "private" in _folded(low) and _LOOSE_PREFIX_RE.search(decoded) is not None
+
+
+def _new_lead(named: str) -> bool:
+    """``_mask_named_values`` 有沒有把空值後面的裸參數遮成 ``=&***``／``=;***``（那個 ``&``／``;`` 加上後面的空白就是鍵名的 lead）。"""
+    return "=&" + MASK in named or "=;" + MASK in named
+
+
+def _decode_spelled(spelled: str, text: str, original_decoded: str) -> str | None:
+    """拼法階段處理過的字串的解碼後工作副本（沒有改過就沿用原本那一份）；無法判斷回 None。"""
+    return original_decoded if spelled == text else _decode_or_fail(spelled)
 
 
 def _redact_bounded(text: str) -> str:
@@ -445,39 +814,119 @@ def _redact_bounded(text: str) -> str:
         return AMBIGUOUS
     # N7：/private_ 區段先在原本的拼法上遮。「無法判斷」的判定先對原本的字串做一次（與 e0a80d6 相同，修正不會讓任何一句
     # 不再 fail closed），區段遮過之後再對遮過的字串做一次（遮掉的區段可能剛好隔開了一段網址，例如 ``"``）。
-    keys = _keyed(decoded, decoded.lower()) and _has_key(decoded)
+    low = decoded.lower()  # U+212A（Kelvin）的 lower() 是 ASCII k，與 IGNORECASE 比對 k 的範圍一致
+    keys = _keyed(decoded, low) and _has_key(decoded)
+    # 沒有任何舊規則會動的行：沒有 token 鍵，也沒有 ``/private_`` 前綴（區段、裸 query、解碼後才認得的前綴都要有它；
+    # ``?private_key=`` 這種參數名稱不是前綴）。這種行只有新規則在動，沒有東西要保護（見第 1 點）。
+    has_prefix = _has_prefix(decoded, low)
+    plain = not keys and not has_prefix
     spelled = _mask_spelled_private_paths(text, keys)
     if spelled is None:
         return AMBIGUOUS
-    if spelled != text:
-        decoded = _decode_or_fail(spelled)
-        if decoded is None:
-            return AMBIGUOUS
-    low = decoded.lower()  # U+212A（Kelvin）的 lower() 是 ASCII k，與 IGNORECASE 比對 k 的範圍一致
-    keyed = _keyed(decoded, low)
+    pathed = spelled != text
+    original_decoded = decoded
+    path_masked = spelled
+    decoded = _decode_spelled(path_masked, text, original_decoded)
+    if decoded is None:
+        return AMBIGUOUS
+    low = decoded.lower() if path_masked != text else low
     # 解碼後才看得到的前綴（``%2570rivate_``、``p%5Crivate_``…）。解碼沒有改變字串時，區段規則已經在
-    # _mask_spelled_private_paths 套過同一個字串，不必再整串掃一遍。路徑前綴：``private_`` 的底線一定是字面 ``_`` 或 ``%5f``。
+    # _mask_spelled_private_paths 套過同一個字串，不必再整串掃一遍。路徑前綴：``private_`` 的底線一定是字面 ``_`` 或
+    # ``%5f``。拼法階段認得的區段都已經是 ``前綴***``，只有解碼後還有別的前綴時兩次區段 ``sub`` 才可能改變字串（見
+    # ``_UNMASKED_PREFIX_RE``；結果與每次都跑逐字相同）。沒有 ``private`` 字樣的行不可能有前綴。前置遮罩只換掉不含前綴的值，
+    # 所以在遮罩之前判斷結果相同（有前綴的行不必先做一次全部 lead 的遮罩再丟掉）。
+    paths = (not plain and decoded != path_masked and ("_" in decoded or "%5f" in low)
+             and _UNMASKED_PREFIX_RE.search(decoded) is not None)
+    if not paths:
+        # 憑證值先在原本的拼法上遮（見 ``_clean_value_re``）。之後的「無法判斷」判定改對遮過的字串做：遮掉的值解碼後沒有 ``/``、
+        # ``%``、``#``、控制字元，只會讓網址連成更長的一段，原本會判定的這裡一樣判定。有 token 鍵（``keys``）時，lead 是
+        # ``?``、``;`` 的非 token 鍵名要整段乾淨才遮（單調性，見第 1 點的說明 a）。
+        spelled = _mask_clean_values(path_masked, "wide" if plain else "strict" if keys else "lenient")
+        if spelled != path_masked:
+            decoded_all = _decode_spelled(spelled, text, original_decoded)
+            if decoded_all is None:
+                return AMBIGUOUS
+            low_all = decoded_all.lower()
+            if (has_prefix and decoded_all != spelled and ("_" in decoded_all or "%5f" in low_all)
+                    and _UNMASKED_PREFIX_RE.search(decoded_all) is not None):
+                # 值尾端是解碼後的 U+FFFD（``%80``、``%EF%BF%BD``）時，它擋住了後面的反斜線前綴（``_DECODED_PREFIX`` 的
+                # lookbehind）；前置遮罩把那個值連 U+FFFD 一起換成 ``***``，前綴就露出來了：第一次沒遮、第二次才遮（不冪等，
+                # 獨立審查後的 fuzz：1800 萬行 5 筆）。這一行改走有解碼後前綴的規則（值照解碼後的字串處理，與沒有前置遮罩相同）。
+                paths = True
+            else:
+                decoded, low = decoded_all, low_all
+    if paths:
+        # 有解碼後才認得的前綴：它的區段（``_PATH_TOKEN_DECODED_RE``，在鍵名規則之前）在解碼後的字串上要停在值裡「解碼
+        # 出來」的空白、引號（與 443e95a 相同）。lead 是 ``& ;`` 的值先遮成 ``***`` 的話，區段可以從前面一路吞過來、再跨過值
+        # 後面的 ``&``，把 ``&to ken=<值>`` 這種鍵名的 lead 吃掉、值反而留下（開發時差分 fuzz 找到）。區段停在 ``?``，所以
+        # lead 是 ``?`` 的值照遮；``& ;`` 的這一行不先遮，留給解碼後的規則。例外是第 1 點的說明 b：第一個前綴與後面另一個
+        # 前綴之間夾著遮掉的值時，連 ``?`` 的也不遮（前面的區段會一路吞過遮掉的值，吃掉後面那個前綴的起點）。
+        spelled = _mask_clean_values(path_masked, "strict" if keys else "lenient", amp=False)
+        if spelled != path_masked:
+            decoded_q = _decode_spelled(spelled, text, original_decoded)
+            if decoded_q is None:
+                return AMBIGUOUS
+            first = _UNMASKED_PREFIX_RE.search(decoded_q)
+            if first is not None:
+                masked_at = decoded_q.find("=" + MASK, first.start())
+                if masked_at >= 0 and _UNMASKED_PREFIX_RE.search(decoded_q, masked_at) is not None:
+                    spelled = path_masked
+                else:
+                    decoded = decoded_q
+            low = decoded.lower()
     fresh = decoded != spelled and ("_" in decoded or "%5f" in low)
+    keyed = _keyed(decoded, low)
     cleaned = decoded
     # 先照 e0a80d6 的順序（先區段、後鍵名）遮一遍，遮到的至少與舊版相同；再補 N7 的規則：區段可跳過開頭的 / ? # " '、
     # /private_ 網址的裸 query。
-    if fresh:
-        cleaned = _PATH_TOKEN_RE.sub(r"\1" + MASK, cleaned)
-    if keyed:
+    if paths:
+        cleaned = _PATH_TOKEN_DECODED_RE.sub(_REPL_1, cleaned)
+    # 效能：區段規則沒有改任何東西時，這裡的字串就是剛才判斷過 ``keys`` 的那一個，最多多了乾淨的憑證值遮罩（鍵名 pattern
+    # 在那裡只會比對到值就是 ``***`` 的鍵，不會改變字串）；``keys`` 為假代表兩個鍵名 pattern 都比對不到，``_mask_keys`` 不會
+    # 改變字串（區段規則遮過區段或裸 query 時要照跑：``?***`` 加空白可能接成鍵名的 lead）。
+    if keyed and (keys or pathed):
         cleaned = _mask_keys(cleaned)
-    if fresh:
-        cleaned = _PATH_SEGMENT_RE.sub(r"\1" + MASK, cleaned)
-    # 沒有鍵名、也沒有解碼後才出現的前綴時，裸 query 已經在原本的拼法上遮過。
-    if (fresh or keys) and "?" in cleaned and MASK in cleaned:
-        cleaned = _mask_bare_queries(cleaned, keyed)
+    masked_values = False
+    if paths:
+        # 有解碼後才認得的前綴時，第 1、2 點的解碼後規則放到最後（見下面）：它們會吃掉字面引號、``?``，那是前綴的區段規則
+        # 與裸 query 用來判斷「在哪裡停、有沒有裸參數」的字元，先遮的話 443e95a 遮得到的前綴後面的值會留下（差分 fuzz 找到）。
+        cleaned = _PATH_SEGMENT_DECODED_RE.sub(_REPL_1, cleaned)
+    else:
+        # 憑證值：解碼前沒遮到的寫法（值裡有 ``/``、``%2F``、``?``…，或解碼後才認得的鍵名）在這裡遮。解碼改變過字串時，先在
+        # 解碼後的字串上再套一次第 1 點（``_CLEAN_VALUE_DECODED_RE``，``%27<值>%27`` 解碼後的字面引號）：輸出是解碼後的樣子，
+        # 下一次遮罩看到的就是這個字串，這裡不遮的話第二次會遮（不冪等）。
+        named = _mask_named_values(_mask_clean_values_decoded(cleaned) if decoded != spelled else cleaned)
+        masked_values = named != cleaned
+        # 空值後面的裸參數遮成 ``&***`` 之後，``&*** _token=<值>`` 的 ``&***`` 加空白就是鍵名的 lead：再遮一次鍵名，第二次遮罩
+        # 才不會多遮（差分 fuzz：6 百萬行 1 筆，c3443a5 也有）
+        cleaned = _mask_keys(named) if masked_values and keyed and _new_lead(named) else named
+    # 沒有鍵名、也沒有解碼後才出現的前綴時，裸 query 已經在原本的拼法上遮過；這一步遮了憑證值時要再判斷一次（裸 query
+    # 規則跨過 ``=***``，下一次遮罩在原本的拼法上也會看到這些 ``***``）。解碼前的乾淨值遮罩（``spelled != path_masked``）也算：
+    # ``?access_token='<值>&debug`` 的值以字面引號開頭，443e95a 的鍵名規則認不出它，第一次只有乾淨值遮罩遮成
+    # ``access_token=***&debug``，``debug`` 這個裸參數要等第二次才被整段遮成 ``?***``（獨立審查 MF-2：不冪等）。
+    if fresh or keys or masked_values or spelled != path_masked:
+        cleaned = _mask_bare_queries(cleaned, keyed, decoded=True)
+    if paths:
+        named = _mask_named_values(_mask_clean_values_decoded(cleaned) if decoded != spelled else cleaned)
+        if named != cleaned:
+            cleaned = _mask_bare_queries(_mask_keys(named) if keyed and _new_lead(named) else named, keyed, decoded=True)
     if cleaned == decoded:
         # Preserve normal, non-sensitive encoded URLs exactly as logged.
-        return spelled
-    # 跳過的引號被遮掉後，前後兩段可能接成同一段網址，原本分開的無效跳脫就落在網址裡；再遮一次會變成無法判斷，
-    # 現在就判定，結果才冪等。
-    if "%" in cleaned and "/" in cleaned and _has_invalid_escape_in_url(cleaned):
-        return AMBIGUOUS
-    return cleaned
+        result = spelled
+    else:
+        # 跳過的引號被遮掉後，前後兩段可能接成同一段網址，原本分開的無效跳脫就落在網址裡；再遮一次會變成無法判斷，
+        # 現在就判定，結果才冪等。
+        if "%" in cleaned and "/" in cleaned and _has_invalid_escape_in_url(cleaned):
+            return AMBIGUOUS
+        result = decoded = cleaned
+    # 有 token 鍵的行用的是比較保守的規則（見第 1 點 a）；token 鍵被別的遮罩吞掉（``?password=a;token=b``：寬的值規則一路吞到
+    # 字面分隔字元）之後，結果變成「沒有舊規則會動的行」，再遮一次會用寬的規則。第一次就把這一輪也做完，結果才冪等（遞迴最多
+    # 一層：第二次的 ``keys`` 一定是假的）。誠實說明：這一輪目前找不到會改變結果的輸入（兩組各 15 萬行的產生器與 6 組各 40 萬行
+    # 的定向搜尋，共 300 萬行、約 3.5 萬次觸發，結果都與不做這一輪相同），因為第一次遮罩的解碼後規則已經用同一條寬的規則；
+    # 保留當冪等的保險，所以「拿掉這一輪」的變異測試會存活。
+    if keys and not _has_key(decoded) and not _has_prefix(decoded, decoded.lower()):
+        return _redact_bounded(result)
+    return result
 
 
 def _redact_value(value: Any) -> Any:
@@ -704,8 +1153,16 @@ def _install_record_factory() -> None:
         _factory_installed = True
 
 
+def _warm_patterns() -> None:
+    """啟動時把第一次用到才編譯的 pattern 全部編好，請求處理中（事件迴圈執行緒）不必付編譯的錢。"""
+    for mode, leads in (("wide", "all"), ("lenient", "all"), ("lenient", "q"), ("lenient", "amp"), ("strict", "qs"),
+                        ("strict", "q")):
+        _clean_value_re(mode, leads)
+
+
 def install(extra_loggers: Iterable[str] = ()) -> None:
     """安裝 record factory，並在會帶路徑的 logger 上掛 filter（皆 idempotent）。"""
+    _warm_patterns()
     _install_record_factory()
     for name in (*PATH_LOGGERS, *extra_loggers):
         target = logging.getLogger(name)

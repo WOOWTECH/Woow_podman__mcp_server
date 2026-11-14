@@ -40,6 +40,9 @@ separate explicit OK.
    repository and stays in the git tag `archive/podman-host-mcp-20261114`,
    and its stopped units are removed from the host. The products are not
    affected.
+8. After the first rollout, `products/` is refreshed to PaaS `7d111b1`
+   (#149, query credentials masked in logs) and released the same way. It
+   merges only after the owner accepts the review of #149.
 
 ## Starting point
 
@@ -71,7 +74,8 @@ Products track:
 0. This record.
 1. Refresh `products/` to the approved PaaS commit: vendored source,
    provenance and source snapshot. No host change. A second refresh (1b)
-   moves the pin to `5a06d53` before the release (decision 6).
+   moves the pin to `5a06d53` before the release (decision 6), and a third
+   (1c) moves it to `7d111b1` after the release (decision 8).
 2. Podman deploy layer for several profiles: a container memory ceiling so
    the core's capacity check applies, a restore that leaves every profile
    token revoked, validated Origin and gateway settings, a second-profile
@@ -80,6 +84,8 @@ Products track:
    chose an unsigned release (2026-11-14): `--skip-release-signature` with
    images built from merged `main`. Done on 2026-11-14: all nine products run
    `bd6ba26`, see `products/deploy/releases/2026-11-14-multi-profile-rollout.md`.
+   Refresh 1c ships through a second rollout of the same kind, which again
+   needs a separate OK.
 
 Podman host MCP track, cancelled on 2026-11-14 (decision 7):
 

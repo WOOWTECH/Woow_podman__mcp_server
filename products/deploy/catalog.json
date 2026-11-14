@@ -1,6 +1,6 @@
 {
-  "paas_source_commit": "5a06d533eb433ad511bba8e2db946a0de922925d",
-  "image_version": "paas-5a06d53-podman.1",
+  "paas_source_commit": "7d111b175fbbcdf692ff579cc5793bf8c7de3a7b",
+  "image_version": "paas-7d111b1-podman.1",
   "products": {
     "headscale": {"package": "woow-headscale-mcp-server", "module": "headscale_mcp_admin.main:app", "default_port": 18081, "installer": "headscale"},
     "emqx": {"package": "woow-emqx-mcp-server", "module": "emqx_mcp_admin.main:app", "default_port": 18501},
