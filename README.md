@@ -3,8 +3,8 @@
 **English** · [繁體中文](README_zh-TW.md)
 
 This repository contains the original Podman-host MCP at the root and a
-[ten-product MCP workspace](products/README.md) under `products/`: Headscale,
-EMQX, Hermes, n8n, Odoo, LiteLLM, Nextcloud, OpenDesign, K8s and VK. The
+[nine-product MCP workspace](products/README.md) under `products/`: Headscale,
+EMQX, Hermes, n8n, Odoo, LiteLLM, Nextcloud, OpenDesign and K8s. The
 workspace shares the PaaS application/core/frontend source and deploys each
 product with its own rootless Podman Quadlet, port, volume and credentials.
 Product containers do not mount the Podman socket.
@@ -57,7 +57,7 @@ credential; see [Authentication](#authentication).
 ## Install the original Podman host MCP (rootless Podman + Quadlet + systemd)
 
 This section and the later root-level `scripts/upgrade.sh` instructions apply
-only to the original Podman host MCP. They do not describe the ten product
+only to the original Podman host MCP. They do not describe the nine product
 installers under `products/deploy/`.
 
 The supported deployment is a set of [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)

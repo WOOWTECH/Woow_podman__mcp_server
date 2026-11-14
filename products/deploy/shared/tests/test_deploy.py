@@ -26,10 +26,11 @@ def test_catalog_covers_active_paas_apps_and_uses_separate_ports():
     names = set(catalog["products"])
     assert names == {
         "headscale", "emqx", "hermes", "n8n", "odoo", "litellm",
-        "nextcloud", "opendesign", "k8s", "vk",
+        "nextcloud", "opendesign", "k8s",
     }
     assert len({item["default_port"] for item in catalog["products"].values()}) == len(names)
     assert "odoo-manage" not in names
+    assert "vk" not in names
 
 
 def test_first_boot_keeps_existing_config_and_n8n_child_bearer(tmp_path):

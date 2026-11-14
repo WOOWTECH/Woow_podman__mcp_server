@@ -14,7 +14,7 @@ separate explicit OK.
 
 ## Owner decisions (2026-11-14)
 
-1. Scope: both parts of this repository. The ten vendored products come
+1. Scope: both parts of this repository. The vendored products come
    first, then the root Podman host MCP.
 2. "多 API 兼容" means a per-account backend API endpoint, credentials and
    API version, each behind its own token URL. Choosing an endpoint per call,
@@ -27,6 +27,10 @@ separate explicit OK.
    replaced by the Phase 3 release record. #26 keeps its own release
    conditions; whichever of #26 and the Phase 1 refresh merges second
    regenerates the source snapshot.
+5. VK is retired from the Podman products; the owner no longer uses it.
+   Its source stays vendored unchanged for the PaaS workspace locks, and no
+   VK image is built or installed. Removing the running VK service from a
+   host is a separate, explicitly approved step.
 
 ## Starting point
 
@@ -62,7 +66,7 @@ Products track:
    the core's capacity check applies, a restore that leaves every profile
    token revoked, validated Origin and gateway settings, a second-profile
    container smoke test, and no restart loop on the core's deliberate exits.
-3. Signed release and gated rollout of the ten products. Needs a separate OK.
+3. Signed release and gated rollout of the products. Needs a separate OK.
 
 Podman host MCP track:
 

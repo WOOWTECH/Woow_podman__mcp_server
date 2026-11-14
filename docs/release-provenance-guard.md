@@ -1,6 +1,6 @@
 # Product Quadlet release proof (draft)
 
-This draft gate covers the ten MCP products under `products/`. It deliberately
+This draft gate covers the nine MCP products under `products/`. It deliberately
 has no production manifest, signing key, or expected image ID. An install or
 upgrade without an independently reviewed release proof stops before changing
 the env file, secrets, volume, backup, or Quadlet unit. Existing running units
