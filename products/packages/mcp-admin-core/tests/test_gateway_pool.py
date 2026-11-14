@@ -194,9 +194,11 @@ def test_full_profile_gets_a_clean_busy_error_and_others_are_unaffected(two_prof
     assert error["id"] == 9 and error["error"]["code"] == -32003
     assert "4 gateway connections" in error["error"]["message"] and "4 條連線" in error["error"]["message"]
     assert 0.4 <= waited < 3
-    # 沒有 id 可帶（通知、GET 串流）：503＋Retry-After
-    assert notification.status_code == 503 and notification.json()["id"] is None
+    # 沒有 id 可帶的 GET 串流：503＋Retry-After
     assert stream.status_code == 503 and stream.headers["retry-after"] == "5"
+    # 通知（沒有 id 的 POST）：2026-11-13 起走另外保留的名額，照樣送到子行程、回 202，不是 503——MCP Python SDK 1.x 對通知 POST 的
+    # 5xx 會結束整個 session（#145 審查建議；見 test_gateway_queue.py）
+    assert notification.status_code == 202 and notification.content == b""
     assert (b.status_code, b.json()["id"]) == (200, 10)
     assert (after.status_code, after.json()["id"]) == (200, 11)
     # 一行 WARNING（不含 token、每個帳號每 60 秒最多一行），沒有 ERROR／traceback

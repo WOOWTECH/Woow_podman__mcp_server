@@ -31,6 +31,10 @@ separate explicit OK.
    Its source stays vendored unchanged for the PaaS workspace locks, and no
    VK image is built or installed. Removing the running VK service from a
    host is a separate, explicitly approved step.
+6. Before the Phase 3 release, `products/` is refreshed again to PaaS
+   `5a06d53` (#147, #148, #150), so the first rollout already carries the
+   gateway queue fixes. It merges only after the owner confirms the review
+   of those PRs.
 
 ## Starting point
 
@@ -61,7 +65,8 @@ Products track:
 
 0. This record.
 1. Refresh `products/` to the approved PaaS commit: vendored source,
-   provenance and source snapshot. No host change.
+   provenance and source snapshot. No host change. A second refresh (1b)
+   moves the pin to `5a06d53` before the release (decision 6).
 2. Podman deploy layer for several profiles: a container memory ceiling so
    the core's capacity check applies, a restore that leaves every profile
    token revoked, validated Origin and gateway settings, a second-profile

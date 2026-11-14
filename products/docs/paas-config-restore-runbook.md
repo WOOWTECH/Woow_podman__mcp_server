@@ -25,7 +25,8 @@
 - 需要 tenant namespace（`paas-ws-*`）的寫入權限。
 - 「把 Longhorn 備份還原成一顆新卷」需要 `longhorn-system` 的權限，依平台 repo 規則屬於叢集運維。請叢集運維執行，或由授權人員在 Longhorn UI 操作；本手冊其餘步驟只動該服務的 namespace。
 - 事先通知使用者：還原期間服務中斷，還原後所有 MCP 網址（token）都要重新發放。
-- 事先和服務負責人約好：步驟 1 要給他看帳號清單，請他說明備份之後做過的刪除、新增、改名、政策變更，以及改過哪些帳號的後端連線（換了後端使用者、資料庫或網址），並決定保留哪些（步驟 9）。維護期間不要在管理頁改帳號、政策或連線。
+- 事先和服務負責人約好：步驟 1 要給他看帳號清單，請他說明備份之後做過的刪除、新增、改名、政策變更，以及改過哪些帳號的後端連線（換了後端使用者、資料庫、網址或 API key），並決定保留哪些（步驟 9）。維護期間不要在管理頁改帳號、政策或連線。
+- 同一個服務（同一個 REL）同時只能有一個人做還原。同一個 namespace 的其他服務可以同時還原：還原與前置檢查用的 Job、ConfigMap 名稱都帶 REL，不會互相刪掉（見步驟 1「準備」區塊下方的說明）。
 - 操作者電腦要有 `bash` 與 `python3`（步驟 4、9 在本機執行 python3）。
 
 ## 步驟
@@ -57,6 +58,20 @@ if [ "$(printf '%s\n' "$IMAGE_IDS" | grep -c .)" = 1 ] && printf '%s' "$IMAGE_ID
 else
   unset IMAGE; echo "STOP: IMAGE_IDS 不是剛好一行 repo@sha256:<64 hex>，見下方處理方式" >&2
 fi
+# 還原與前置檢查的 Job、ConfigMap 名稱帶上 REL：同一個 namespace 的其他服務各用各的，不會互相刪掉（上線前重測 P3）
+rname() {   # 用法：rname <用途>，印出 mcp-restore-<用途>-<REL>；超過 63 字元或 REL 有其他字元時改成 REL 前段加雜湊（見下方說明）
+  python3 -c 'import hashlib, re, sys
+use, rel = sys.argv[1:]
+if not rel:
+    sys.exit("STOP: REL 沒有設定，Job 與 ConfigMap 沒有名稱")
+name = "mcp-restore-%s-%s" % (use, rel)
+if len(name) > 63 or not re.fullmatch("[a-z0-9]([-a-z0-9]*[a-z0-9])?", rel):
+    head = re.sub("[^a-z0-9]", "-", rel)[:39 - len(use)].rstrip("-")
+    name = "mcp-restore-%s-%s%s" % (use, head + "-" if head else "", hashlib.sha256(rel.encode()).hexdigest()[:10])
+print(name)' "$1" "$REL"
+}
+RJOB=$(rname inplace) PJOB_IMAGE=$(rname preflight-image) PJOB_SOURCE=$(rname preflight-source) PCM=$(rname preflight)
+echo "還原 Job：$RJOB；前置檢查 Job：$PJOB_IMAGE、$PJOB_SOURCE；ConfigMap：$PCM"
 ```
 
 - **`$K` 是 shell 變數**（不是 alias 或 function），所以可以直接接在 `timeout` 後面：`timeout 60 $K logs …` 會執行 `timeout 60 kubectl --context woow-k3s -n <NS> logs …`。這份手冊的指令以 **bash** 為準：zsh 預設不會把未加引號的 `$K` 拆成多個字，要改用 bash，或先 `setopt SH_WORD_SPLIT`（D4）。手冊依序執行的區塊中，每個 kubectl 指令都有時間上限（`--timeout`、`--request-timeout`、`timeout`）或是有次數上限的迴圈，不會無限等待（D4）。
@@ -66,7 +81,12 @@ fi
   - 只有 `sha256:…` 沒有 repo：節點的 runtime 沒回報 repo，請叢集運維提供完整的 `repo@sha256:…`。
 - 空行會被 `grep .` 先濾掉再計數，所以「空行加一行合法 digest」會得到乾淨的單行 `IMAGE`，不會帶前導換行（F9 驗證 P3）。
 - `IMAGE` 一定要在同一個 shell session 設定並使用（變數不會跨 session）；如果換了終端機，重跑這個指令區塊。Job 的 `image:` 一律用它（`repo@sha256`），不要用 tag。這樣 Job 與服務是同一份程式碼，也不會因為 tag 被重推而用到別的版本。
-- 記下 Deployment、PVC、PV 名稱、StorageClass 與 `IMAGE`。下面的指令與 Job 範本用 `$DEPLOY`、`$PVC`、`$IMAGE` 表示。
+- **Job 與 ConfigMap 的名稱（上線前重測 P3，2026-11-14）**：最後一行印出這個服務專用的四個名稱，下面的指令用 `$RJOB`（步驟 5 的還原 Job）、`$PJOB_IMAGE`、`$PJOB_SOURCE`（兩個前置檢查 Job）與 `$PCM`（前置檢查的 ConfigMap）表示。
+  - 名稱是 `mcp-restore-<用途>-<REL>`。例如 REL 是 `svc-1e199474` 時，還原 Job 是 `mcp-restore-inplace-svc-1e199474`，ConfigMap 是 `mcp-restore-preflight-svc-1e199474`。
+  - 以前四個名稱是整個 namespace 共用的固定名稱。同一個 namespace 另一台服務做步驟 5（`new_job` 會先刪同名的舊 Job）或步驟 13，就會刪掉這台正在跑或剛完成的 Job；2026-11-13 重測時兩個方向都實際發生過。現在不同的 REL 一定得到不同的名稱，同一個 REL 每次都得到同一個名稱，換了 shell 重跑這個區塊也一樣。
+  - Job 名稱會成為 Pod 的 `job-name` 標籤值，最多 63 字元，而且只能有小寫英數與 `-`。名稱超過 63 字元，或 REL 有其他字元（例如 `.`）時，改成「REL 前段（其他字元換成 `-`）加 REL 的 sha256 前 10 碼」，總長仍不超過 63。例如 REL `my.release` 的還原 Job 是 `mcp-restore-inplace-my-release-56b70c7c09`。平台開的服務 REL 都很短（例如 `svc-1e199474`、`hs324`），不會用到這個規則。
+  - 把印出的名稱記在工單上，步驟 5 的 `restore-job.yaml` 要填 `$RJOB`。
+- 記下 Deployment、PVC、PV 名稱、StorageClass、`IMAGE` 與上面四個名稱。下面的指令與 Job 範本用 `$DEPLOY`、`$PVC`、`$IMAGE`、`$RJOB` 等表示。
 
 **記錄帳號清單、政策與後端帳號（多帳號實測 X1，2026-11-13）**
 
@@ -82,18 +102,33 @@ fi
 - id、名稱、token 狀態（`active`／`revoked`／`none`）；
 - 停用的工具與操作、寫入開關；
 - Reviewed Odoo methods（`mcp_server.odoo_allowed_methods`，只有 Odoo）：`null`＝沒有存過，子程序沿用容器環境的清單；`[]`＝存過空清單，不允許任何方法；
-- 後端帳號（只有 Odoo：網址、資料庫、使用者，即 `LaunchPolicy.identity_connection_keys` 裡不是秘密的欄位）。其他產品沒有宣告後端帳號欄位（帳號多半由 API key、app password、kubeconfig 這類秘密決定），帳號清單不記，步驟 9 要在 Connection 頁逐一確認。
+- 後端：各產品 Connection 頁上不是秘密、決定連到哪個後端或用哪個帳號的欄位（上線前重測 P3 起不只 Odoo，見下表）；空的欄位不記（沒填＝沒有後端）。API key、密碼、app password、kubeconfig 這類秘密欄位不讀出；帳號由它們決定的產品，這份紀錄只比對得到後端網址，帳號本身仍要在步驟 9 第三段向負責人確認。沒有記到任何可比對欄位的帳號（產品沒有這類欄位，或欄位都沒填），摘要會印「此產品需人工確認後端」，不會印空的 `{}`。
 
-**它不輸出任何憑證**：MCP token、管理密碼、後端密碼與 API key、n8n 子程序 bearer 都不讀出，token 只記狀態；網址裡的帳密（`user:pass@`）、query 與 fragment 也遮成 `***`。
+| 產品 | 記下的後端欄位 | 帳號由秘密欄位決定（步驟 9 第三段確認） |
+|---|---|---|
+| Odoo | `odoo_url`、`odoo_db`、`odoo_username` | — |
+| n8n | `n8n_api_url` | n8n API key |
+| Hermes | `gateway_url`、`dashboard_url`、`dashboard_username` | Gateway 的 API key |
+| LiteLLM | `base_url` | master key |
+| Nextcloud | `base_url`、`username` | — |
+| EMQX | `base_url` | API key／secret |
+| Headscale | `base_url`、`paas_base_url`、`workspace_id`、`headscale_service_id` | Headscale API key、PaaS token |
+| Open Design | `od_api_base`、`od_basic_user` | — |
+| VK | `vibe_backend_url` | — |
+| k8s | `in_cluster` | kubeconfig |
+
+欄位清單以各產品 `LaunchPolicy` 宣告的身分、必要與後端連線欄位為準，另外加上幾個選填的帳號欄位（Open Design 的 Basic Auth 帳號、Headscale 綁定的 PaaS 服務、k8s 的 `in_cluster`）。`tests/test_restore_runbook.py` 會比對各 app 的政策：產品新增連線欄位時，要歸類為要記的後端欄位或不記（例如 Headscale 顯示用的 `enrollment_url`、n8n 的 session 上限與逾時），沒有歸類測試就失敗。
+
+**它不輸出任何憑證**：MCP token、管理密碼、後端密碼與 API key、n8n 子程序 bearer 都不讀出，token 只記狀態。網址裡的帳密（`user:pass@`）、query 與 fragment 也遮成 `***`：值裡有 `@` 就一律遮到最後一個 `@`（帳密裡可能有沒編碼的 `/`、`?`、`#`、`@`）；最後一個 `@` 前面已經有 `?` 或 `#` 時，分不出那是帳密還是 query（例如 `?login=admin@example.com&key=…`），整個網址只留 `scheme://***@***`。
 
 把下面的內容存成 `profile-inventory.py`，和 `preflight.py`、`restore-job.yaml` 放在同一個工作目錄：
 
 ```python
 # profile-inventory.py：記下帳號清單、政策與後端帳號，還原後比對（手冊步驟 1、9；2026-11-13 多帳號實測 X1）。
 # 只讀設定卷，不輸出任何憑證：MCP token、管理密碼、後端密碼與 API key、n8n 子程序 bearer 都不讀出（token 只記狀態）。
-# 後端連線只記 IDENTITY 列的帳號欄位；網址裡的帳密（user:pass@）、query 與 fragment 也不記。
-#   在服務 Pod 內：python3 - inventory < profile-inventory.py    JSON 印到 stdout，每個帳號一行摘要印到 stderr
-#   在操作者電腦：python3 profile-inventory.py diff <步驟 1 的檔> <現在的檔> [<還原後的檔>]    沒有差異才印 RESULT: OK、exit 0
+# 後端連線只記 IDENTITY 列的欄位（不是秘密的網址、資料庫、使用者名稱）；網址裡的帳密（user:pass@）、query 與 fragment 也不記。
+#   在服務 Pod 內：python3 - inventory [<還原 Job uid>] < profile-inventory.py    JSON 印到 stdout，每個帳號一行摘要印到 stderr
+#   在操作者電腦：python3 profile-inventory.py diff <步驟 1 的檔> <還原後的檔> <還原 Job uid> [<現在的檔>]    沒有差異才印 RESULT: OK、exit 0
 import json, os, re, sys
 
 # 各產品 Settings 頁的寫入開關（各 app LaunchPolicy.editable_env_keys 的聯集，tests/test_restore_runbook.py 比對）。
@@ -101,18 +136,42 @@ import json, os, re, sys
 SWITCHES = ("ODOO_MCP_ENABLE_WRITES", "ODOO_MCP_ALLOW_DIRECT_WRITES", "ODOO_MCP_ALLOW_UNKNOWN_METHODS",
             "MCP_CHATTER_DIRECT", "LITELLM_MCP_READONLY", "K8S_MCP_READ_ONLY", "K8S_MCP_DISABLE_DESTRUCTIVE",
             "K8S_MCP_ALLOW_SECRETS", "K8S_MCP_TOOLSETS", "K8S_MCP_MULTI_CLUSTER")
-# 後端帳號：各 app LaunchPolicy.identity_connection_keys 裡不是秘密的鍵（目前只有 Odoo；tests 比對）。
-IDENTITY = ("odoo_url", "odoo_db", "odoo_username")
+# 後端帳號：各產品 connection 裡不是秘密、決定連到哪個後端或用哪個帳號的欄位（各 app LaunchPolicy 宣告的身分、必要、
+# 後端連線欄位，加上幾個選填的帳號欄位；tests 比對）。API key、密碼、kubeconfig 這類秘密欄位不讀出，它們決定的帳號在步驟 9 第三段確認。
+IDENTITY = ("odoo_url", "odoo_db", "odoo_username",                       # Odoo
+            "n8n_api_url",                                                 # n8n
+            "gateway_url", "dashboard_url", "dashboard_username",          # Hermes
+            "base_url", "username",                                        # LiteLLM、EMQX、Headscale、Nextcloud
+            "paas_base_url", "workspace_id", "headscale_service_id",       # Headscale 綁定的 PaaS 服務
+            "od_api_base", "od_basic_user", "vibe_backend_url",            # Open Design、VK
+            "in_cluster")                                                  # k8s（用叢集內 ServiceAccount 或 kubeconfig）
+URLS = ("odoo_url", "n8n_api_url", "gateway_url", "dashboard_url", "base_url", "paas_base_url", "od_api_base",
+        "vibe_backend_url")   # 網址欄位：記錄前遮掉帳密、query 與 fragment（url()）
 # (欄位, 差異標記, 到哪裡改)。store.patch 寫進 mcp_server／tools 的每帳號政策都要在這裡（tests 比對）。
 FIELDS = (("label", "名稱", "Profile 選單用 Rename "), ("tools_disabled", "工具", "Tools 頁"),
           ("tools_disabled_operations", "操作", "Permissions 頁"), ("switches", "開關", "Settings 頁"),
           ("odoo_allowed_methods", "方法", "Settings 頁的 Reviewed Odoo methods "),
-          ("backend", "後端", "Connection 頁（密碼請服務負責人提供）"))
+          ("backend", "後端", "Connection 頁（密碼、API key 請服務負責人提供）"))
+MANUAL = "此產品需人工確認後端"
 
 
-def url(value):   # 只記 scheme://host:port/path：網址裡的帳密（到最後一個 @ 為止）、query、fragment 可能是憑證
-    m = re.match(r"([^:/?#]*://)?([^?#]*@)?([^?#]*)(.*)\Z", value, re.S)
-    return (m.group(1) or "") + ("***@" if m.group(2) else "") + m.group(3) + ("?***" if m.group(4) else "")
+def url(value):   # 只記 scheme://host:port/path：網址裡的帳密、query、fragment 可能是憑證
+    m = re.match(r"([A-Za-z][A-Za-z0-9+.-]*://)?(.*)\Z", value, re.S)
+    head, rest = m.group(1) or "", m.group(2)
+    cut = re.search(r"[?#]", rest)
+    if "@" in rest:   # 值裡有 @ 就一律遮到最後一個 @：帳密裡可能有沒編碼的 / ? # @
+        at = rest.rindex("@")
+        if cut and cut.start() < at:   # 分不出 @ 前面的 ? # 是帳密還是 query（例如 ?login=a@b&key=…）：後面也一律遮
+            return head + "***@***"
+        head, rest = head + "***@", rest[at + 1:]
+        cut = re.search(r"[?#]", rest)
+    return head + (rest[:cut.start()] + "?***" if cut else rest)
+
+
+def backend_text(backend):   # 沒有可比對的欄位時不印 {}（看起來像「不需要後端」）
+    if not backend:
+        return "後端：沒有記到可比對的欄位，%s（步驟 9 第三段）" % MANUAL
+    return "後端 %r（只記不是秘密的欄位；API key、密碼決定的帳號在步驟 9 第三段確認）" % backend
 
 
 def policy(cfg):
@@ -122,10 +181,11 @@ def policy(cfg):
     ops = tools.get("disabled_operations") or {}
     # Reviewed Odoo methods：None＝沒有存過（子程序沿用容器環境的清單）；[]＝存過空清單（不允許任何方法）
     methods = server.get("odoo_allowed_methods")
-    backend = {k: conn[k] for k in IDENTITY if k in conn}
+    # 空的欄位不記（沒填＝沒有後端）：chart 的預設 seed 會在別的產品的設定裡留下空的 gateway_url 這類鍵
+    backend = {k: conn[k] for k in IDENTITY if conn.get(k) not in (None, "")}
     if (not isinstance(disabled, list) or not isinstance(ops, dict) or not all(isinstance(v, list) for v in ops.values())
             or not (methods is None or isinstance(methods, list) and all(isinstance(m, str) for m in methods))
-            or not all(v is None or isinstance(v, str) for v in backend.values())):
+            or not all(v is None or isinstance(v, (str, int, float)) for v in backend.values())):
         raise ValueError("policy")
     env = server.get("env") or {}
     return {"token": "revoked" if cfg.get("mcp_auth_revoked") else "active" if cfg.get("mcp_auth_token") else "none",
@@ -133,10 +193,10 @@ def policy(cfg):
             "tools_disabled_operations": {str(k): sorted(str(x) for x in v) for k, v in ops.items()},
             "switches": {k: env[k] for k in SWITCHES if k in env},
             "odoo_allowed_methods": None if methods is None else sorted(methods),
-            "backend": {k: url(v) if k.endswith("_url") and v else v for k, v in backend.items()}}
+            "backend": {k: url(v) if k in URLS and isinstance(v, str) and v else v for k, v in backend.items()}}
 
 
-def inventory():
+def inventory(job_uid=None):
     path = os.environ.get("MCP_ADMIN_CONFIG") or "/data/config.json"
     try:
         with open(path) as fh:
@@ -156,11 +216,12 @@ def inventory():
         except (OSError, ValueError, AttributeError, TypeError):
             row["error"] = "unreadable"
         rows.append(row)
-    print(json.dumps({"inventory": "mcp-profile-policy", "profiles": rows}, indent=1, sort_keys=True))
+    # restore_job_uid：步驟 9 第一段記下「這是哪一次還原之後的狀態」（步驟 5 的還原 Job uid），比對時拿來對 restore-job.uid
+    print(json.dumps({"inventory": "mcp-profile-policy", "restore_job_uid": job_uid, "profiles": rows}, indent=1, sort_keys=True))
     for row in rows:   # %r：名稱與值裡的控制字元以跳脫形式顯示
         print("%s %r " % (row["id"], row["label"]) + ("讀不到這個帳號的設定" if "error" in row else
               "token=%(token)s 停用工具=%(tools_disabled)r 停用操作=%(tools_disabled_operations)r 開關=%(switches)r "
-              "方法清單=%(odoo_allowed_methods)r 後端帳號=%(backend)r" % row), file=sys.stderr)
+              "方法清單=%(odoo_allowed_methods)r " % row + backend_text(row["backend"])), file=sys.stderr)
     return 1 if any("error" in row for row in rows) else 0
 
 
@@ -169,20 +230,33 @@ def load(path):
         data = json.load(fh)
     if data.get("inventory") != "mcp-profile-policy":
         raise ValueError(path)
-    return {p["id"]: p for p in data["profiles"]}
+    return data.get("restore_job_uid"), {p["id"]: p for p in data["profiles"]}
 
 
-def diff(before_file, now_file, restored_file=None):
+def diff(before_file, restored_file, job_uid, now_file=None):
     try:
-        before, now = load(before_file), load(now_file)
-        restored = set(load(restored_file)) if restored_file else set(now)   # 還原帶回來的帳號 id
+        before = load(before_file)[1]
+        recorded, restored = load(restored_file)   # restored：還原帶回來的帳號（步驟 9 第一段記下的還原後狀態）
+        now = load(now_file)[1] if now_file else restored
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         print("STOP: 讀不到帳號清單檔；先跑完產生它的區塊")
         return 2
     show = lambda p: "%r（id %s）" % (p.get("label"), p["id"])
+    if not job_uid or recorded != job_uid:
+        print("STOP: %s 是還原 Job uid %s 之後記的，這次還原的 Job 是 uid %s（restore-job.uid，步驟 5 寫入）：它不是這次還原之後"
+              "記的狀態，拿它比對會把還原帶回來的帳號當成核對時重建的。把它改名（例如加上舊 uid），重跑步驟 9 第一段"
+              % (restored_file, recorded or "（沒有記）", job_uid or "（讀不到）"))
+        return 2
+    # 核對時新建的帳號建立時一定拿到 active 的 token；步驟 1 沒有、還原後的紀錄也沒有，token 卻是 revoked，就是還原帶回來的
+    unknown = [p for i, p in now.items() if i not in before and i not in restored and p.get("token") == "revoked"]
+    for p in unknown:
+        print("STOP: %s 步驟 1 沒有、%s 也沒有，token 卻是 revoked。核對時新建的帳號一定有 active 的 token，所以它是還原帶回來的："
+              "%s 不是這次還原之後記的（或有人撤銷了新建帳號的 token）。確認後把它改名、重跑步驟 9 第一段" % (show(p), restored_file, restored_file))
+    if unknown:
+        return 2
     fold = lambda p: str(p.get("label")).casefold()
     new = {fold(p): i for i, p in now.items() if i not in before and i not in restored}   # 核對時新建的帳號
-    found = []
+    found, late = [], 0
 
     def compare(old, cur):
         if "error" in old or "error" in cur:
@@ -192,6 +266,8 @@ def diff(before_file, now_file, restored_file=None):
             a, b = old.get(key), cur.get(key)
             if key in ("switches", "backend"):   # 開關與後端帳號逐一列出不同的那幾個
                 a, b = a or {}, b or {}
+                if key == "backend":   # 空的後端欄位＝沒填
+                    a, b = ({k: v for k, v in d.items() if v not in (None, "")} for d in (a, b))
                 pairs = [(k + " ", a.get(k), b.get(k)) for k in sorted(set(a) | set(b))]
             else:
                 pairs = [("", a, b)]
@@ -199,11 +275,18 @@ def diff(before_file, now_file, restored_file=None):
                 if x != y:
                     found.append("[%s] %s：%s步驟 1 是 %r，現在是 %r——到 %s改回步驟 1 的值" % (tag, show(cur), name, x, y, where))
 
-    print("步驟 1：%d 個帳號；現在：%d 個帳號，其中還原帶回來的 %d 個" % (len(before), len(now), len(restored & set(now))))
+    print("步驟 1：%d 個帳號；現在：%d 個帳號，其中還原帶回來的 %d 個" % (len(before), len(now), len(set(restored) & set(now))))
     for i, cur in now.items():
         if i in restored and "error" not in cur and cur.get("token") != "revoked":
-            found.append("[token] %s：還原帶回來的帳號 token 是 %s，應該是 revoked——還原可能沒有真的執行，停止，回到步驟 4、5"
-                         % (show(cur), cur.get("token")))
+            if "error" in restored[i]:
+                found.append("[讀不到] %s：還原後的紀錄讀不到這個帳號，無法確認還原後的 token；到 Logs 頁找原因" % show(cur))
+            elif restored[i].get("token") == "revoked":   # 還原後是 revoked，之後才發了 token
+                late += 1
+                found.append("[token] %s：還原後是 revoked，之後發了新 token。步驟 10 發 token 之後（例如步驟 12 重跑第二段）出現是預期，"
+                             "不用處理；步驟 10 之前出現，代表核對期間有人對它發了 token，先確認是誰發的、交給了誰" % show(cur))
+            else:
+                found.append("[token] %s：還原後的 token 是 %s，應該是 revoked——還原可能沒有真的執行，停止，回到步驟 4、5"
+                             % (show(cur), restored[i].get("token")))
         if i in before:
             compare(before[i], cur)
         elif i in restored:
@@ -214,9 +297,9 @@ def diff(before_file, now_file, restored_file=None):
         j = new.pop(fold(old), None)
         if j is None:
             found.append("[重建] %s：步驟 1 有、現在沒有（備份之後才新增的帳號）——依服務負責人決定在 Profile 選單以同名重建，再照步驟 1 設定："
-                         "停用工具 %r、停用操作 %r、開關 %r、Reviewed Odoo methods %r、後端帳號 %r（密碼請負責人提供）"
+                         "停用工具 %r、停用操作 %r、開關 %r、Reviewed Odoo methods %r、%s"
                          % (show(old), old.get("tools_disabled"), old.get("tools_disabled_operations"), old.get("switches"),
-                            old.get("odoo_allowed_methods"), old.get("backend")))
+                            old.get("odoo_allowed_methods"), backend_text(old.get("backend"))))
         else:
             print("[已重建] %s已重建為 id %s" % (show(old), j))
             compare(old, now[j])
@@ -224,20 +307,25 @@ def diff(before_file, now_file, restored_file=None):
         found.append("[多出] %s：步驟 1 沒有，也不是還原帶回來的——確認是不是多建了，不要的就刪除" % show(now[j]))
     for line in found:
         print(line)
-    if found:
-        print("RESULT: %d 項差異。處理完再跑一次步驟 9 的檢查區塊；要保留的差異必須由服務負責人決定並記在工單上" % len(found))
+    if found and late == len(found):
+        print("RESULT: 只有 %d 個 [token]，都是還原之後才發的 token：步驟 10 之後是預期（帳號、名稱、政策與記下的後端都與步驟 1 相同）；"
+              "步驟 10 之前出現就照上面 [token] 那幾行處理" % late)
         return 1
-    print("RESULT: OK（帳號清單、名稱、工具政策、寫入開關、Reviewed Odoo methods 與記下的後端帳號都與步驟 1 相同；"
-          "還原帶回來的帳號 token 都是 revoked）")
+    if found:
+        print("RESULT: %d 項差異。處理完再跑一次步驟 9 的第二段；要保留的差異必須由服務負責人決定並記在工單上" % len(found))
+        return 1
+    print("RESULT: OK（帳號清單、名稱、工具政策、寫入開關、Reviewed Odoo methods 與記下的後端欄位都與步驟 1 相同；"
+          "還原帶回來的帳號 token 都是 revoked）。後端帳號仍要做步驟 9 第三段")
     return 0
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["inventory"]:
-        sys.exit(inventory())
-    if sys.argv[1:2] == ["diff"] and len(sys.argv) in (4, 5):
+    if sys.argv[1:2] == ["inventory"] and len(sys.argv) in (2, 3):
+        sys.exit(inventory(*sys.argv[2:]))
+    if sys.argv[1:2] == ["diff"] and len(sys.argv) in (5, 6):
         sys.exit(diff(*sys.argv[2:]))
-    print("用法：python3 - inventory < profile-inventory.py ｜ python3 profile-inventory.py diff 步驟1.json 現在.json [還原後.json]", file=sys.stderr)
+    print("用法：python3 - inventory [還原 Job uid] < profile-inventory.py ｜ "
+          "python3 profile-inventory.py diff 步驟1.json 還原後.json 還原Job的uid [現在.json]", file=sys.stderr)
     sys.exit(64)
 ```
 
@@ -254,9 +342,9 @@ else
 fi
 ```
 
-- 畫面上每個帳號一行摘要（名稱與值裡的控制字元以跳脫形式顯示），完整紀錄存在 `profiles-before.json`。這個檔不含憑證，可以附在工單上；Odoo 服務的紀錄含後端網址、資料庫與使用者名稱（不含密碼）。
+- 畫面上每個帳號一行摘要（名稱與值裡的控制字元以跳脫形式顯示），完整紀錄存在 `profiles-before.json`。這個檔不含憑證，可以附在工單上；紀錄含上表的後端欄位（網址、資料庫、使用者名稱、workspace／服務 id），不含密碼與 API key。
 - 把這份清單給服務負責人看，確認備份之後（選定的備份時間點之後）有沒有刪除、新增、改名或改政策，以及哪些要保留。
-- 也請負責人逐一說明：備份之後改過哪些帳號的後端連線（換了後端使用者、資料庫或網址），現在每個帳號應該連哪個後端帳號。記在工單上，步驟 9 發 token 之前照這份說明逐一確認。Odoo 的後端帳號也在這份紀錄裡，可以直接對照。
+- 也請負責人逐一說明：備份之後改過哪些帳號的後端連線（換了後端使用者、資料庫、網址或 API key），現在每個帳號應該連哪個後端帳號。記在工單上，步驟 9 發 token 之前照這份說明逐一確認。上表的後端欄位也在這份紀錄裡，可以直接對照；API key 這類秘密欄位決定的帳號只能靠負責人說明。
 - 步驟 9 以這份紀錄與負責人的說明為準；負責人決定不照紀錄的項目，要記在工單上。
 - `STOP: 沒有讀到完整的帳號清單`：服務沒有在跑，或某個帳號的設定讀不到（`profiles-before.json.tmp` 裡該帳號有 `"error"`）。請服務負責人提供帳號清單、各帳號的政策與後端帳號，以手動方式記錄；步驟 9 改成人工逐項核對。
 - `profiles-before.json` 已經存在時，這個區塊不會覆寫。還原開始之後再記，記到的就是還原後的狀態，步驟 9 會看不出任何差異。
@@ -341,24 +429,33 @@ sys.exit(0 if ok else 1)
 **準備：ConfigMap、建立 Job、等待 Job 與讀結果的函式**
 
 ```bash
-$K delete configmap mcp-restore-preflight --ignore-not-found --timeout=120s   # 重跑時舊的同名 ConfigMap 會讓 create 失敗（already exists），先刪（F9 驗證 P3）
-$K create configmap mcp-restore-preflight --from-file=preflight.py
-new_job() {   # 用法：new_job <job 名稱> <manifest 檔，- 表示 stdin>。先刪同名的舊 Job、等它和它的 Pod 都消失，再 create（不用 apply）（多帳號實測 P3-d）
+$K delete configmap "$PCM" --ignore-not-found --timeout=120s   # 重跑時舊的同名 ConfigMap 會讓 create 失敗（already exists），先刪（F9 驗證 P3）
+$K create configmap "$PCM" --from-file=preflight.py
+new_job() {   # 用法：new_job <job 名稱> <manifest 檔，- 表示 stdin>。確認 manifest 的名稱、刪掉同名的舊 Job 並等它和它的 Pod 都消失，再 create（不用 apply）（多帳號實測 P3-d）
+  local m left
   JOB_UID=    # 成功：印 created uid=…，JOB_UID 是這次的 Job uid，回傳 0。任何一步失敗：印 STOP，JOB_UID 留空，回傳 1
+  m=$(cat -- "$2") && [ -n "$1" ] || { echo "STOP: 沒有 Job 名稱（先跑步驟 1 的第一個區塊）或讀不到 $2，不要往下" >&2; return 1; }
+  [ "$(printf '%s\n' "$m" | $K create --dry-run=client -f - -o jsonpath='{.metadata.name}' --request-timeout=20s)" = "$1" ] \
+    || { echo "STOP: $2 的 metadata.name 不是 $1（步驟 1 印出的名稱；或 manifest 有錯，見上面 kubectl 的訊息），什麼都沒刪、沒建，不要往下" >&2; return 1; }
   $K delete job/$1 --ignore-not-found --cascade=foreground --timeout=120s </dev/null || { echo "STOP: 刪不掉舊的 job/$1（或逾時），不要往下" >&2; return 1; }
-  if [ -n "$($K get job/$1 --ignore-not-found -o name --request-timeout=20s </dev/null)$($K get pods -l job-name=$1 -o name --request-timeout=20s </dev/null)" ]; then
-    echo "STOP: 舊的 job/$1 或它的 Pod 還在，不要往下" >&2; return 1
-  fi
-  JOB_UID=$($K create -f "$2" -o jsonpath='{.metadata.uid}') && [ -n "$JOB_UID" ] || { echo "STOP: 建立 job/$1 失敗（原因見上面 kubectl 的訊息），不要往下" >&2; JOB_UID=; return 1; }
+  left=$($K get job/$1 --ignore-not-found -o name --request-timeout=20s </dev/null) \
+    && left=$left$($K get pods -l job-name=$1 -o name --request-timeout=20s </dev/null) \
+    || { echo "STOP: 查不到舊的 job/$1 與它的 Pod（API 連線或權限），不要往下" >&2; return 1; }
+  [ -z "$left" ] || { echo "STOP: 舊的 job/$1 或它的 Pod 還在，不要往下" >&2; return 1; }
+  JOB_UID=$(printf '%s\n' "$m" | $K create -f - -o jsonpath='{.metadata.uid}') && [ -n "$JOB_UID" ] || { echo "STOP: 建立 job/$1 失敗（原因見上面 kubectl 的訊息），不要往下" >&2; JOB_UID=; return 1; }
   echo "job/$1 created uid=$JOB_UID"
 }
 wait_job() {   # 用法：wait_job <job 名稱> <new_job 給的 uid> [輪詢次數，預設 72]；每 5 秒同時看成功與失敗（restore-5），預設最多約 6 分鐘
-  local i U S F FC
+  local i R U S F FC
   for i in $(seq 1 "${3:-72}"); do
-    IFS='|' read -r U S F FC <<<"$($K get --request-timeout=20s job/$1 -o jsonpath='{.metadata.uid}|{.status.succeeded}|{.status.failed}|{.status.conditions[?(@.type=="Failed")].status}')"
-    [ -n "$U" ] && [ "$U" != "$2" ] && { echo "STOP: job/$1 已不是這次建立的 Job（uid 不同），不要往下" >&2; return 4; }
-    [ "${S:-0}" -ge 1 ] && { echo "job succeeded"; return 0; }
-    { [ "${F:-0}" -ge 1 ] || [ "$FC" = "True" ]; } && { echo "job failed"; return 1; }
+    # --ignore-not-found：Job 被刪掉時 exit 0、沒有輸出，立刻停；API 暫時失敗時 kubectl 非 0，下一輪再查
+    if R=$($K get --request-timeout=20s job/$1 --ignore-not-found -o jsonpath='{.metadata.uid}|{.status.succeeded}|{.status.failed}|{.status.conditions[?(@.type=="Failed")].status}'); then
+      [ -n "$R" ] || { echo "STOP: job/$1 不見了（被刪掉，例如有人對同一個服務重跑了步驟 5 或做了步驟 13），不要往下" >&2; return 4; }
+      IFS='|' read -r U S F FC <<<"$R"
+      [ "$U" = "$2" ] || { echo "STOP: job/$1 已不是這次建立的 Job（uid 不同），不要往下" >&2; return 4; }
+      [ "${S:-0}" -ge 1 ] && { echo "job succeeded"; return 0; }
+      { [ "${F:-0}" -ge 1 ] || [ "$FC" = "True" ]; } && { echo "job failed"; return 1; }
+    fi
     sleep 5
   done
   echo "job wait timeout"; return 2
@@ -386,20 +483,21 @@ job_report() {   # 用法：job_report <job 名稱> <new_job 給的 uid>；印�
 
 這三個函式是這份手冊建立 Job 的唯一方式（前置檢查兩個 Job 與步驟 5 的還原 Job），不要改用 `$K apply -f`（多帳號實測 P3-d，2026-11-13）：
 - **為什麼不用 `apply`**：同名的舊 Job 還在時，`apply` 根本不會建立新的 Job。manifest 相同時印 `job.batch/<名稱> unchanged`（舊 Job 是用 `create` 建的時候印 `configured`），不同時只在 stderr 印 `field is immutable`。接著的輪詢讀到上一次的 `succeeded`，`job_report` 印出舊 Pod 的 `exit=0` 與上一次的 log，看起來就像成功。
-- **`new_job` 怎麼避免**：先刪掉同名的舊 Job。`--cascade=foreground` 會等它的 Pod 也刪完，Job 才算刪掉。接著確認 Job 與 Pod 都不在，再用 `create` 建立。同名 Job 還在時 `create` 會失敗，不會「unchanged」。
-- **只認這一次的 Job**：`wait_job` 與 `job_report` 只認 `new_job` 給的 uid。Job 被別人換掉，或有不屬於這個 uid 的 Pod（例如舊 Job 留下的），就印 `STOP`，不讀它們的結果。
-- **任何一步印 `STOP`**：都不是成功，依各區塊下方的說明處理。`new_job` 會刪掉同名的舊 Job，包括還在執行的（被中斷的還原可以重跑，見步驟 6），所以同一個服務同時只能有一個人做還原。
-- **換了 shell**：要重貼這個區塊（重跑安全）。
+- **`new_job` 怎麼避免**：先確認 manifest 的 `metadata.name` 就是要建的名稱（`kubectl create --dry-run=client`，不會建立任何東西），不是就停，什麼都不刪。接著刪掉同名的舊 Job：`--cascade=foreground` 會等它的 Pod 也刪完，Job 才算刪掉。再確認 Job 與 Pod 都不在（查詢本身失敗也停，不當成「已經沒有」），才用 `create` 建立。同名 Job 還在時 `create` 會失敗，不會「unchanged」。
+- **只認這一次的 Job**：`wait_job` 與 `job_report` 只認 `new_job` 給的 uid。Job 被刪掉、被別人換掉，或有不屬於這個 uid 的 Pod（例如舊 Job 留下的），就印 `STOP`，不讀它們的結果。`wait_job` 遇到 Job 被刪掉會立刻停（`kubectl get --ignore-not-found` 沒有輸出）；以前它和 API 暫時失敗一樣繼續輪詢，步驟 5 要等約 31 分鐘才印 `job wait timeout`（#143 二次審查實測）。API 暫時失敗（kubectl 非 0）照舊下一輪再查。
+- **同時還原的範圍**：Job 與 ConfigMap 的名稱帶 REL（步驟 1 印出的 `$RJOB`、`$PJOB_IMAGE`、`$PJOB_SOURCE`、`$PCM`）。`new_job` 會刪掉同名的舊 Job，包括還在執行的（被中斷的還原可以重跑，見步驟 6），所以**同一個服務（同一個 REL）同時只能有一個人做還原**。同一個 namespace 的不同服務各用各的名稱，可以同時還原，步驟 5 與步驟 13 都不會刪到對方的 Job 或 ConfigMap（上線前重測 P3：以前名稱固定，兩個方向都實際刪過對方的 Job）。
+- **任何一步印 `STOP`**：都不是成功，依各區塊下方的說明處理。
+- **換了 shell**：要重跑步驟 1 的第一個區塊（`$K` 與名稱）並重貼這個區塊（兩個都可以重跑）。
 
 **第一段：映像檢查（現在，不需要任何備份卷）**。下面的 Job 與步驟 5 的還原 Job 使用同樣的 securityContext 與掛載方式（非 root 1000:1000、fsGroup 1000、不掛 SA token、seccomp RuntimeDefault、丟棄所有 capabilities），只是不掛任何 PVC。指令要在步驟 1 同一個 shell 執行（用到 `$NS`、`$IMAGE`）；n8n 把 command 最後的 `generic` 換成 `n8n`：
 
 ```bash
 : "${IMAGE:?先完成步驟 1，IMAGE 必須已設定}"
-if new_job mcp-restore-preflight-image - <<EOF
+if new_job "$PJOB_IMAGE" - <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mcp-restore-preflight-image
+  name: $PJOB_IMAGE
   namespace: $NS
 spec:
   backoffLimit: 0
@@ -429,26 +527,26 @@ spec:
             - {name: code, mountPath: /code, readOnly: true}
       volumes:
         - name: code
-          configMap: {name: mcp-restore-preflight}
+          configMap: {name: $PCM}
 EOF
 then
-  wait_job mcp-restore-preflight-image "$JOB_UID"
-  job_report mcp-restore-preflight-image "$JOB_UID"   # 只讀這次建立的 Pod；先查 Pod 再讀 log，有時間上限（D4）
+  wait_job "$PJOB_IMAGE" "$JOB_UID"
+  job_report "$PJOB_IMAGE" "$JOB_UID"   # 只讀這次建立的 Pod；先查 Pod 再讀 log，有時間上限（D4）
 fi
-$K delete job/mcp-restore-preflight-image --ignore-not-found --timeout=120s
+$K delete job/$PJOB_IMAGE --ignore-not-found --timeout=120s
 ```
 
-依上面的結果表判斷：`exit=0` 且 log 有 `"preflight": "image_ok"` 才繼續。`exit=2` 且 log 有 `"preflight": "refused"` 與 `image_lacks_restore_support` 的那一行才是映像不支援，必須停止；`exit=2` 但沒有以 `{"preflight"` 開頭的 JSON 行（例如 python 找不到腳本），或 `job_report` 印出 `NO POD`（拉不到映像等），都是其他錯誤，同樣停止，但原因不同：看 `$K describe job/mcp-restore-preflight-image` 與 events，不要當成映像不支援（D4）。輸出依序是 `job/mcp-restore-preflight-image created uid=<uid>`、`job succeeded`（或 `job failed`）、`job_report` 的 `<pod 名稱> exit=<數字>`，接著是 log；沒有 Pod 時只印 `NO POD` 那一行（stderr）。印出 `STOP` 時這次沒有完成檢查，依「準備」區塊下方的說明處理後重跑本區塊。
+依上面的結果表判斷：`exit=0` 且 log 有 `"preflight": "image_ok"` 才繼續。`exit=2` 且 log 有 `"preflight": "refused"` 與 `image_lacks_restore_support` 的那一行才是映像不支援，必須停止；`exit=2` 但沒有以 `{"preflight"` 開頭的 JSON 行（例如 python 找不到腳本），或 `job_report` 印出 `NO POD`（拉不到映像等），都是其他錯誤，同樣停止，但原因不同：看 `$K describe job/$PJOB_IMAGE` 與 events，不要當成映像不支援（D4）。輸出依序是 `job/<$PJOB_IMAGE 的名稱> created uid=<uid>`、`job succeeded`（或 `job failed`）、`job_report` 的 `<pod 名稱> exit=<數字>`，接著是 log；沒有 Pod 時只印 `NO POD` 那一行（stderr）。印出 `STOP` 時這次沒有完成檢查，依「準備」區塊下方的說明處理後重跑本區塊。
 
 **第二段：備份檢查（步驟 3 之後）**。同樣的 Job 加上唯讀的 `${REL}-restore-source`（掛到 `/restore-source`，與步驟 5 相同），模式改成 `source`。`exit=0` 且 log 有 `"preflight": "ok"` 才繼續。這一步會在 `/tmp` 實際跑 guard，live 卷與備份卷都不會被改（備份卷唯讀；Job 也不掛 live PVC）：
 
 ```bash
 : "${IMAGE:?先完成步驟 1，IMAGE 必須已設定}"
-if new_job mcp-restore-preflight-source - <<EOF
+if new_job "$PJOB_SOURCE" - <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mcp-restore-preflight-source
+  name: $PJOB_SOURCE
   namespace: $NS
 spec:
   backoffLimit: 0
@@ -479,18 +577,18 @@ spec:
             - {name: source, mountPath: /restore-source, readOnly: true}
       volumes:
         - name: code
-          configMap: {name: mcp-restore-preflight}
+          configMap: {name: $PCM}
         - name: source
           persistentVolumeClaim: {claimName: ${REL}-restore-source, readOnly: true}
 EOF
 then
-  wait_job mcp-restore-preflight-source "$JOB_UID"
-  job_report mcp-restore-preflight-source "$JOB_UID"   # 只讀這次建立的 Pod；先查 Pod 再讀 log，有時間上限（D4）
+  wait_job "$PJOB_SOURCE" "$JOB_UID"
+  job_report "$PJOB_SOURCE" "$JOB_UID"   # 只讀這次建立的 Pod；先查 Pod 再讀 log，有時間上限（D4）
 fi
-$K delete job/mcp-restore-preflight-source --ignore-not-found --timeout=120s
+$K delete job/$PJOB_SOURCE --ignore-not-found --timeout=120s
 ```
 
-兩段都過之後，可刪除 ConfigMap：`$K delete configmap mcp-restore-preflight`（步驟 13 也會提醒）。映像檢查沒過，不要繼續；請先把服務升級到含 restore 功能的新映像。
+兩段都過之後，可刪除 ConfigMap：`$K delete configmap $PCM --ignore-not-found --timeout=120s`（步驟 13 也會刪）。映像檢查沒過，不要繼續；請先把服務升級到含 restore 功能的新映像。
 
 ### 2. 建立回退點
 
@@ -526,13 +624,13 @@ $K get endpointslices -o json | python3 -c "import json,sys; print([e.get('endpo
 
 ### 5. 執行還原 Job
 
-把下面的內容存成 `restore-job.yaml`，填入 `NS`、`REL` 與步驟 1 固定下來的 `IMAGE`（`repo@sha256:…`）。n8n 服務在 command 加上 `--product n8n`。
+把下面的內容存成 `restore-job.yaml`，填入步驟 1 印出的還原 Job 名稱（`$RJOB`）、`NS`、`REL` 與步驟 1 固定下來的 `IMAGE`（`repo@sha256:…`）。n8n 服務在 command 加上 `--product n8n`。名稱填錯時（例如沿用舊版手冊的固定名稱 `mcp-restore-inplace`，或填了別台服務的名稱），下面的區塊會印 `STOP`，什麼都不刪、不建。
 
 ```yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: mcp-restore-inplace
+  name: <$RJOB：步驟 1 印出的還原 Job 名稱>
   namespace: <NS>
 spec:
   backoffLimit: 0
@@ -571,16 +669,21 @@ spec:
 這份範本與隔離演練實際使用的 Pod 安全設定相同：非 root 的 1000:1000、fsGroup 1000、不掛 SA token、seccomp RuntimeDefault、丟棄所有 capabilities。要另外加 `readOnlyRootFilesystem` 等限制，必須先在隔離環境驗證過。
 
 ```bash
-if new_job mcp-restore-inplace restore-job.yaml; then   # 先刪掉同名的舊 Job（上一次的還原，成功、失敗都一樣）並等它消失，再建立（多帳號實測 P3-d）
-  wait_job mcp-restore-inplace "$JOB_UID" 372          # 審查編號 restore-5：同時輪詢成功與失敗；372 × 5 秒 ≈ 1860 秒，略大於 activeDeadlineSeconds
-  job_report mcp-restore-inplace "$JOB_UID"            # 只讀這次建立的 Pod；先查 Pod 再讀 log，有時間上限（D4）。log 是固定文字，不含任何憑證（可能多一行無害訊息，見下）
+: "${RJOB:?先跑步驟 1 的第一個區塊}"
+rm -f restore-job.uid   # 上一次還原 Job 的 uid（步驟 9 用），建立新的 Job 之前先刪
+if new_job "$RJOB" restore-job.yaml; then   # 確認 restore-job.yaml 的名稱、刪掉同名的舊 Job（上一次的還原，成功、失敗都一樣）並等它消失，再建立（多帳號實測 P3-d）
+  printf '%s\n' "$JOB_UID" > restore-job.uid || echo "STOP: 寫不進 restore-job.uid（步驟 9 要用），修好工作目錄後重跑這個區塊" >&2
+  wait_job "$RJOB" "$JOB_UID" 372          # 審查編號 restore-5：同時輪詢成功與失敗；372 × 5 秒 ≈ 1860 秒，略大於 activeDeadlineSeconds
+  job_report "$RJOB" "$JOB_UID"            # 只讀這次建立的 Pod；先查 Pod 再讀 log，有時間上限（D4）。log 是固定文字，不含任何憑證（可能多一行無害訊息，見下）
 fi
 ```
 
-`new_job`、`wait_job`、`job_report` 定義在步驟 1 的「準備」區塊；換了 shell 要重貼那個區塊（重跑安全）（D4）。
+`new_job`、`wait_job`、`job_report` 定義在步驟 1 的「準備」區塊，`$RJOB` 在步驟 1 的第一個區塊。換了 shell 要重跑步驟 1 的第一個區塊並重貼「準備」區塊（D4）；這時服務已縮到 0，第一個區塊會印 `IMAGE` 的 `STOP`（沒有 Running 的 Pod），步驟 5 不用 `IMAGE`（已經填在 `restore-job.yaml`），可以忽略，名稱照樣會設定。
+
+區塊在工作目錄寫一個 `restore-job.uid`，內容是這次還原 Job 的 uid（不是憑證）。步驟 9 用它確認還原後的帳號清單是這一次還原之後記的（#143 二次審查），所以步驟 5 一定要在步驟 1 的工作目錄執行（`restore-job.yaml` 也在那裡）。
 
 **判讀**：依序看到下面四項，才算這次的還原成功：
-- `job/mcp-restore-inplace created uid=<uid>`；
+- `job/<$RJOB 的名稱> created uid=<uid>`；
 - `job succeeded`；
 - `<pod 名稱> exit=0`；
 - 完成訊息 `MCP in-place restore completed…`。
@@ -588,11 +691,14 @@ fi
 **不要**改用 `$K apply -f restore-job.yaml`，也不要只重跑區塊裡的某幾行（多帳號實測 P3-d，2026-11-13）。成功的 Job 會保留到步驟 13（見步驟 6），之前若要再還原一次（例如發現選錯備份），舊寫法會出事：`apply` 只印 `unchanged`，輪詢讀到上一次的 `succeeded`，`job_report` 印出舊 Pod 的 `exit=0` 與完成訊息，看起來成功但其實沒有執行。這時卷上仍是還原前的資料：上一次還原之後才發的 token 照樣有效，帳號與政策也沒有回到這次選的備份。原因見步驟 1「準備」區塊下方的說明。
 
 **印出 `STOP:`**：都不是成功，服務維持 scale 0，處理後重跑整個區塊：
-- `刪不掉舊的 job/…`、`舊的 job/… 或它的 Pod 還在`：舊 Job 或它的 Pod 卡住，例如有 finalizer 或節點故障。kubectl 可能先印 `job.batch "mcp-restore-inplace" deleted`，120 秒後才印 `timed out waiting for the condition`，以 `STOP` 為準。用 `$K describe job/mcp-restore-inplace` 與 `$K get pods -l job-name=mcp-restore-inplace` 查看，請叢集運維處理。
+- `metadata.name 不是 …`：`restore-job.yaml` 的名稱不是步驟 1 印出的 `$RJOB`（或 manifest 有錯，kubectl 的訊息會印在上面）。什麼都沒刪、沒建；改好 `restore-job.yaml` 再重跑。
+- `刪不掉舊的 job/…`、`舊的 job/… 或它的 Pod 還在`：舊 Job 或它的 Pod 卡住，例如有 finalizer 或節點故障。kubectl 可能先印 `job.batch "<名稱>" deleted`，120 秒後才印 `timed out waiting for the condition`，以 `STOP` 為準。用 `$K describe job/$RJOB` 與 `$K get pods -l job-name=$RJOB` 查看，請叢集運維處理。
+- `查不到舊的 job/… 與它的 Pod`：API 連線或權限問題，查不到不能當成已經刪乾淨。確認 kubectl 可以連線後重跑。
 - `建立 job/… 失敗`：原因見上面 kubectl 的訊息，例如配額、權限或 manifest 錯誤。修正後重跑。
-- `已不是這次建立的 Job`、`Pod 不全是 … 建立的`：有人同時在建同名的 Job。先確認同一個服務只有一個人在做還原，再重跑。
+- `job/… 不見了`、`已不是這次建立的 Job`、`Pod 不全是 … 建立的`：有人同時在對同一個服務做還原（重跑了步驟 5 的區塊、做了步驟 13，或手動刪了 Job）。`wait_job` 一發現 Job 不見了就停，不會等到逾時。先確認同一個服務只有一個人在做還原，再重跑。同一個 namespace 的其他服務用的是別的名稱，不會造成這個 STOP。
+- `寫不進 restore-job.uid`：Job 已經建立並在執行；修好工作目錄（權限、空間）後重跑整個區塊（`new_job` 會刪掉這個 Job 重來，被中斷的還原可以重跑）。
 
-**不要**直接用 `$K logs job/mcp-restore-inplace`：Job 沒有 Pod 時（Pod 被刪、Job Failed 後 Pod 被清掉）它會一直等 Pod 出現而卡住，D4 實測 305 秒以上（P2）。
+**不要**直接用 `$K logs job/$RJOB`：Job 沒有 Pod 時（Pod 被刪、Job Failed 後 Pod 被清掉）它會一直等 Pod 出現而卡住，D4 實測 305 秒以上（P2）。
 
 D3：Job 的輸出可能多一行 `JWT_SECRET not set in environment; generated a random secret`（`mcp_admin_core.auth.middleware` 載入時，環境沒有設定 `JWT_SECRET` 就會印這行警告，還原工具會間接載入它），這是預期的無害訊息，不是錯誤；除此之外的輸出只有固定文字（成功時是完成訊息，失敗時是步驟名稱）。其他任何看起來像憑證、路徑或例外內容的行都不應該出現，出現就停下來回報。
 
@@ -609,9 +715,9 @@ D3：Job 的輸出可能多一行 `JWT_SECRET not set in environment; generated 
 
 **exit 1 但 log 不是步驟名稱（D4）**：映像沒有 `restore_inplace`（例如正式站的舊映像 8297aa4）時，`python3 -m` 以 exit 1 結束，log 是 `No module named mcp_admin_core.restore_inplace`，不是步驟名稱，也沒有寫入任何標記。這表示步驟 1 的前置檢查被略過或判讀錯了：維持服務 scale 0，換含 restore 功能的映像後重跑步驟 5 的區塊（叢集上以舊映像驗證過這個輸出）。
 
-**Job 被外力殺掉時沒有 exit code（D3、D4）**：Pod 被刪除、節點故障或逾 `activeDeadlineSeconds` 時，沒有 exit code，`job_report`（步驟 5）有兩種輸出，不會卡住也不會印 jsonpath 錯誤：Pod 還在但 `terminated` 不存在時，印 `<pod 名稱> exit=`（`exit=` 後面空白）；Pod 已經不存在（被刪、Job Failed 後被清掉）時，不印 exit code 與 log，只印一行 `NO POD: …`（stderr）並回傳 3。這種情況要看 Job 的 `Failed` 條件（`$K get --request-timeout=20s job/mcp-restore-inplace -o jsonpath='{.status.conditions[?(@.type=="Failed")]}'`）與 Pod 事件。當作 exit 1 處理：標記可能已寫入，服務維持關閉，重跑步驟 5 的區塊（它會先刪掉這個 Job）（D3 演練：在 `move_aside` 之後殺掉 Job，重跑同名 Job 後 exit 0）。
+**Job 被外力殺掉時沒有 exit code（D3、D4）**：Pod 被刪除、節點故障或逾 `activeDeadlineSeconds` 時，沒有 exit code，`job_report`（步驟 5）有兩種輸出，不會卡住也不會印 jsonpath 錯誤：Pod 還在但 `terminated` 不存在時，印 `<pod 名稱> exit=`（`exit=` 後面空白）；Pod 已經不存在（被刪、Job Failed 後被清掉）時，不印 exit code 與 log，只印一行 `NO POD: …`（stderr）並回傳 3。這種情況要看 Job 的 `Failed` 條件（`$K get --request-timeout=20s job/$RJOB -o jsonpath='{.status.conditions[?(@.type=="Failed")]}'`）與 Pod 事件。當作 exit 1 處理：標記可能已寫入，服務維持關閉，重跑步驟 5 的區塊（它會先刪掉這個 Job）（D3 演練：在 `move_aside` 之後殺掉 Job，重跑同名 Job 後 exit 0）。
 
-**完成的 Job 會保留**：`ttlSecondsAfterFinished: 86400` 讓 Job 在完成（成功或失敗）24 小時後才自動刪除。成功後 Job 與 Pod 仍留在 namespace，直到步驟 13 手動刪除（或 TTL 到期）；步驟 6、7 之間不需要處理它。步驟 13 之前要再還原一次時，重跑步驟 5 的區塊即可，`new_job` 會先刪掉這個 Job；同時把步驟 9 的 `profiles-restored.json` 改名，讓步驟 9 重新記錄這次還原後的狀態。
+**完成的 Job 會保留**：`ttlSecondsAfterFinished: 86400` 讓 Job 在完成（成功或失敗）24 小時後才自動刪除。成功後 Job 與 Pod 仍留在 namespace，直到步驟 13 手動刪除（或 TTL 到期）；步驟 6、7 之間不需要處理它。步驟 13 之前要再還原一次時，重跑步驟 5 的區塊即可，`new_job` 會先刪掉這個 Job，`restore-job.uid` 換成新 Job 的 uid；同時把步驟 9 的 `profiles-restored.json` 改名（例如加上舊 uid），讓步驟 9 重新記錄這次還原後的狀態。忘了改名時，步驟 9 會印 `STOP`（檔裡記的是上一次還原 Job 的 uid），不會拿上一次的紀錄比對（#143 二次審查：以前會把這次還原帶回來的帳號當成核對時重建的帳號）。
 
 要放棄還原、回到還原前的資料：
 - 只有在 live 卷上的 `.mcp-restore-inplace/pre` 不存在或是空的時候（舊資料還沒被移開）才可以先刪工作目錄、最後刪標記。
@@ -644,36 +750,44 @@ timeout 60 $K exec deploy/$DEPLOY -- python3 -c "import urllib.request;print(url
 
 步驟 8 之後，所有 token 仍是撤銷狀態，還沒有人能用 MCP。這一步拿還原後的狀態和步驟 1 的紀錄、負責人的說明比對，處理完差異、確認完每個帳號的後端帳號，**之後**才在步驟 10 發 token。為什麼要做，見步驟 1「記錄帳號清單、政策與後端帳號」。只有一個帳號的服務也要做。
 
-在步驟 1 的工作目錄執行（需要 `profile-inventory.py`、`profiles-before.json`），用到步驟 1 的 `$K`、`$DEPLOY`、`$CONTAINER`。換了 shell 就重跑步驟 1 的第一個區塊（只讀，重跑安全）；**不要**重跑步驟 1 的帳號清單區塊。
+在步驟 1 的工作目錄執行（需要 `profile-inventory.py`、`profiles-before.json` 與步驟 5 寫的 `restore-job.uid`），用到步驟 1 的 `$K`、`$DEPLOY`、`$CONTAINER`。換了 shell 就重跑步驟 1 的第一個區塊（只讀，重跑安全）；**不要**重跑步驟 1 的帳號清單區塊。
 
-**第一段：記下還原後的狀態，列出差異**。`profiles-restored.json` 記的是「還原帶回來的帳號」，只記一次：已經存在時沿用，不會覆寫。
+**第一段：記下還原後的狀態，列出差異**。`profiles-restored.json` 記的是「還原帶回來的帳號」，只記一次：已經存在時沿用，不會覆寫。檔裡會記下這是哪一次還原之後的狀態（`restore-job.uid` 裡的還原 Job uid）；比對時 uid 和 `restore-job.uid` 不同就印 `STOP`，不會拿上一次還原留下的紀錄比對（#143 二次審查）。
 
 ```bash
 : "${DEPLOY:?先跑步驟 1 的第一個區塊}" "${CONTAINER:?先跑步驟 1 的第一個區塊}"
+RUID=$(cat restore-job.uid)   # 步驟 5 建立這次還原 Job 時寫的 uid
 $K rollout status deploy/$DEPLOY --timeout=300s   # 等步驟 8 的重啟完成，下面才會讀到新的 Pod
-if [ -e profiles-restored.json ]; then
+if [ -z "$RUID" ]; then
+  echo "STOP: 讀不到 restore-job.uid（步驟 5 的區塊建立還原 Job 時寫入），見下方說明" >&2
+elif [ -e profiles-restored.json ]; then
   echo "沿用已存的 profiles-restored.json（還原後、核對前的狀態）"
-elif timeout 60 $K exec -i deploy/$DEPLOY -c "$CONTAINER" -- python3 - inventory < profile-inventory.py > profiles-restored.json.tmp; then
+elif timeout 60 $K exec -i deploy/$DEPLOY -c "$CONTAINER" -- python3 - inventory "$RUID" < profile-inventory.py > profiles-restored.json.tmp; then
   mv profiles-restored.json.tmp profiles-restored.json
 else
   echo "STOP: 沒有讀到完整的帳號清單（profiles-restored.json.tmp），先到 Logs 頁找原因" >&2
 fi
-python3 profile-inventory.py diff profiles-before.json profiles-restored.json
+python3 profile-inventory.py diff profiles-before.json profiles-restored.json "$RUID"
 ```
+
+開頭印 `STOP` 時不要往下：
+- `讀不到 restore-job.uid`：不在步驟 1、5 的工作目錄，或步驟 5 沒有建立 Job。回到那個工作目錄重跑；檔案不見了而還原 Job 還在（步驟 13 之前、完成後 24 小時內），用 `$K get job/$RJOB -o jsonpath='{.metadata.uid}' > restore-job.uid` 補回。Job 也不在了，就無法確認還原後的紀錄屬於哪一次還原：請服務負責人決定，最保險的是從步驟 4 重做還原。
+- `… 是還原 Job uid X 之後記的，這次還原的 Job 是 uid Y`：`profiles-restored.json` 是上一次還原之後記的（重跑步驟 5 之後沒有改名）。把它改名（例如加上舊 uid），重跑這一段；這時還沒開始核對時，記到的就是這次還原後的狀態。如果已經依舊紀錄刪除或重建了帳號，先向負責人說明，必要時重做還原。
+- `… 步驟 1 沒有、… 也沒有，token 卻是 revoked`：核對時新建的帳號一定有 active 的 token，所以這個帳號是還原帶回來的，`profiles-restored.json` 不是這次還原之後記的（或有人撤銷了新建帳號的 token）。處理方式同上一項。
 
 每一行差異以標記開頭。用步驟 8 的新密碼登入管理頁，依標記處理。管理頁上方的 Profile 選單可以切換帳號，也有 Create、Rename、Delete。
 
 | 標記 | 意思 | 處理 |
 |---|---|---|
 | `[刪除]` | 步驟 1 沒有，是還原帶回來的帳號（備份之後被刪掉），連同備份裡的後端帳密 | 向服務負責人確認後，在 Profile 選單選它、Delete。刪除前不要對它發 token。刪除會撤銷它的 token、刪掉它的設定與後端帳密，之後只有再做一次還原才救得回來。只有負責人明確要救回這個帳號（還原的目的之一）時才保留，並記在工單上 |
-| `[重建]` | 步驟 1 有、還原後消失的帳號（備份之後才新增的） | 依服務負責人決定，在 Profile 選單 Create 同名的帳號。新帳號會拿到新的 id 與 port，建立時會自動產生 token（到步驟 10 才交出去），而且會先複製預設帳號當下的工具政策、寫入開關與 Reviewed Odoo methods，連線是空的。所以一定要照這一行列出的值設定停用工具、停用操作、開關與 Reviewed Odoo methods，並在 Connection 頁填這一行列出的後端帳號（Odoo）或負責人說明的後端帳號（其他產品）；密碼由負責人提供（手冊不記錄任何憑證）。重建後第二段會逐項比對這些值 |
+| `[重建]` | 步驟 1 有、還原後消失的帳號（備份之後才新增的） | 依服務負責人決定，在 Profile 選單 Create 同名的帳號。新帳號會拿到新的 id 與 port，建立時會自動產生 token（到步驟 10 才交出去），而且會先複製預設帳號當下的工具政策、寫入開關與 Reviewed Odoo methods，連線是空的。所以一定要照這一行列出的值設定停用工具、停用操作、開關與 Reviewed Odoo methods，並在 Connection 頁填這一行列出的後端欄位，以及負責人說明的 API key 這類秘密欄位；密碼與 API key 由負責人提供（手冊不記錄任何憑證）。這一行印「此產品需人工確認後端」時，步驟 1 沒有記到可比對的後端欄位，後端整個照負責人的說明填。重建後第二段會逐項比對記下的值 |
 | `[名稱]` | 名稱和步驟 1 不同（備份之後改過名） | Profile 選單的 Rename，改回步驟 1 的名稱 |
 | `[工具]` | 停用的工具和步驟 1 不同 | 切到該帳號，在 Tools 頁照步驟 1 的值設定 |
 | `[操作]` | 停用的操作和步驟 1 不同 | 切到該帳號，在 Permissions 頁照步驟 1 的值設定 |
 | `[開關]` | 寫入開關和步驟 1 不同 | 切到該帳號，在 Settings 頁照步驟 1 的值設定 |
 | `[方法]` | Reviewed Odoo methods（Odoo 的 Settings 頁）和步驟 1 不同。Allow Unreviewed Methods 或 Allow Direct Writes 關閉時，`execute_method` 能跑哪些有副作用的方法由這份清單決定，多出來的方法就是放寬。`None`＝沒有存過（沿用容器環境的清單），`[]`＝存過空清單（不允許任何方法） | 切到該帳號，在 Settings 頁的 Reviewed Odoo methods 照步驟 1 的值設定（每行一項，順序不拘）。步驟 1 是 `None` 而現在有清單時，管理頁沒辦法改回「沒有存過」（存空清單會變成不允許任何方法）：由服務負責人決定要存哪一份清單，記在工單上 |
-| `[後端]` | 後端帳號（Odoo 的網址、資料庫、使用者）和步驟 1 不同：備份之後換過後端帳號，還原換回了備份當時的帳號與密碼；或核對時重建的帳號還沒填連線 | 向服務負責人確認後，切到該帳號，在 Connection 頁改回步驟 1 的值，密碼由負責人提供。**改好之前不要對它發 token**：新 token 的持有人會用備份當時的後端帳號讀寫資料。只有負責人明確決定沿用備份當時的後端帳號時才保留，並記在工單上 |
-| `[token]` | 還原帶回來的帳號 token 不是 `revoked` | **停止**。還原可能沒有真的執行（例如讀到上一次的還原 Job，見步驟 5），回到步驟 4、5。這一項只在步驟 10 發 token 之前有意義：發了 token 之後再比對，每個還原帶回來的帳號都會出現這一行，屬於預期 |
+| `[後端]` | 後端欄位（步驟 1「記錄帳號清單」表裡各產品的網址、資料庫、使用者名稱等）和步驟 1 不同：備份之後換過後端，還原換回了備份當時的帳號與密碼；或核對時重建的帳號還沒填連線 | 向服務負責人確認後，切到該帳號，在 Connection 頁改回步驟 1 的值，密碼由負責人提供。**改好之前不要對它發 token**：新 token 的持有人會用備份當時的後端帳號讀寫資料。只有負責人明確決定沿用備份當時的後端帳號時才保留，並記在工單上 |
+| `[token]` | 還原帶回來的帳號 token 不是 `revoked`。訊息分兩種 | 訊息是「還原後的 token 是 active，應該是 revoked」：還原後記下的狀態就不是撤銷，還原可能沒有真的執行（例如讀到上一次的還原 Job，見步驟 5），**停止**，回到步驟 4、5。訊息是「還原後是 revoked，之後發了新 token」：步驟 10 發 token 之後（例如步驟 12 重跑第二段）出現是預期，不用處理，這時最後一行是 `RESULT: 只有 N 個 [token]…`；步驟 10 之前出現，代表核對期間有人對它發了 token，先確認是誰發的、交給了誰（是步驟 9 要刪的帳號就立刻撤銷） |
 | `[讀不到]` | 這個帳號的設定讀不到 | 停止，到 Logs 頁找原因 |
 | `[多出]` | 步驟 1 沒有，也不是還原帶回來的（只在第二段出現） | 確認是不是核對時多建了，不要的就刪除 |
 
@@ -681,18 +795,19 @@ python3 profile-inventory.py diff profiles-before.json profiles-restored.json
 
 ```bash
 timeout 60 $K exec -i deploy/$DEPLOY -c "$CONTAINER" -- python3 - inventory < profile-inventory.py > profiles-now.json \
-  && python3 profile-inventory.py diff profiles-before.json profiles-now.json profiles-restored.json
+  && python3 profile-inventory.py diff profiles-before.json profiles-restored.json "$(cat restore-job.uid)" profiles-now.json
 ```
 
 - 最後一行要是 `RESULT: OK` 才繼續。比對時，核對中重建的帳號用名稱對回步驟 1 的帳號，會印 `[已重建] '<名稱>'（id <舊 id>）已重建為 id <新 id>`（這行只是說明，不算差異）。
 - 還原帶回來的帳號不能當成重建的帳號，即使同名也不行，因為它帶著備份裡的後端連線，仍會列為 `[刪除]`。
 - 還有差異時，只有服務負責人明確決定保留的項目可以留下（例如還原的目的就是救回被誤刪的帳號）。每一項都記在工單上，才可以繼續。
-- 比對的項目：帳號、名稱、工具政策、寫入開關、Reviewed Odoo methods，以及 Odoo 的後端帳號（網址、資料庫、使用者）。**後端密碼不比對**（手冊不記錄密碼，見步驟 11）；Odoo 以外產品的後端帳號也比對不到，由下面的確認處理。
-- `profiles-*.json` 不含憑證，可以附在工單上；Odoo 服務的紀錄含後端網址、資料庫與使用者名稱（不含密碼）。
+- 比對的項目：帳號、名稱、工具政策、寫入開關、Reviewed Odoo methods，以及各產品記下的後端欄位（步驟 1「記錄帳號清單」的表）。**後端密碼與 API key 不比對**（手冊不記錄，見步驟 11）；帳號由 API key、kubeconfig 這類秘密欄位決定的產品（n8n、LiteLLM、EMQX、Headscale、Hermes 的 Gateway、k8s），只比對得到後端網址，帳號由下面的第三段確認。
+- 開頭印 `STOP`（`profiles-restored.json` 不是這次還原之後記的）時，處理方式見第一段下方。
+- `profiles-*.json` 不含憑證，可以附在工單上；紀錄含各產品的後端網址、資料庫與使用者名稱（不含密碼與 API key）。
 
 **第三段：逐一確認每個帳號的後端帳號（步驟 10 的前提）**。還原會把每個保留帳號的後端連線換回備份當時的帳號與密碼。在這裡沒確認好就發 token，新 token 的持有人會用備份當時的後端帳號讀寫資料，例如備份之後已經換成受限使用者、或換到另一個資料庫的帳號：
 - 用管理頁的 Profile 選單逐一切到每個要保留的帳號（含預設帳號與核對時重建的帳號），打開 Connection 頁，看網址、資料庫、使用者這類不含密碼的欄位。
-- 和步驟 1 負責人的說明對照（Odoo 也可以對照 `profiles-before.json` 的後端帳號；第二段已經比對過，`[後端]` 都處理了才會印 `RESULT: OK`）。其他產品沒有這份紀錄，這裡是唯一的檢查：負責人說過備份之後換過的帳號，一定要逐一看。
+- 和步驟 1 負責人的說明對照（記下的後端欄位第二段已經比對過，`[後端]` 都處理了才會印 `RESULT: OK`）。API key、密碼、kubeconfig 這類秘密欄位決定的帳號比對不到，這裡是唯一的檢查：負責人說過備份之後換過 API key 或帳號的，一定要逐一確認，必要時重新填入負責人提供的值。
 - 不對的在 Connection 頁改回負責人說明的後端帳號，密碼由負責人提供；改了什麼記在工單上，改完再跑一次第二段。
 - 還原帶回來的帳號 token 都是撤銷狀態，在 Connection 頁改後端帳號不會讓它重新可用。
 - 每個保留的帳號都確認過（記在工單上），才可以做步驟 10。
@@ -719,22 +834,24 @@ restore guard 只處理 MCP 閘道自己的憑證，**不會撤銷後端帳密**
 - 舊管理密碼：401。
 - 每個 profile 的新 token：可以列出工具，並實際呼叫一個唯讀工具，只看到自己後端帳號的資料。
 - 跨 profile 的 session 不可共用。
-- 帳號清單、工具政策（Tools、Permissions 頁）、寫入開關與 Reviewed Odoo methods（Settings 頁）、Odoo 的後端帳號與步驟 9 核對後的結果相同（可以重跑步驟 9 的第二段，這時只會多出 `[token]`，因為步驟 10 已經發了 token）。也就是和步驟 1 的紀錄相同，只有負責人決定保留、記在工單上的差異例外。它們不一定和備份時相同，備份之後加的限制要留著。停用的工具不出現在工具清單，硬呼叫也被拒絕。
-- 其他產品的後端帳號：和步驟 9 第三段確認的結果相同（第二段比對不到這一項）。
+- 帳號清單、工具政策（Tools、Permissions 頁）、寫入開關與 Reviewed Odoo methods（Settings 頁）、記下的後端欄位與步驟 9 核對後的結果相同。可以重跑步驟 9 的第二段：步驟 10 已經發了 token，所以只會多出「還原後是 revoked，之後發了新 token」的 `[token]`，最後一行是 `RESULT: 只有 N 個 [token]…`，屬於預期；出現其他標記，或 `[token]` 寫「回到步驟 4、5」，就停下來查。也就是和步驟 1 的紀錄相同，只有負責人決定保留、記在工單上的差異例外。它們不一定和備份時相同，備份之後加的限制要留著。停用的工具不出現在工具清單，硬呼叫也被拒絕。
+- API key、密碼、kubeconfig 這類秘密欄位決定的後端帳號：和步驟 9 第三段確認的結果相同（第二段比對不到這一項）。
 - 步驟 9 刪掉的帳號：管理頁上找不到。
 
 ### 13. 清理
 
 ```bash
-$K delete job/mcp-restore-inplace --ignore-not-found --timeout=120s
+$K delete job/$RJOB --ignore-not-found --timeout=120s   # 只刪這個服務的還原 Job（名稱帶 REL，見步驟 1）
 $K delete pvc/${REL}-restore-source --timeout=120s        # 之後請叢集運維確認對應的 Longhorn 卷已刪除；PVC 仍被 Pod 掛載時會卡在 Terminating，--timeout 讓指令在 120 秒後結束並回報逾時，不是失敗，先找出還在用它的 Pod（D4）
-$K delete configmap/mcp-restore-preflight --ignore-not-found --timeout=120s   # 步驟 1 前置檢查用（D3）
+$K delete configmap/$PCM --ignore-not-found --timeout=120s   # 步驟 1 前置檢查用（D3）
 ```
 
-- 前置檢查的 Job（`mcp-restore-preflight-image`、`mcp-restore-preflight-source`）已在步驟 1 刪除；如果中途停止而沒刪，一併 `$K delete job/<名稱> --ignore-not-found --timeout=120s`。
+- 用到步驟 1 第一個區塊的 `$RJOB`、`$PCM`；換了 shell 先重跑那個區塊。三個名稱都只屬於這個服務，同一個 namespace 其他服務的還原 Job、ConfigMap 不會被刪到（上線前重測 P3：以前名稱固定，這一步刪掉過另一台服務的還原 Job）。
+- 前置檢查的 Job（`$PJOB_IMAGE`、`$PJOB_SOURCE`）已在步驟 1 刪除；如果中途停止而沒刪，一併 `$K delete job/$PJOB_IMAGE job/$PJOB_SOURCE --ignore-not-found --timeout=120s`。
+- 舊版手冊（2026-11-14 之前）用的是整個 namespace 共用的固定名稱：Job `mcp-restore-inplace`、`mcp-restore-preflight-image`、`mcp-restore-preflight-source` 與 ConfigMap `mcp-restore-preflight`。namespace 裡還留著這些名稱時，先確認沒有人正在用舊版手冊還原同一個 namespace 的服務，再刪。
 
 - live 卷上的 `.mcp-restore-inplace` 工作目錄與還原前資料（內含當時有效的 token）已由工具在成功時刪除。
-- 工作目錄裡的 `profile-inventory.py`、`profiles-*.json`、`preflight.py`、`restore-job.yaml` 都不含憑證，可以附在工單上或刪除（Odoo 服務的 `profiles-*.json` 含後端網址、資料庫與使用者名稱）。
+- 工作目錄裡的 `profile-inventory.py`、`profiles-*.json`、`preflight.py`、`restore-job.yaml`、`restore-job.uid` 都不含憑證，可以附在工單上或刪除（`profiles-*.json` 含各產品的後端網址、資料庫與使用者名稱，不含密碼與 API key）。
 - `reset-config` 會留下 `.config.json.reset-backup-<32 位 hex>`（內含重設前的舊設定與舊憑證），見下方「已知問題」。這個檔案在 live 卷上時，還原會把它與其他舊資料一起移開並刪除；在備份來源上時，guard 會略過它。它不會被還原回 live。
 - 步驟 2 的 snapshot 含還原前有效的 token，確認不需要回退後，請叢集運維刪除。
 
@@ -749,8 +866,8 @@ $K delete configmap/mcp-restore-preflight --ignore-not-found --timeout=120s   # 
 - **還原會把帳號、政策與後端連線也帶回備份時（多帳號實測 X1）**：
   - 會回到備份當時的有：帳號清單、各帳號的名稱、後端連線（後端帳號與密碼）、工具政策、寫入開關、Reviewed Odoo methods；
   - 只有 MCP 憑證會重設：token、管理密碼、管理 session generation、n8n 子程序 bearer。
-  - 步驟 1 的紀錄與步驟 9 的比對可以補回帳號、名稱、工具政策、開關與 Reviewed Odoo methods，也會比對 Odoo 的後端帳號。core 或 app 新增每帳號政策欄位時要同步 `profile-inventory.py`：`tests/test_restore_runbook.py` 列舉經 `store.patch` 寫進 `mcp_server`、`tools` 的欄位，沒有歸類就失敗。
-  - 比對不到、要靠人的有：Odoo 以外產品的後端帳號（步驟 9 第三段向負責人逐一確認）；後端密碼（不記錄，見步驟 11）；步驟 1 讀不到的狀態（服務沒有在跑時，只能靠負責人提供）；不是權限的設定，例如 n8n 的 session 上限與逾時，也會回到備份當時。
+  - 步驟 1 的紀錄與步驟 9 的比對可以補回帳號、名稱、工具政策、開關與 Reviewed Odoo methods，也會比對各產品不是秘密的後端欄位（網址、資料庫、使用者名稱等，見步驟 1 的表）。core 或 app 新增每帳號政策欄位或連線欄位時要同步 `profile-inventory.py`：`tests/test_restore_runbook.py` 列舉 core 與各 app 經 `store.patch`／`put`／`update`／`transform`／`save` 寫進 `mcp_server`、`tools` 的欄位（看不出鍵的寫入要逐一登記），也比對各產品的連線欄位，沒有歸類就失敗。
+  - 比對不到、要靠人的有：API key、密碼、kubeconfig 這類秘密欄位決定的後端帳號（n8n、LiteLLM、EMQX、Headscale、Hermes 的 Gateway、k8s；步驟 9 第三段向負責人逐一確認）；後端密碼（不記錄，見步驟 11）；步驟 1 讀不到的狀態（服務沒有在跑時，只能靠負責人提供）；不是權限的設定，例如 n8n 的 session 上限與逾時、Headscale 顯示用的連結，也會回到備份當時。
   - 跳過步驟 9 直接發 token：備份之後刪掉的帳號會重新可用，備份之後加的限制會消失，新 token 也會用備份當時的後端帳號讀寫資料。舊 token 不會復活，問題出在新發的 token。
 - **備份之後才發生的操作紀錄**不在備份裡，無法還原。工具會把舊操作 ID 的有效期限設到最新的已知時間點，管理頁對這些舊 ID 會回 410，請重新讀取狀態後再操作。
 - **n8n** 的 catalog 資料庫必須是已 checkpoint、沒有 WAL／SHM 的一致快照，否則工具會拒絕。
@@ -760,6 +877,7 @@ $K delete configmap/mcp-restore-preflight --ignore-not-found --timeout=120s   # 
 
 以下以審查編號標明來源。
 
+- **還原 Job 的名稱與同時還原（上線前重測 P3、#143 二次審查，2026-11-14 修正）**：以前還原 Job、前置檢查 Job 與 ConfigMap 都是整個 namespace 共用的固定名稱。`new_job` 會先刪同名的舊 Job，所以同一個 namespace 另一台服務的步驟 5 或步驟 13，會刪掉這台正在跑或剛完成的 Job（不會毀資料，會印 `STOP` 要重做）；2026-11-13 重測時兩個方向都實際發生過。現在名稱帶 REL（步驟 1），同一個 namespace 的不同服務可以同時還原；同一個服務仍只能一個人做。舊版手冊留下的固定名稱見步驟 13。
 - **reset-config 的 reset-backup 殘留（restore-1、D2 P2-2）**：平台 operator 的 `reset-config` 會先把舊 `config.json` 寫成設定卷根目錄的 `.config.json.reset-backup-<uuid4().hex>`（32 位小寫 hex），之後才改寫 `config.json`。它的清理 exec 可能失敗（演練三輪都 exit 1，因為清理時舊 Pod 已在終止），檔案就留在卷上，內含舊的明文管理密碼；之後對這顆卷做的備份也會含這個檔。
   - guard 現在會略過來源**根目錄**下「名稱完全符合 `.config.json.reset-backup-` 加 32 位小寫 hex、且 `lstat` 為一般檔案」的項目：不讀、不複製、不發佈，也不計入驗證，處理方式與 `lost+found` 相同，所以還原後 live 卷不會有來源的這個檔。
   - 名稱相近但不符（大小寫、長度、非 hex、多了副檔名或結尾字元），或名稱相符但不是一般檔案（symlink、目錄、FIFO），仍會被拒絕。profile 子目錄裡的同名檔也仍會被拒絕（operator 只寫在根目錄）。
@@ -785,6 +903,45 @@ $K delete configmap/mcp-restore-preflight --ignore-not-found --timeout=120s   # 
 ## 演練紀錄
 
 **步驟編號**：2026-11-13 起新增步驟 9（核對），原步驟 9～12 改為 10～13。以下各次演練（F11、D4、D3、D2）寫的步驟編號是當時的編號。
+
+### F3R（2026-11-14，Job 名稱帶 REL、wait_job、還原 Job uid 與非 Odoo 產品的後端；改過的區塊在叢集上逐字執行）
+
+證據目錄：`/data/pi-agent/home/woow-sec-sweep/artifacts/mcp-security-release-20261112/fix3-restore-20261113/`。內含 `f3r.py`（harness）、`bin/kubectl`（shim）、`workdir-a/`、`workdir-b/`、`workdir-b-run1/`（手冊要存的檔、`profiles-*.json`、`restore-job.uid`）、`receipts/*.json`、`logs/runbook-{a,b}.log`（每個區塊的完整輸出）、`shim-log.jsonl`、`shim-calls.jsonl`（區塊裡每一次 kubectl 呼叫）、`cleanup-proof.txt`。
+
+**對象與環境**：
+- 手冊：分支 `docs/restore-runbook-followups-20261113`。A 的步驟 1～9 第一段與 B 的第一輪用 `55ecce5`，其餘（A 的第二次還原、B 的第二輪）用 `c7b34e8`。區塊以 `git show` 抽出，不改字，交給 bash；`restore-job.yaml` 只填佔位符。
+- 映像：正式站 443e95a 的 odoo-mcp-admin（`sha256:aed35228…`，節點 31zix）與 litellm-mcp-admin（`sha256:43d824bb…`，節點 59mqj），imagePullPolicy IfNotPresent，Pod 的 imageID 已核對；沒有建立或複製 registry 憑證。
+- chart：mcp-server 0.1.10（helm 3.13.3 install）。
+- 沙盒：woow-k3s 全新的 `dev-sandbox-mp-f3restore-20261113`，先建 ResourceQuota 與 NetworkPolicy（不准對外連線），PVC 一律 longhorn-delete 1Gi。
+- **同一個 namespace 兩台服務**：A＝Odoo（REL `svc-f3ra`，預設帳號加 3 個，假後端 `.invalid`），B＝LiteLLM（REL `svc-f3rb`）。
+
+**與手冊的差異（沙盒必要）**：
+- shim 只在 Job 的 `create -f`（含 `--dry-run=client`）加擁有者標籤、nodeSelector（有映像快取的節點）與明寫的 imagePullPolicy IfNotPresent，不改名稱。
+- 步驟 2、3 改用停寫後把檔案複製到 `${REL}-restore-source`（不能碰 longhorn-system）。
+- 步驟 8 是等價模擬：在 Pod 內執行平台 develop `3af108d2` 的 operator 同一段改寫程式、刪掉它留下的 reset-backup 檔、rollout restart；沒有 helm upgrade。
+- 管理頁上的動作改用管理頁呼叫的同一組管理 API（在服務 Pod 內呼叫，密碼走 stdin）。
+- 每個區塊分開交給 bash 執行，前面先放步驟 1 第一個區塊的 `K=` 那一行與名稱那幾行，以及步驟 1 印出的 `DEPLOY`、`PVC`、`CONTAINER`、`IMAGE`（縮到 0 之後步驟 1 無法重跑）。
+
+**在叢集上驗證過**：
+1. 名稱：步驟 1 印出 `mcp-restore-inplace-svc-f3ra`、`mcp-restore-preflight-image-svc-f3ra`、`mcp-restore-preflight-source-svc-f3ra`、`mcp-restore-preflight-svc-f3ra`（B 同樣帶 `svc-f3rb`）。前置檢查兩段以這些名稱建立與刪除 Job，印 `image_ok`、`ok`。
+2. **同一個 namespace 不互刪**：A 的還原 Job（uid `45c63ed4…`，已完成、刻意不做步驟 13）與 A 的 ConfigMap，在 B 的前置檢查、步驟 5、步驟 13 前後 uid 都沒變；B 的區塊共 67 次 kubectl 呼叫，沒有一次帶到 A 的名稱；B 的步驟 13 只刪了 B 的 Job、restore-source PVC 與 ConfigMap。
+3. `restore-job.yaml` 填舊版的固定名稱 `mcp-restore-inplace`：步驟 5 印 `STOP: restore-job.yaml 的 metadata.name 不是 mcp-restore-inplace-svc-f3ra…`，沒有刪除也沒有建立任何 Job。
+4. **`wait_job` 遇到 Job 被刪**：A 重跑步驟 5，新的還原 Job 建立 1 秒後被刪掉（模擬別人刪掉）。刪除後 5.0 秒印 `STOP: job/mcp-restore-inplace-svc-f3ra 不見了…`，沒有 `job wait timeout`。對照組：443e95a 版的 `wait_job` 對一個不存在的 Job 輪詢 6 次，33 秒後才印 `job wait timeout`（步驟 5 的 372 次約 31 分鐘）；新版同樣情況 1 秒就 STOP。
+5. **還原 Job uid**：A 第一次還原（Job `45c63ed4…`）後記下 `profiles-restored.json`。重跑步驟 5（Job `809220a2…`）後沒改名就跑步驟 9 第一段：印「沿用已存的 profiles-restored.json」與 `STOP: … 是還原 Job uid 45c63ed4… 之後記的，這次還原的 Job 是 uid 809220a2…`，沒有 `RESULT`。改名後重跑，記到的是這次還原後的狀態。
+6. Odoo 的 `[後端]`：f3-B 在備份之後換成受限使用者，還原換回備份當時，第一段列出網址、資料庫、使用者 3 行 `[後端]`；備份之後新增的 f3-E 列為 `[重建]`，並列出它的 Odoo 後端欄位。依標記處理後第二段 `RESULT: OK`。
+7. **LiteLLM（非 Odoo）的 `[後端]`**：備份之後新增的 f3-C／f3-D 在第一段列為 `[重建]`，並列出 `base_url`。以同名重建、只設工具不填連線，第二段列出 `[後端] … base_url 步驟 1 是 'http://litellm-b-…'，現在是 …`（第一輪 `55ecce5` 印 `''`；`c7b34e8` 起空欄位不記，印 `None`，摘要印「此產品需人工確認後端」）。填好連線後 `RESULT: OK`。
+8. **`[token]`**：步驟 10 對每個帳號發 token 之後重跑第二段（步驟 12）：A 3 行、B 2 行 `[token]`，都是「還原後是 revoked，之後發了新 token。步驟 10 發 token 之後……出現是預期」，最後一行 `RESULT: 只有 N 個 [token]…`；沒有「回到步驟 4、5」。
+9. 稽核：20 個合成憑證掃 51 個證據檔與兩個服務的容器 log，0 命中，沒遮的 `/private_` 0 行；清理後連同 PR 描述再掃 56 個檔，也是 0 命中。
+10. 清理：namespace 刪除後 NotFound，5 顆 PV 都 NotFound，Longhorn volume 也 NotFound（只做唯讀 get）。
+
+**沙盒發現並已修（`c7b34e8`）**：chart 0.1.10 的預設 values 會在每個產品預設帳號的設定留下 Hermes 的空 `gateway_url`／`dashboard_url`，`55ecce5` 的摘要因此印出 `{'gateway_url': '', 'dashboard_url': '', 'base_url': …}`。現在空的後端欄位不記，比對時也先去掉空值（舊版腳本記下的空欄位不會變成差異）。
+
+**沒有在叢集上驗證**：
+- 步驟 2、3（Longhorn）、真的 operator reset-config（以等價程式代替）、真的 Odoo 與 LiteLLM 後端（用 `.invalid` 假後端）、管理頁的實際點擊。
+- `wait_job` 遇到 API 暫時失敗時繼續輪詢、`new_job` 查不到舊 Job 與 Pod 時停下：只有單元測試（假 kubectl）。
+- `rname` 的雜湊規則（過長或有其他字元的 REL）：只有單元測試；平台的 REL 都很短，叢集上只走到直接帶 REL 的寫法。
+- `url()` 各種帳密、query 寫法，以及 n8n、Hermes、Nextcloud、EMQX、Headscale、Open Design、VK、k8s 的後端欄位：只有單元測試（合成設定卷）。
+- 守門測試的掃描：單元測試加變異實驗（`fix3-restore-20261113` 的 `mutation/`）。
 
 ### M1（2026-11-13，多帳號核對與步驟 5 舊 Job，修改後的手冊字面重跑）
 

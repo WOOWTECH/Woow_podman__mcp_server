@@ -19,7 +19,7 @@ from pathlib import Path
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 
@@ -62,8 +62,13 @@ class FakeChildState:
         self.open_streams = 0
         self.held = 0
         self.posts = 0
+        #: 子行程真的收到的每一則 POST 內容（JSON 物件；解析不出來的記成 ``{}``）。「請求絕不會到達子行程」的測試看這個。
+        self.received: list[dict] = []
         #: 設定後，佔住的 POST 全部回應（閘道等子行程回應標頭時不會因為用戶端斷線就取消，要從子行程這邊放開）。
         self.release_holds = threading.Event()
+
+    def received_ids(self) -> list:
+        return [message.get("id") for message in list(self.received)]
 
 
 def fake_child_app() -> tuple[Starlette, FakeChildState]:
@@ -81,7 +86,13 @@ def fake_child_app() -> tuple[Starlette, FakeChildState]:
                     state.open_streams -= 1
             return StreamingResponse(events(), media_type="text/event-stream")
         state.posts += 1
-        message = json.loads(await request.body() or b"{}")
+        payload = json.loads(await request.body() or b"{}")
+        items = payload if isinstance(payload, list) else [payload]
+        state.received.extend(item if isinstance(item, dict) else {} for item in items)
+        if not any(isinstance(item, dict) and "method" in item and item.get("id") is not None for item in items):
+            # 只有通知與回應（沒有請求）：子行程（MCP SDK）回 202、沒有內容。
+            return Response(status_code=202)
+        message = payload if isinstance(payload, dict) else {}
         if message.get("method") == "hold":
             state.held += 1
             try:

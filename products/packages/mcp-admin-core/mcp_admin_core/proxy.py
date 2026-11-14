@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from starlette._utils import get_route_path
 from starlette.requests import ClientDisconnect
 
 from . import gateway_pool, protocol_era, request_body, session_reclaim, setup_status, tool_filter, operation_policy
@@ -53,18 +54,29 @@ ACCESS_CHANGED_ERROR_CODE = -32005
 #: 名額已滿時請用戶端多久之後再試（秒，Retry-After）。
 BUSY_RETRY_AFTER_SECONDS = 5
 STREAM_LIMIT_RETRY_AFTER_SECONDS = 30
+#: 子行程在處理這個請求途中斷線，而且它已經停止（當掉、被 kill、重啟、被擋下）。
 CHILD_INTERRUPTED_MESSAGE = (
     "The MCP server process stopped while handling this request (it restarts automatically). The operation may "
     "or may not have completed; check before retrying. (MCP 子行程在處理這個請求時中斷（會自動重新啟動），"
     "這個操作可能已完成也可能沒有，請先確認再重試。)"
 )
+#: 連線中斷，但子行程仍在執行（連線被它或中間的什麼關掉）：不能說子行程停止了。
+CHILD_CONNECTION_MESSAGE = (
+    "The connection to the MCP server was interrupted while handling this request, but the MCP server process is "
+    "still running. The operation may or may not have completed; check before retrying. (閘道與 MCP 子行程之間的"
+    "連線在處理這個請求時中斷，但子行程仍在執行；這個操作可能已完成也可能沒有，請先確認再重試。)"
+)
+#: 連線中斷後，等管理程序確認子行程有沒有結束的最長時間：連線的斷開與 process 的收屍、pipe 的 EOF 只差幾毫秒，
+#: 先看到哪個不一定。只有「連線斷了、子行程看起來還活著」時才會等滿這麼久。
+CHILD_EXIT_GRACE_SECONDS = 0.25
 ACCESS_CHANGED_MESSAGE = (
     "The MCP token was rotated or revoked while this request was running, so the gateway stopped the response. "
     "Reconnect with the current MCP URL. (處理這個請求時 MCP token 已被輪替或撤銷，閘道已停止這個回應；"
     "請用目前的 MCP 網址重新連線。)"
 )
-#: 用戶端在請求內容送完之前就斷線（上傳中斷）時記下的狀態碼（nginx 的 499 Client Closed Request；用戶端已經不在，
-#: 實際上送不出去，只給 access log 看）。
+#: 用戶端在請求內容送完之前就斷線（上傳中斷），或在排隊等名額時就關掉連線時記下的狀態碼（nginx 的 499 Client Closed Request）。
+#: 用戶端已經不在，沒有人收得到這個回應，uvicorn 對已斷線的連線也不記 access 行（沙盒與本機實測 0 行 499）；
+#: 看得出來的只有閘道記的那一行 WARNING。
 CLIENT_CLOSED_REQUEST = 499
 INITIALIZE_READY_TIMEOUT = 10.0
 INITIALIZE_READY_WAITERS = 32
@@ -138,7 +150,7 @@ async def _generation_send(pm, generation, lease, send):
         pm.end_initialize_dispatch()
 
 
-async def _bounded_initialize_send(lease, send, timeout, request):
+async def _bounded_initialize_send(lease, send, timeout, request, hints=None):
     operation = asyncio.create_task(lease.run(send()))
     disconnect = asyncio.create_task(_client_disconnect(request))
     try:
@@ -147,6 +159,10 @@ async def _bounded_initialize_send(lease, send, timeout, request):
         if disconnect in done:
             raise ClientDisconnect
         if operation not in done:
+            if hints is not None and hints.queued and hints.limits is not None:
+                # 期限到時請求還排在名額後面（沒有送出）：這是「名額用滿」，不是「子行程還沒好」——與一般名額滿相同的
+                # 回答與 WARNING（以前這裡一律回 503 not ready，而且沒有任何 log）。
+                raise gateway_pool.report_wait_expired(hints.limits, hints.waited())
             raise _ChildNotReady
         return operation.result()
     except BaseException:
@@ -318,6 +334,27 @@ def _request_ids(rpc) -> list:
             if isinstance(m.get("method"), str) and m.get("id") is not None]
 
 
+def _carries_no_request(method: str, rpc) -> bool:
+    """POST 的內容裡沒有任何 JSON-RPC 請求，全部是通知（有 method、沒有 id）或用戶端對伺服器請求的回應（有 id、有
+    result／error、沒有 method）：子行程只會回 202，沒有東西要回覆。這種 POST 用保留名額（gateway_pool.GatewayHints）。
+
+    看不懂的內容（不是 JSON、不是物件、空 batch、兩者都不是的訊息）不算：照一般請求處理。"""
+    if method != "POST" or rpc is None or _request_ids(rpc):
+        return False
+    items = rpc if isinstance(rpc, list) else [rpc]
+    if not items:
+        return False
+    for message in items:
+        if not isinstance(message, dict):
+            return False
+        if "method" in message:
+            if not isinstance(message["method"], str):
+                return False
+        elif "id" not in message or not ("result" in message or "error" in message):
+            return False
+    return True
+
+
 def _rpc_error(rpc_id, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}}
 
@@ -349,13 +386,29 @@ def _gateway_error(rpc, *, status: int, code: int, message: str, retry_after: in
     return JSONResponse(payload, status_code=status, headers=headers)
 
 
-def _busy_message(limits: gateway_pool.GatewayLimits | None) -> str:
+def _busy_message(exc: httpx.PoolTimeout) -> str:
+    """名額用滿的回應文字（``exc`` 是 transport 的 :class:`gateway_pool.GatewayBusy`，或 httpx 自己的共用池逾時）。
+
+    連線數寫「逾時或排隊已滿的那一組名額」自己的：一般名額是連線上限（預設 64），通知保留名額是保留數（8，見
+    :data:`gateway_pool.NOTIFICATION_RESERVE`）；以前保留名額逾時也寫連線上限（獨立審查 N8）。"""
+    limits = getattr(exc, "limits", None)
     if limits is None:  # httpx 自己的共用池（保險用的上限）也滿了
         return ("All gateway connections to the MCP server are in use, so this request was not sent. Retry shortly. "
                 "(閘道送往 MCP 子行程的連線都在使用中，這個請求沒有送出，請稍後再試。)")
-    return (f"All {limits.max_connections} gateway connections of this MCP URL are in use; waited "
-            f"{limits.pool_timeout:g} s without a free one, so this request was not sent. Retry shortly. "
-            f"(這個 MCP 網址送往 MCP 子行程的 {limits.max_connections} 條連線都在使用中，等了 {limits.pool_timeout:g} 秒"
+    connections = getattr(exc, "connections", limits.max_connections)
+    if getattr(exc, "reserved", False):
+        english, chinese = "gateway connections reserved for notifications", "保留給通知、送往 MCP 子行程的"
+    else:
+        english, chinese = "gateway connections", "送往 MCP 子行程的"
+    if isinstance(exc, gateway_pool.GatewayQueueFull):
+        return (f"{limits.max_queue} requests of this MCP URL are already waiting for one of its "
+                f"{connections} {english}, so this request was not queued or sent. Retry shortly. "
+                f"(這個 MCP 網址已經有 {limits.max_queue} 個請求在排隊等 {connections} 條{chinese}"
+                "連線，這個請求沒有排隊也沒有送出，請稍後再試。)")
+    waited = getattr(exc, "waited", None) or limits.pool_timeout
+    return (f"All {connections} {english} of this MCP URL are in use; waited "
+            f"{waited:g} s without a free one, so this request was not sent. Retry shortly. "
+            f"(這個 MCP 網址{chinese} {connections} 條連線都在使用中，等了 {waited:g} 秒"
             "仍沒有空出來，這個請求沒有送出，請稍後再試。)")
 
 
@@ -405,6 +458,33 @@ def _answered_ids(chunk: bytes) -> list[str]:
     return keys
 
 
+async def _child_stopped(pm, generation) -> bool:
+    """轉發途中連線斷了：這個請求送去的子行程是不是已經停止（結束、重啟換了世代、被擋下）。
+
+    ``generation`` 是轉發當下通過身分檢查的 ``(process, 世代事件)``（沒有就取管理程序現在的）。連線的斷開與管理程序看到
+    process 結束只差幾毫秒、先後不一定，所以現在看不出停止時，最多再等 :data:`CHILD_EXIT_GRACE_SECONDS` 看世代有沒有失效。
+    沒有世代資訊可比的舊介面替身，維持原本的說法（停止）。用輪詢而不是等世代事件：事件綁在第一次等它的事件迴圈上。
+    """
+    capture = getattr(pm, "initialize_generation", None)
+    if generation is None and capture is not None:
+        generation = capture()
+    if generation is None:
+        return True
+    proc, changed = generation
+
+    def stopped() -> bool:
+        return (proc is None or proc.returncode is not None or changed.is_set()
+                or (capture is not None and capture()[0] is not proc))
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + CHILD_EXIT_GRACE_SECONDS
+    while not stopped():
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(0.02)
+    return True
+
+
 class _Interruption:
     """轉發中的回應被中途切斷（子行程斷線、token 換掉）時，閘道補給用戶端的結尾。
 
@@ -450,16 +530,23 @@ def _is_loopback(host: str | None) -> bool:
     return address.is_loopback or (mapped is not None and mapped.is_loopback)
 
 
+#: WHATWG URL（瀏覽器、fetch）把 ``%2e``（不分大小寫）也當成 ``.``：``%2e``、``.%2e``、``%2e.``、``%2e%2e`` 都是點段；
+#: RFC 3986 的解析器只認字面的。兩邊看法不同的寫法都先消掉，輸出裡才不會留下只有一邊看得出來的點段。
+_DOT_SEGMENTS = frozenset({".", "%2e"})
+_DOUBLE_DOT_SEGMENTS = frozenset({"..", ".%2e", "%2e.", "%2e%2e"})
+
+
 def _remove_dot_segments(path: str) -> str:
-    """RFC 3986 §5.2.4：去掉 ``.``／``..``，停在根目錄（不會爬出子行程的根）。"""
+    """RFC 3986 §5.2.4：去掉 ``.``／``..``（含 ``%2e`` 的寫法，見 :data:`_DOT_SEGMENTS`），停在根目錄（不會爬出子行程的根）。"""
     output: list[str] = []
     segments = path.split("/")[1:]
     for index, segment in enumerate(segments):
         last = index == len(segments) - 1
-        if segment == ".":
+        lowered = segment.lower() if len(segment) <= 6 else segment
+        if lowered in _DOT_SEGMENTS:
             if last:
                 output.append("")
-        elif segment == "..":
+        elif lowered in _DOUBLE_DOT_SEGMENTS:
             if output:
                 output.pop()
             if last:
@@ -470,7 +557,7 @@ def _remove_dot_segments(path: str) -> str:
 
 
 def _relative_reference(base_path: str, target_path: str) -> str:
-    """子行程路徑空間裡，從 ``base_path``（這次請求）到 ``target_path`` 的相對參照（不含任何前綴）。"""
+    """同一個路徑空間裡，從 ``base_path``（用戶端現在的位置）到 ``target_path`` 的相對參照。"""
     base_dirs = base_path.split("/")[1:-1]
     target = target_path.split("/")[1:]
     target_dirs, last = target[:-1], target[-1]
@@ -483,11 +570,21 @@ def _relative_reference(base_path: str, target_path: str) -> str:
     return reference
 
 
-def _external_location(location: str, child_path: str) -> str:
+def _external_location(location: str, client_path: str, child_path: str, prefix: str) -> str:
     """子行程回的 ``Location`` 指向它自己（``http://127.0.0.1:<port>/…`` 或 ``/…``）時，改寫成相對參照（P3-c）。
 
-    相對參照以這次請求的網址為基準，用戶端自己解析成 ``/private_<token>/…``，所以回應裡既沒有內部位址，也沒有
-    token。指向其他主機的網址、本來就是相對路徑的參照原樣保留。
+    ``/private_<token>`` 底下的位置完全對應子行程的根路徑：子行程的 ``/a/b`` ＝用戶端的 ``<prefix>/a/b``。所以先在子行程
+    的路徑空間算出目標（消掉 ``.``／``..``，爬不出根），接上 *prefix*（``/private_<token>``），再算出**從用戶端實際送出
+    的路徑 *client_path*（不是轉給子行程的路徑）**出發的相對參照。有尾端路徑時 ``private_<token>`` 一定是共同的前綴，
+    所以回應裡既沒有內部位址，也沒有 token；裸網址 ``/private_<token>``（沒有斜線）時，用戶端站在 token 那一段「檔案」上，
+    要留在前綴內就一定得寫出那一段——這是唯一會帶 token 的情況（只回給送出這個 token 的同一個用戶端）。以前拿轉給子行程的
+    路徑當基準，裸網址的 ``Location: mcp`` 會被用戶端解析成 ``/mcp``，跳出前綴；``/mcp/`` 轉成 ``/mcp`` 也有一樣的落差。
+
+    指向其他主機的網址原樣保留。本來就是相對路徑的參照：用戶端站的目錄與子行程相同（``client_path == prefix + child_path``）
+    時原樣保留（解析結果相同）；不同（裸網址、``/mcp/`` 轉成 ``/mcp``）時先照子行程的位置解析再改寫。
+
+    改寫的輸出對 RFC 3986 與 WHATWG 兩種用戶端都不會離開 *prefix*：路徑裡的反斜線編成 ``%5C``、``%2e`` 的點段與字面的點段
+    一樣先消掉（見 :func:`_remove_dot_segments`）。
     """
     try:
         parts = urlsplit(location)
@@ -496,14 +593,23 @@ def _external_location(location: str, child_path: str) -> str:
     if parts.scheme or parts.netloc:
         if parts.scheme.lower() not in ("http", "https", "") or not _is_loopback(parts.hostname):
             return location
-    elif not parts.path.startswith("/"):
-        return location
-    reference = _relative_reference(child_path, _remove_dot_segments(parts.path or "/"))
+        target = parts.path or "/"
+    elif parts.path.startswith("/"):
+        target = parts.path
+    elif not parts.path or client_path == prefix + child_path:
+        return location  # 只有 query／fragment，或用戶端的目錄與子行程相同：解析結果一樣，原樣保留
+    else:
+        target = child_path.rsplit("/", 1)[0] + "/" + parts.path
+    reference = _relative_reference(client_path, prefix + _remove_dot_segments(target))
+    # WHATWG 用戶端把路徑裡的 ``\`` 當成 ``/``：``\\evil.example/x`` 會被解析成 ``//evil.example/x``（換主機）、
+    # ``a\..\..\x`` 會爬出前綴。一律編成 ``%5C``（獨立審查 N7）；寫實的 Location 沒有反斜線，輸出不變。query 與 fragment 不動。
+    reference = reference.replace("\\", "%5C")
     if parts.query:
         reference += "?" + parts.query
     if parts.fragment:
         reference += "#" + parts.fragment
     return reference
+
 
 # Shared client with long timeout for MCP streaming calls
 _client: httpx.AsyncClient | None = None
@@ -823,6 +929,14 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
             await _wait_for_forwardable(pm, routable, child_port, lease, request,
                                         startup_deadline if deadline is None else min(deadline, startup_deadline))
 
+        # 給 transport 的資訊（gateway_pool.GatewayHints）：只有 POST 裡沒有任何請求（通知、用戶端的回應）才走保留名額；
+        # 排隊等名額時監看用戶端斷線（斷線就不送，避免用戶端已經放棄的寫入在名額空出後才被執行）。啟動中的 initialize
+        # 自己已經在 _bounded_initialize_send 監看斷線，不重複。
+        hints = gateway_pool.GatewayHints(
+            notification=_carries_no_request(request.method, rpc),
+            gone=None if startup_generation is not None else (lambda: _client_disconnect(request)),
+        )
+
         async def send_upstream():
             nonlocal forwarded
             current_body = body
@@ -856,13 +970,15 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
                 method=request.method, url=upstream_url, headers=forward_headers,
                 content=current_body if current_body else None,
             )
+            hints.attach(upstream_req)
             if fenced_generation is None:
                 return await client.send(upstream_req, stream=True)
             return await _generation_send(pm, fenced_generation, lease,
                                           lambda: client.send(upstream_req, stream=True))
 
         if startup_generation is not None:
-            upstream_resp = await _bounded_initialize_send(lease, send_upstream, startup_deadline - loop.time(), request)
+            upstream_resp = await _bounded_initialize_send(lease, send_upstream, startup_deadline - loop.time(), request,
+                                                           hints)
         elif deadline is not None:
             upstream_resp = await asyncio.wait_for(
                 lease.run(send_upstream()), timeout=deadline - loop.time()
@@ -902,6 +1018,12 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
         _require_lease(lease)
         raise HTTPException(503, detail="MCP child is not ready; reconnect after checking its status")
     except ClientDisconnect:
+        return Response(status_code=CLIENT_CLOSED_REQUEST)
+    except gateway_pool.ClientAbandoned:
+        # 用戶端在排隊等名額時就把那個 POST 的連線關掉了（TCP 斷線，或 HTTP 用戶端因逾時、被中止而關連線）：請求沒有送給子行程、
+        # 也不會再送（transport 已記一行 WARNING）。MCP Python SDK 預設的關閉路徑（terminate_on_close=True：先送 DELETE 並等回應）
+        # 與 SDK 層級的逾時、取消都不會關連線，不會走到這裡，見 docs/mcp-gateway-limits.md 的「已知限制與後續」。
+        # 用戶端已經不在：這個 499 沒有人收得到，uvicorn 也不記 access 行，只有那一行 WARNING 看得出來。
         return Response(status_code=CLIENT_CLOSED_REQUEST)
     except AccessChanged:
         raise HTTPException(403, detail="MCP access changed; reconnect using the current shared token")
@@ -954,8 +1076,7 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
     except httpx.PoolTimeout as exc:
         # 這個帳號的連線名額（或保險用的共用池）在期限內都沒有空出來：請求沒有送出，不是子行程逾時（QA-1）。
         _require_lease(lease)
-        return _gateway_error(rpc, status=503, code=GATEWAY_BUSY_ERROR_CODE,
-                              message=_busy_message(getattr(exc, "limits", None)),
+        return _gateway_error(rpc, status=503, code=GATEWAY_BUSY_ERROR_CODE, message=_busy_message(exc),
                               retry_after=BUSY_RETRY_AFTER_SECONDS, ok_with_ids=not legacy_sse)
     except httpx.TimeoutException:
         raise HTTPException(504, detail="MCP server timed out")
@@ -964,8 +1085,11 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
         # 以前沒接住：uvicorn 回 500 並記約 163 行 traceback（2026-11-13 多帳號實測 res R2c，P3-b）。現在記一行
         # warning（方法與 token 之後的路徑，不含 token、不帶 traceback），回 502＋JSON-RPC 錯誤（帶得出 id 就帶）。
         _require_lease(lease)
-        logger.warning("轉發途中子行程的連線中斷（%s /%s，%s），回 502", request.method, path, type(exc).__name__)
-        return _gateway_error(rpc, status=502, code=CHILD_INTERRUPTED_ERROR_CODE, message=CHILD_INTERRUPTED_MESSAGE)
+        stopped = await _child_stopped(pm, forwarded)
+        logger.warning("轉發途中子行程的連線中斷（%s /%s，%s，子行程%s），回 502", request.method, path, type(exc).__name__,
+                       "已停止" if stopped else "仍在執行")
+        return _gateway_error(rpc, status=502, code=CHILD_INTERRUPTED_ERROR_CODE,
+                              message=CHILD_INTERRUPTED_MESSAGE if stopped else CHILD_CONNECTION_MESSAGE)
 
     if sessions is not None:
         _observe_session(sessions, request, rpc, session_id, generation, upstream_resp)
@@ -988,7 +1112,8 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
     resp_headers["x-accel-buffering"] = "no"
     if "location" in resp_headers:
         # P3-c：子行程的轉址指向它自己（http://127.0.0.1:<port>/…）：改成相對參照，不露出內部位址、也不放進 token。
-        resp_headers["location"] = _external_location(resp_headers["location"], urlsplit(upstream_url).path)
+        resp_headers["location"] = _external_location(resp_headers["location"], get_route_path(request.scope),
+                                                      urlsplit(upstream_url).path, f"/private_{token}")
 
     content_type = upstream_resp.headers.get("content-type") or ""
     # 回應被中途切斷時閘道補的結尾（子行程斷線或 token 換掉；見 _Interruption）。legacy SSE 的 POST（/messages/）
@@ -1008,9 +1133,11 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
             raise HTTPException(403, detail="MCP access changed; reconnect using the current shared token")
         except httpx.TransportError as exc:
             _require_lease(lease)
-            logger.warning("轉發途中子行程的連線中斷（%s /%s，%s），回 502", request.method, path, type(exc).__name__)
+            stopped = await _child_stopped(pm, forwarded)
+            logger.warning("轉發途中子行程的連線中斷（%s /%s，%s，子行程%s），回 502", request.method, path,
+                           type(exc).__name__, "已停止" if stopped else "仍在執行")
             return _gateway_error(rpc, status=502, code=CHILD_INTERRUPTED_ERROR_CODE,
-                                  message=CHILD_INTERRUPTED_MESSAGE)
+                                  message=CHILD_INTERRUPTED_MESSAGE if stopped else CHILD_CONNECTION_MESSAGE)
         finally:
             await upstream_resp.aclose()
         return LeasedResponse(
@@ -1060,9 +1187,11 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
                     # 錯誤事件（SseToolsFilter 只吐完整事件，不會插在半個事件中間；沒送完的半個事件丟掉），JSON 本體還沒送出
                     # 任何位元組時回 JSON-RPC 錯誤，然後正常結束。以前一路拋到 uvicorn（約 163 行 traceback，P3-b）。
                     lease.check()
-                    logger.warning("子行程的回應在轉發途中中斷（%s /%s，%s），已結束這個回應",
-                                   request.method, path, type(exc).__name__)
-                    tail = interruption.tail(CHILD_INTERRUPTED_ERROR_CODE, CHILD_INTERRUPTED_MESSAGE)
+                    stopped = await _child_stopped(pm, forwarded)
+                    logger.warning("子行程的回應在轉發途中中斷（%s /%s，%s，子行程%s），已結束這個回應",
+                                   request.method, path, type(exc).__name__, "已停止" if stopped else "仍在執行")
+                    tail = interruption.tail(CHILD_INTERRUPTED_ERROR_CODE,
+                                             CHILD_INTERRUPTED_MESSAGE if stopped else CHILD_CONNECTION_MESSAGE)
                     if tail:
                         yield tail
                     return
