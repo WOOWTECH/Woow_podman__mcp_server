@@ -32,6 +32,8 @@ products/deploy/manage.sh emqx install \
 products/deploy/manage.sh emqx smoke
 ```
 
+2026-11-14 起擁有者核准不簽章的發布：先 `git fetch origin` 並切到已合併的 `origin/main`，以 `products/deploy/build-release-images.sh [產品...]` 建映像，再用 `--skip-release-signature` 取代 `--release-manifest` 與 `--source-checkout`，例如 `products/deploy/manage.sh emqx upgrade --skip-release-signature`。這樣會略過簽章，但仍要求乾淨的 checkout、HEAD 已在 `origin/main`、映像標籤對得上這個 commit 與 PaaS 版本，並把映像 ID 固定寫進 Quadlet。少了哪些保護，見[發行證明](../docs/release-provenance-guard.md)。
+
 首次安裝產生獨立的 Podman secrets，從 `ADMIN_PASSWORD` 只在空 volume 寫入管理密碼；應用首次啟動另外產生 MCP token。可在本機查看初次管理密碼：
 
 ```bash

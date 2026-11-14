@@ -124,15 +124,22 @@ case $ACTION in
     restore "$1" revoke "${@:2}"
     ;;
   upgrade)
-    release_manifest='' source_checkout=''
+    release_manifest='' source_checkout='' unsigned=0
     while (($#)); do
       case $1 in
         --release-manifest) release_manifest=${2:?--release-manifest needs a file}; shift ;;
         --source-checkout) source_checkout=${2:?--source-checkout needs a directory}; shift ;;
+        --skip-release-signature) unsigned=1 ;;
         *) ql_die "unknown upgrade option $1" ;;
       esac
       shift
     done
+    if ((unsigned)); then
+      MCP_RELEASE_UNSIGNED=1
+      install_args=(--skip-release-signature)
+    else
+      install_args=(--release-manifest "$release_manifest" --source-checkout "$source_checkout")
+    fi
     mcp_release_gate "$APP" "$PRODUCT" "$release_manifest" "$source_checkout"
     ql_require_user_systemd
     [[ -s $STATE/manifest ]] || ql_die "$APP is not installed"
@@ -145,8 +152,12 @@ case $ACTION in
       cp -p -- "$path" "$snapshot/files$path"
     done <"$STATE/manifest"
     backup_dir=$(backup) || ql_die "backup failed; upgrade not attempted"
-    if ! "$DEPLOY/manage.sh" "$PRODUCT" install --release-manifest "$release_manifest" \
-        --source-checkout "$source_checkout"; then
+    # A direct install refuses an active service on another image. This upgrade has a snapshot
+    # and a fresh backup, so stop the service before handing over to the same installer.
+    if systemctl --user is-active --quiet "$UNIT"; then
+      systemctl --user stop "$UNIT" || ql_die "could not stop $UNIT for the upgrade; nothing was changed"
+    fi
+    if ! "$DEPLOY/manage.sh" "$PRODUCT" install "${install_args[@]}"; then
       ql_warn "upgrade failed; restoring previous units and volume"
       if [[ -f $STATE/manifest ]]; then
         while read -r _ path; do

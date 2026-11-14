@@ -3,6 +3,7 @@
 # automatic rollback when the new version fails its smoke test.
 #
 #   scripts/upgrade.sh --release-manifest REVIEWED.json --source-checkout CANONICAL
+#   scripts/upgrade.sh --skip-release-signature   (owner-approved: no signed manifest)
 #
 #   1. snapshot the installed unit files and the install manifest
 #   2. scripts/backup.sh (volume export)          (skipped with --no-backup)
@@ -26,17 +27,24 @@ UNITS=(headscale-mcp-admin.service)
 HEALTH_CONTAINER=headscale-mcp-admin
 KEEP_SNAPSHOTS=5
 
-backup=1 release_manifest='' source_checkout=''
+backup=1 release_manifest='' source_checkout='' unsigned=0
 while (($#)); do
   case $1 in
     --no-backup) backup=0 ;;
     --release-manifest) release_manifest=${2:?--release-manifest needs a file}; shift ;;
     --source-checkout) source_checkout=${2:?--source-checkout needs a directory}; shift ;;
-    -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
+    --skip-release-signature) unsigned=1 ;;
+    -h | --help) sed -n '2,16p' "$0"; exit 0 ;;
     *) ql_die "unknown option $1 (see --help)" ;;
   esac
   shift
 done
+if ((unsigned)); then
+  MCP_RELEASE_UNSIGNED=1
+  install_args=(--skip-release-signature)
+else
+  install_args=(--release-manifest "$release_manifest" --source-checkout "$source_checkout")
+fi
 export QL_APP=$APP
 ql_require_rootless
 mcp_release_gate "$APP" headscale "$release_manifest" "$source_checkout"
@@ -138,6 +146,5 @@ fi
 if systemctl --user is-active --quiet "${UNITS[0]}"; then
   systemctl --user stop "${UNITS[0]}" || rollback
 fi
-if ! "$DEPLOY/scripts/install.sh" --release-manifest "$release_manifest" \
-    --source-checkout "$source_checkout"; then rollback; fi
+if ! "$DEPLOY/scripts/install.sh" "${install_args[@]}"; then rollback; fi
 ql_info "upgrade to $(<"$DEPLOY/VERSION") complete; rollback snapshot kept in $snap"

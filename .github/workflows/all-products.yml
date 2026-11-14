@@ -51,7 +51,7 @@ jobs:
       - name: Shell syntax and deployment source guard
         run: |
           bash -n products/deploy/manage.sh products/deploy/release-gate.sh \
-            products/deploy/shared/lifecycle.sh \
+            products/deploy/build-release-images.sh products/deploy/shared/lifecycle.sh \
             products/deploy/shared/tests/*.sh
           python3 -m compileall -q products/deploy/release_preflight.py products/deploy/shared products/scripts/check-all-parity.py products/scripts/check-ha-tool-parity.py
           ! grep -RIn 'podman\.sock' products/deploy/shared/quadlet

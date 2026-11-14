@@ -72,6 +72,7 @@ case $ACTION in
         --no-build) : ;;
         --release-manifest) release_manifest=${2:?--release-manifest needs a file}; shift ;;
         --source-checkout) source_checkout=${2:?--source-checkout needs a directory}; shift ;;
+        --skip-release-signature) MCP_RELEASE_UNSIGNED=1 ;;
         --no-start) no_start=1 ;;
         --dry-run) export QL_DRY_RUN=1 ;;
         *) ql_die "unknown install option $1" ;;

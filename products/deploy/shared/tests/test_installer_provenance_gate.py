@@ -36,6 +36,7 @@ class InstallerGateTests(unittest.TestCase):
         behaviour = (
             'case "$1" in\n'
             '  */release_preflight.py)\n'
+            '    printf "%s\\n" "$*" >> "$RELEASE_TEST_ARGS"\n'
             '    n=0; [ -f "$RELEASE_TEST_COUNT" ] && n=$(cat "$RELEASE_TEST_COUNT")\n'
             '    n=$((n + 1)); printf "%s" "$n" > "$RELEASE_TEST_COUNT"\n'
             + (f'    [ "$n" -lt {fail_at} ] || exit 7\n' if fail_at else '')
@@ -47,6 +48,7 @@ class InstallerGateTests(unittest.TestCase):
         shim.chmod(0o755)
         env["PATH"] = f"{bin_dir}:{env['PATH']}"
         env["RELEASE_TEST_COUNT"] = str(base / "preflight-count")
+        env["RELEASE_TEST_ARGS"] = str(base / "preflight-args")
 
     def test_missing_manifest_leaves_no_persistent_state_for_install_or_upgrade(self):
         for product in ("emqx", "headscale"):
@@ -65,6 +67,45 @@ class InstallerGateTests(unittest.TestCase):
                         self.assertFalse((home / ".config").exists())
                         self.assertFalse((home / "units").exists())
                         self.assertFalse((home / "state").exists())
+
+    def test_skip_release_signature_cannot_be_mixed_with_a_manifest(self):
+        for product in ("emqx", "headscale"):
+            for action in ("install", "upgrade"):
+                with self.subTest(product=product, action=action):
+                    with tempfile.TemporaryDirectory() as directory:
+                        base = Path(directory)
+                        env = self.env(base)
+                        result = subprocess.run(
+                            self.install_args(base, product, action) + ["--skip-release-signature"],
+                            env=env, capture_output=True, text=True,
+                        )
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("cannot be combined", result.stderr)
+                        self.assertFalse((Path(env["HOME"]) / "state").exists())
+                        self.assertFalse((Path(env["HOME"]) / ".config").exists())
+
+    def test_skip_release_signature_runs_only_the_unsigned_check_under_the_lock(self):
+        for product in ("emqx", "headscale"):
+            for action in ("install", "upgrade"):
+                with self.subTest(product=product, action=action):
+                    with tempfile.TemporaryDirectory() as directory:
+                        base = Path(directory)
+                        env = self.env(base)
+                        self.preflight_shim(base, env, fail_at=2)
+                        result = subprocess.run(
+                            [str(MANAGE), product, action, "--skip-release-signature"],
+                            env=env, capture_output=True, text=True,
+                        )
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("release signature skipped by the operator", result.stderr)
+                        self.assertIn("changed while acquiring", result.stderr)
+                        calls = (base / "preflight-args").read_text().splitlines()
+                        self.assertEqual(len(calls), 2)
+                        for call in calls:
+                            self.assertTrue(call.endswith(f"--product {product} --unsigned"), call)
+                            self.assertNotIn("--release-manifest", call)
+                        self.assertFalse((Path(env["HOME"]) / "state").exists())
+                        self.assertFalse((Path(env["HOME"]) / ".config").exists())
 
     def test_changed_proof_under_lock_cleans_new_empty_state_directory(self):
         for product in ("emqx", "headscale"):

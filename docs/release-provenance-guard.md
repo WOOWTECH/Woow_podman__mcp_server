@@ -87,6 +87,42 @@ writer's nonempty directory is left intact. An ordinary operational failure
 after the proof may leave normal installer state and uses the existing
 upgrade rollback path.
 
+## Owner-approved release without a signature
+
+On 2026-11-14 the owner decided to release the Podman products without a
+signed manifest. The signed path stays the default: `--skip-release-signature`
+must be given on every install or upgrade, cannot be combined with
+`--release-manifest` or `--source-checkout`, and prints a warning.
+
+```sh
+git fetch origin && git checkout --detach origin/main
+products/deploy/build-release-images.sh emqx headscale
+products/deploy/manage.sh emqx upgrade --skip-release-signature
+products/deploy/headscale/scripts/upgrade.sh --skip-release-signature
+```
+
+What still holds:
+
+- The Podman checkout is clean and its HEAD is already on `origin/main`. The
+  installer does not fetch, so a stale or missing remote-tracking ref refuses
+  the release.
+- The local image carries that commit, the catalog pin and a build ID in its
+  labels. `build-release-images.sh` builds from `git archive HEAD` and sets
+  them.
+- The image ID is resolved before and under the install lock, checked again
+  before persistent install, and rendered into `Image=` with `Pull=never`.
+- Upgrade keeps its backup and automatic rollback.
+
+What is lost:
+
+- No independent reviewer approves the exact source and image identity. Anyone
+  who can run commands as the deployment user can release an image built from
+  a merged commit without that approval.
+- The installer does not re-check the canonical archive hash or the
+  canonical-to-Podman parity. CI checks parity on every merge to `main`.
+- No signed record states which images were approved. A release for
+  customers or an audited environment should use the signed path.
+
 ## Trust boundary and limits
 
 This protects against accidental use of a wrong catalog pin, changed clean

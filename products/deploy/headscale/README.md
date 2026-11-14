@@ -27,7 +27,9 @@ products/deploy/headscale/scripts/install.sh \
 `127.0.0.1:18081`。首次密碼可在安裝主機查閱：
 
 安裝與升級都要帶相同的 `--release-manifest` 與 `--source-checkout`；來源驗證與
-信任邊界見 [發行證明文件](../../../docs/release-provenance-guard.md)。
+信任邊界見 [發行證明文件](../../../docs/release-provenance-guard.md)。擁有者核准的
+不簽章發布改用 `--skip-release-signature`，映像由 `products/deploy/build-release-images.sh headscale`
+建置，條件同 [products/README.md](../../README.md)。
 
 ```bash
 podman secret inspect --showsecret --format '{{.SecretData}}' headscale-mcp-admin-password

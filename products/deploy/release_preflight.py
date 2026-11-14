@@ -4,6 +4,11 @@
 The installer and CLI use the fixed external release key. Isolated tests call
 the verifier function directly with a disposable test key. Only an
 independently signed manifest can supply an expected image identity.
+
+``--unsigned`` is the owner-approved exception (2026-11-14): no manifest and no
+signature. The Podman checkout must still be clean and its HEAD already on
+origin/main, and the local image must carry that commit and the catalog pin in
+its labels; its ID is rendered as usual.
 """
 
 from __future__ import annotations
@@ -24,6 +29,8 @@ TRUST_KEY = Path("/etc/woowtech/mcp-release-ed25519.pub")
 CANONICAL_REPOSITORY = "WOOWTECH/woow-mcp-server"
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 COMMIT = re.compile(r"[0-9a-f]{40}\Z")
+BUILD_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{7,127}\Z")
+MAIN_REF = "refs/remotes/origin/main"
 
 
 class ReleaseError(Exception):
@@ -175,6 +182,20 @@ def host_platform() -> str:
     return f"linux/{machine}"
 
 
+def inspect_local(reference: str) -> dict:
+    try:
+        inspected = json.loads(run("podman", "image", "inspect", "--format", "{{json .}}", reference))
+    except (UnicodeError, ValueError):
+        fail("local image inspection is invalid")
+    if not isinstance(inspected, dict):
+        fail("local image inspection is invalid")
+    actual_id = inspected.get("Id", "")
+    if isinstance(actual_id, str) and not actual_id.startswith("sha256:"):
+        actual_id = f"sha256:{actual_id}"
+    inspected["Id"] = actual_id
+    return inspected
+
+
 def verify_image(manifest: dict, product: str, reference: str, podman_commit: str,
                  canonical_commit: str) -> str:
     platform_id = host_platform()
@@ -192,7 +213,7 @@ def verify_image(manifest: dict, product: str, reference: str, podman_commit: st
         fail("reviewed immutable image ID is missing")
     hex_value(image_id[7:], "reviewed immutable image ID")
     build_id = entry.get("build_id")
-    if not isinstance(build_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{7,127}", build_id):
+    if not isinstance(build_id, str) or not BUILD_ID.fullmatch(build_id):
         fail("reviewed build identity is missing")
     required = {
         "org.opencontainers.image.revision": podman_commit,
@@ -202,16 +223,8 @@ def verify_image(manifest: dict, product: str, reference: str, podman_commit: st
     labels = entry.get("labels")
     if not isinstance(labels, dict) or any(labels.get(k) != v for k, v in required.items()):
         fail("release manifest lacks required build labels")
-    try:
-        inspected = json.loads(run("podman", "image", "inspect", "--format", "{{json .}}", reference))
-    except (UnicodeError, ValueError):
-        fail("local image inspection is invalid")
-    if not isinstance(inspected, dict):
-        fail("local image inspection is invalid")
-    actual_id = inspected.get("Id", "")
-    if isinstance(actual_id, str) and not actual_id.startswith("sha256:"):
-        actual_id = f"sha256:{actual_id}"
-    if actual_id != image_id:
+    inspected = inspect_local(reference)
+    if inspected["Id"] != image_id:
         fail("local image tag resolves to an unreviewed image ID")
     if f"{inspected.get('Os')}/{inspected.get('Architecture')}" != platform_id:
         fail("local image platform differs from reviewed manifest")
@@ -223,8 +236,7 @@ def verify_image(manifest: dict, product: str, reference: str, podman_commit: st
     return image_id
 
 
-def verify(repo: Path, source: Path, manifest_path: Path, trust_key: Path, product: str) -> str:
-    manifest = signed_manifest(manifest_path, trust_key)
+def release_reference(repo: Path, product: str) -> tuple[dict, str]:
     catalog_path = repo / "products/deploy/catalog.json"
     try:
         catalog = json.loads(catalog_path.read_text())
@@ -234,22 +246,72 @@ def verify(repo: Path, source: Path, manifest_path: Path, trust_key: Path, produ
         fail("unknown catalog product")
     version = (repo / "products/deploy/headscale/VERSION").read_text().strip() \
         if product == "headscale" else catalog["image_version"]
-    reference = f"localhost/woow-{product}-mcp-admin:{version}"
+    return catalog, f"localhost/woow-{product}-mcp-admin:{version}"
+
+
+def verify(repo: Path, source: Path, manifest_path: Path, trust_key: Path, product: str) -> str:
+    manifest = signed_manifest(manifest_path, trust_key)
+    catalog, reference = release_reference(repo, product)
     verify_sources(repo, source, manifest, catalog, product)
     return verify_image(manifest, product, reference, manifest["podman"]["commit"],
                         manifest["canonical"]["commit"])
 
 
+def verify_unsigned(repo: Path, product: str) -> str:
+    """No signed manifest: accept only an image built from this clean checkout."""
+    catalog, reference = release_reference(repo, product)
+    platform_id = host_platform()
+    commit = git(repo, "rev-parse", "HEAD")
+    if git(repo, "status", "--porcelain", "--untracked-files=all"):
+        fail("Podman checkout has local changes")
+    # Only merged commits ship. The remote-tracking ref is not refreshed here: a stale or
+    # missing origin/main refuses the release until the operator fetches.
+    try:
+        merged = subprocess.run(("git", "-C", str(repo), "merge-base", "--is-ancestor",
+                                 commit, MAIN_REF), capture_output=True, check=False)
+    except OSError:
+        fail("git is required to verify release content")
+    if merged.returncode != 0:
+        fail("Podman checkout HEAD is not on origin/main; fetch and check out a merged commit")
+    inspected = inspect_local(reference)
+    image_id = inspected["Id"]
+    if not isinstance(image_id, str) or not image_id.startswith("sha256:"):
+        fail("local image ID is invalid")
+    hex_value(image_id[7:], "local image ID")
+    if f"{inspected.get('Os')}/{inspected.get('Architecture')}" != platform_id:
+        fail("local image platform differs from this host")
+    labels = inspected.get("Labels")
+    if not isinstance(labels, dict):
+        fail("local image has no release labels")
+    if labels.get("org.opencontainers.image.revision") != commit:
+        fail("local image was not built from this Podman checkout")
+    if labels.get("io.woowtech.canonical-source") != catalog.get("paas_source_commit"):
+        fail("local image was built for another canonical pin")
+    build_id = labels.get("io.woowtech.release-build")
+    if not isinstance(build_id, str) or not BUILD_ID.fullmatch(build_id):
+        fail("local image has no release build label")
+    return image_id
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("--source-checkout", type=Path, required=True)
-    parser.add_argument("--release-manifest", type=Path, required=True)
+    parser.add_argument("--source-checkout", type=Path)
+    parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--product", required=True)
+    parser.add_argument("--unsigned", action="store_true",
+                        help="owner-approved release without a signed manifest")
     args = parser.parse_args()
+    if args.unsigned and (args.release_manifest or args.source_checkout):
+        parser.error("--unsigned takes no --release-manifest or --source-checkout")
+    if not args.unsigned and (args.release_manifest is None or args.source_checkout is None):
+        parser.error("--release-manifest and --source-checkout are required")
     try:
-        image_id = verify(args.repo, args.source_checkout, args.release_manifest,
-                          TRUST_KEY, args.product)
+        if args.unsigned:
+            image_id = verify_unsigned(args.repo, args.product)
+        else:
+            image_id = verify(args.repo, args.source_checkout, args.release_manifest,
+                              TRUST_KEY, args.product)
     except (ReleaseError, OSError, KeyError, TypeError) as error:
         print(f"release preflight: {error}", file=sys.stderr)
         return 1
