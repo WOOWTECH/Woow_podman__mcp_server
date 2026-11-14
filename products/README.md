@@ -1,6 +1,6 @@
 # Woow MCP 產品工作區（Podman / Quadlet）
 
-這個工作區提供與 PaaS 同一份 `mcp-admin-core`、產品 API adapter、MCP 工具政策與管理前端。各產品使用獨立的 rootless Podman 容器、網路、資料 volume、金鑰與 Quadlet；共用管理入口是 [`deploy/manage.sh`](deploy/manage.sh)。原本在 repo 根目錄的 Podman 主機 MCP 使用另一套 MCP SDK 1.x，仍由根目錄腳本管理。此版同步 PaaS 的多設定檔連線：管理 GUI 可為不同後端建立獨立的連線、權杖與工具授權，切換時不共用設定檔狀態。
+這個工作區提供與 PaaS 同一份 `mcp-admin-core`、產品 API adapter、MCP 工具政策與管理前端。各產品使用獨立的 rootless Podman 容器、網路、資料 volume、金鑰與 Quadlet；共用管理入口是 [`deploy/manage.sh`](deploy/manage.sh)。原本在 repo 根目錄的 Podman 主機 MCP 已於 2026-11-14 退役。此版同步 PaaS 的多設定檔連線：管理 GUI 可為不同後端建立獨立的連線、權杖與工具授權，切換時不共用設定檔狀態。
 
 | 產品 | 預設本機 GUI port | 來源與發布狀態 |
 | --- | ---: | --- |
