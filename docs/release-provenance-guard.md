@@ -165,3 +165,8 @@ them. The EMQX [Draft #135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-serve
 is outside the Headscale release and must be reviewed before an EMQX image is
 signed. Existing running Quadlets are not evidence that the release guard has
 passed.
+
+On 2026-11-14 the owner released Podman `bd6ba26`, which carries this pin,
+without a signed manifest. The images, the checks run before the rollout and
+the rollout itself are recorded in
+`products/deploy/releases/2026-11-14-multi-profile-rollout.md`.

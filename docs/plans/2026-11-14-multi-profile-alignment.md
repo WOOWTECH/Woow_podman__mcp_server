@@ -73,7 +73,8 @@ Products track:
    container smoke test, and no restart loop on the core's deliberate exits.
 3. Release and gated rollout of the products. Needs a separate OK. The owner
    chose an unsigned release (2026-11-14): `--skip-release-signature` with
-   images built from merged `main`.
+   images built from merged `main`. Done on 2026-11-14: all nine products run
+   `bd6ba26`, see `products/deploy/releases/2026-11-14-multi-profile-rollout.md`.
 
 Podman host MCP track:
 
