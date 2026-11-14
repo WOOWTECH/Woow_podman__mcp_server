@@ -231,7 +231,8 @@ async def test_pruning_removes_only_expired_revocations(admin_client, monkeypatc
 
 @pytest.mark.parametrize("change", ["logout", "password", "unavailable", "expiry"])
 @pytest.mark.parametrize("backpressure", [False, True])
-async def test_auth_change_closes_already_open_admin_stream(admin_client, monkeypatch, change, backpressure):
+@pytest.mark.parametrize("root_path", ["", "/gateway"])
+async def test_auth_change_closes_already_open_admin_stream(admin_client, monkeypatch, change, backpressure, root_path):
     client, store = admin_client
     token = await login(client)
     started, closed = asyncio.Event(), asyncio.Event()
@@ -270,8 +271,8 @@ async def test_auth_change_closes_already_open_admin_stream(admin_client, monkey
         return {"type": "http.disconnect"}
 
     scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
-             "method": "GET", "scheme": "https", "path": "/api/session-test/stream",
-             "query_string": ("token=" + token).encode(), "root_path": "",
+             "method": "GET", "scheme": "https", "path": root_path + "/api/session-test/stream",
+             "query_string": ("token=" + token).encode(), "root_path": root_path,
              "headers": [(b"host", b"admin.example")], "server": ("admin.example", 443),
              "client": ("127.0.0.1", 12345)}
     running = asyncio.create_task(app(scope, receive, send))

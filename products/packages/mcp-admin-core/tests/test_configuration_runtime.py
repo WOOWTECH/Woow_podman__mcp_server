@@ -17,6 +17,20 @@ from mcp_admin_core.routers import settings
 PRODUCTS = ['hermes', 'n8n', 'odoo', 'k8s', 'vk', 'opendesign', 'litellm', 'nextcloud']
 
 
+def listening_child():
+    """A real child that owns its loopback listener, so the manager's OS identity check passes (blocker 3).
+
+    The MCP answers themselves come from the faked ``discover_tools``. Returns the ``mcp_server`` section.
+    """
+    import socket
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1', 0))
+        port = probe.getsockname()[1]
+    code = ('import socket, time; s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); '
+            f's.bind(("127.0.0.1", {port})); s.listen(); time.sleep(30)')
+    return {'command': sys.executable, 'args': ['-c', code], 'port': port}
+
+
 def product_payload(module):
     model = next(getattr(module, name) for name in ('ConnectionUpdateRequest', 'ConnectionUpdate', 'DualConnectionUpdate') if hasattr(module, name))
     values = {name: '' for name, field in model.model_fields.items() if field.is_required()}
@@ -78,7 +92,7 @@ async def test_late_probe_cannot_mark_newer_save_applied(store_env, monkeypatch)
     from mcp_admin_core.process import McpProcessManager
     from mcp_admin_core.launch_policy import set_launch_policy
     set_launch_policy(None)
-    await store_env.put('mcp_server', {'command': sys.executable, 'args': ['-c', 'import time; time.sleep(30)']})
+    await store_env.put('mcp_server', listening_child())
     entered, release = asyncio.Event(), asyncio.Event()
     async def probe(snapshot):
         entered.set()
@@ -184,7 +198,7 @@ async def test_readiness_failure_is_bounded_and_retry_of_applied_revision_is_noo
     from mcp_admin_core.process import McpProcessManager
     from mcp_admin_core.launch_policy import set_launch_policy
     set_launch_policy(None)
-    await store_env.put('mcp_server', {'command': sys.executable, 'args': ['-c', 'import time; time.sleep(30)']})
+    await store_env.put('mcp_server', listening_child())
     async def unavailable(_snapshot):
         raise RuntimeError('private-probe-detail')
     monkeypatch.setattr(capabilities, 'discover_tools', unavailable)
@@ -198,6 +212,8 @@ async def test_readiness_failure_is_bounded_and_retry_of_applied_revision_is_noo
         assert pm.is_running and state['apply_state'] == 'failed'
         assert state['last_error_code'] == 'child_probe_failed'
         monkeypatch.setattr(capabilities, 'discover_tools', AsyncMock(return_value=[]))
+        # The retried child must really be listening before its probe can pass (blocker 3): allow its startup.
+        pm.configuration_probe_timeout = 10
         await settings.mcp_apply(None)
         if pm._configuration_task is not None:
             await asyncio.wait_for(pm._configuration_task, 2)

@@ -25,7 +25,7 @@ def _admin(client):
     return {"Authorization": "Bearer " + login.json()["token"]}
 
 
-def test_five_profiles_have_private_independent_configs_and_urls(make_app, monkeypatch):
+def test_five_profiles_have_private_independent_configs_and_urls(make_app, monkeypatch, synthetic_child):
     client = make_app({
         "mcp_auth_token": "default-secret",
         "connection": {"odoo_url": "https://odoo.example", "odoo_db": "one-db",
@@ -82,7 +82,8 @@ def test_five_profiles_have_private_independent_configs_and_urls(make_app, monke
     assert client.get("/api/tokens", headers={**auth, "X-MCP-Profile": "unknown"}).status_code == 404
     assert client.get("/private_unknown/health").status_code == 403
     assert client.get("/api/profiles", headers=auth).json()["profiles"] == [
-        {"id": "default", "label": "Default", "port": 59999, "is_default": True}, *created]
+        {"id": "default", "label": "Default", "port": 59999, "is_default": True, "disabled_reason": None}, *created]
+    assert all(profile["disabled_reason"] is None for profile in created)
 
 
 def test_profile_token_revocation_is_local(make_app):
@@ -112,6 +113,7 @@ def test_token_cannot_be_assigned_to_two_profiles(make_app):
     rejected = client.put("/api/tokens", json={"token": first_token},
                           headers=revision_headers(client, second_auth, read_path="/api/tokens"))
     assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "token_in_use"  # the reason, not operation_outcome_unknown
     assert asyncio.run(get_profile_registry().store_for(second).get("mcp_auth_token")) != first_token
 
 
@@ -238,30 +240,57 @@ def test_fs_group_widened_profile_directories_are_tightened_on_reload(make_app):
 
 
 def test_unconfigured_required_connection_does_not_spawn_a_child(make_app, monkeypatch):
+    """The manager itself refuses (every start path, the default profile too); no exit-and-restart loop."""
     from mcp_admin_core.launch_policy import LaunchPolicy, set_launch_policy
-    from mcp_admin_core.process import McpProcessManager
+    import mcp_admin_core.process as process
 
     client = make_app({"mcp_server": {"command": "", "args": [], "port": 59999, "env": {}}})
     set_launch_policy(LaunchPolicy(command="fixed-child", connection_keys=frozenset({"api_key"}),
                                    required_connection=(("api_key", "API Key"),)))
-    starts = []
+    spawned = []
 
-    async def fake_start(self):
-        starts.append(self)
-        return True
+    class Child:
+        returncode = None
+        pid = 12345
+        stdout = None
 
-    monkeypatch.setattr(McpProcessManager, "start", fake_start)
+        def send_signal(self, sig):
+            self.returncode = 0
+
+        async def wait(self):
+            return 0
+
+    async def spawn(*cmd, **kwargs):
+        spawned.append(cmd)
+        return Child()
+
+    async def quiet_drain(self, proc):
+        return None
+
+    async def quiet_probe(self, proc, snapshot, revision, late=False):
+        return None
+
+    monkeypatch.setattr(process.asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(process.McpProcessManager, "_drain_logs", quiet_drain)
+    monkeypatch.setattr(process.McpProcessManager, "_verify_configuration", quiet_probe)
     auth = _admin(client)
     created = client.post("/api/profiles", headers=auth, json={"label": "Unconfigured"})
     assert created.status_code == 201
-    assert starts == []
+    assert spawned == []
     registry = get_profile_registry()
     profile_id = created.json()["id"]
     asyncio.run(registry.start_all())
-    assert starts == []
+    assert spawned == [] and not registry.manager_for(profile_id)._auto_restart_pending
     asyncio.run(registry.store_for(profile_id).patch("connection", {"api_key": "configured"}))
-    asyncio.run(registry.start_all())
-    assert starts == [registry.manager_for(profile_id)]
+
+    async def startup():
+        await registry.start_all()
+        running = registry.manager_for(profile_id).is_running
+        await registry.stop_all()
+        return running
+
+    assert asyncio.run(startup()) is True
+    assert len(spawned) == 1
 
 
 def test_profile_index_rejects_corruption_and_duplicate_label(make_app):
@@ -311,7 +340,7 @@ def test_cgroup_limit_prevents_extra_children_after_memory_reduction(make_app, m
         assert asyncio.run(registry.manager_for(second).start()) is False
 
 
-def test_profile_token_enforces_its_own_tool_policy(make_app, monkeypatch):
+def test_profile_token_enforces_its_own_tool_policy(make_app, monkeypatch, synthetic_child):
     client = make_app({"mcp_auth_token": "default-secret", "mcp_server": {"command": "", "args": [], "port": 59999, "env": {}}})
     auth = _admin(client)
     first = client.post("/api/profiles", headers=auth, json={"label": "first"}).json()["id"]

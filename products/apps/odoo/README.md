@@ -113,7 +113,7 @@ Manage MCP proxy authentication tokens:
 Real-time MCP server log streaming:
 
 - **Server-Sent Events (SSE)** for zero-latency log delivery
-- In-memory ring buffer (5000 lines) with configurable tail
+- In-memory ring buffer per profile (5000 lines each) with configurable tail
 - **Full-text search** with plain text and regex support
 - Timestamped log entries with source identification
 - Auto-scroll with pause on user interaction
@@ -713,7 +713,7 @@ woow_odoo_mcp_server/
 - File-based configuration store (`config.json`) for full portability
 - JWT authentication middleware with cookie and header support
 - 41 Odoo MCP tool registry organized into 10 categories
-- Real-time SSE log streaming with in-memory ring buffer (5000 lines)
+- Real-time SSE log streaming with an in-memory ring buffer per profile (5000 lines each)
 - Token rotation with cryptographic generation and rotation history
 - Odoo connection testing with Odoo 18 and Odoo 17 compatibility
 - Multi-stage Docker build (Node 26.12.1 + Python 3.12)

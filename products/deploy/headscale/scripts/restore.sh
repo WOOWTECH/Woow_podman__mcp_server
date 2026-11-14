@@ -6,9 +6,11 @@
 #   --with-secrets   also replace the podman secrets from <backup_dir>/secrets.env
 #   --yes            do not ask for confirmation
 #
-# Stops headscale-mcp-admin, REPLACES the headscale_mcp_data volume with the backup's export
-# (the current admin password, connector token and tool switches are overwritten), then
-# invalidates restored GUI sessions, then starts it and runs smoke.sh.
+# Stops headscale-mcp-admin and REPLACES the headscale_mcp_data volume with the shared core's
+# fully revoked copy of the backup (restore_guard, run in the installed image): profiles,
+# connections and tool switches come back, but every MCP token is revoked, the GUI password
+# becomes the headscale-mcp-admin-password secret and no GUI session survives. Then it starts
+# the service and runs smoke.sh; issue new MCP tokens in the GUI afterwards.
 # shellcheck source-path=SCRIPTDIR
 set -euo pipefail
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
@@ -17,6 +19,7 @@ DEPLOY=$REPO/products/deploy/headscale
 . "$REPO/scripts/lib/quadlet-lib.sh"
 APP=headscale-mcp-admin
 UNIT=headscale-mcp-admin.service
+QDIR=${QL_QUADLET_DIR:-$HOME/.config/containers/systemd}
 VOLUME=headscale_mcp_data
 VOLUME_UNIT=headscale-mcp-volume.service
 SECRET_VARS=(headscale-mcp-admin-jwt-secret:JWT_SECRET headscale-mcp-admin-password:ADMIN_PASSWORD)
@@ -26,7 +29,7 @@ while (($#)); do
   case $1 in
     --with-secrets) with_secrets=1 ;;
     --yes) yes=1 ;;
-    -h | --help) sed -n '2,11p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,12p' "$0"; exit 0 ;;
     -*) ql_die "unknown option $1 (see --help)" ;;
     *) [[ -z $dir ]] || ql_die "one backup directory only"; dir=$1 ;;
   esac
@@ -50,6 +53,11 @@ fi
 [[ $(systemctl --user show -p LoadState --value "$UNIT" 2>/dev/null) == loaded ]] \
   || ql_die "$UNIT is not installed; run scripts/install.sh first"
 ((with_secrets == 0)) || [[ -f $dir/secrets.env ]] || ql_die "--with-secrets: $dir/secrets.env not found"
+image=$(sed -n 's/^Image=//p' "$QDIR/$APP.container" 2>/dev/null || true)
+[[ $image == sha256:* ]] && podman image exists "$image" \
+  || ql_die "the installed Headscale image is not available; nothing was changed"
+# shellcheck source=../../shared/restore-volume.sh
+. "$REPO/products/deploy/shared/restore-volume.sh"
 
 if ((!yes)); then
   [[ -t 0 ]] || ql_die "restore replaces the $VOLUME volume; add --yes to confirm non-interactively"
@@ -57,30 +65,31 @@ if ((!yes)); then
   [[ $answer == "$APP" ]] || ql_die "aborted; nothing was changed"
 fi
 
-ql_info "stopping $UNIT"
-systemctl --user stop "$UNIT"
-if podman volume exists "$VOLUME"; then
-  podman volume rm "$VOLUME" >/dev/null || ql_die "cannot remove volume $VOLUME (still in use?)"
-fi
-systemctl --user restart "$VOLUME_UNIT" || ql_die "cannot recreate $VOLUME through $VOLUME_UNIT"
-podman volume import "$VOLUME" "$tar" || ql_die "podman volume import failed; $VOLUME is empty now, re-run restore"
-ql_info "restored $VOLUME from ${tar##*/}"
-
-# An older backup can contain a session database from before a user's logout.
-# Give the restored store a new epoch so all previously issued GUI cookies fail.
-mountpoint=$(podman volume inspect --format '{{.Mountpoint}}' "$VOLUME")
-podman unshare python3 "$DEPLOY/scripts/rotate-restored-sessions.py" \
-  "$mountpoint/admin-sessions.sqlite3" \
-  || ql_die "could not invalidate restored GUI sessions; service was not restarted"
-
+# Secrets first: the restored GUI password is whatever headscale-mcp-admin-password holds. The
+# running service keeps its current values until it restarts.
 if ((with_secrets)); then
   ql_env_load "$dir/secrets.env"
   for sv in "${SECRET_VARS[@]}"; do
     if [[ -n ${QL_ENV[${sv#*:}]+x} ]]; then ql_secret_ensure "${sv%%:*}" "env:${sv#*:}" --update; fi
   done
 fi
+# Prepared while the service still runs: a refused backup changes nothing. restore_guard never
+# restores admin-sessions.sqlite3, so the service starts a new session database.
+prepared=${VOLUME}_restore_ready
+mcp_prepare_revoked "$tar" "$image" headscale-mcp-admin-password headscale "$prepared" \
+  || ql_die "the backup could not be prepared with every token revoked; nothing was changed"
+
+ql_info "stopping $UNIT"
+systemctl --user stop "$UNIT"
+if podman volume exists "$VOLUME"; then
+  podman volume rm "$VOLUME" >/dev/null || ql_die "cannot remove volume $VOLUME (still in use?)"
+fi
+systemctl --user restart "$VOLUME_UNIT" || ql_die "cannot recreate $VOLUME through $VOLUME_UNIT"
+mcp_publish_prepared "$prepared" "$VOLUME" \
+  || ql_die "could not copy the prepared restore into $VOLUME; the service was not restarted and volume $prepared keeps the copy"
+ql_info "restored $VOLUME from ${tar##*/} with every MCP token revoked"
 
 systemctl --user start "$UNIT"
 ql_wait_container_healthy headscale-mcp-admin 180 || ql_die "headscale-mcp-admin did not become healthy after the restore"
 "$DEPLOY/scripts/smoke.sh" || ql_die "Headscale smoke check failed after the restore"
-ql_info "restore complete"
+ql_info "restore complete: sign in with the password in podman secret headscale-mcp-admin-password and issue new MCP tokens"

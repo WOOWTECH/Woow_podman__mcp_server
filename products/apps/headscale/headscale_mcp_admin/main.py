@@ -6,12 +6,14 @@ import anyio
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette._utils import get_route_path
 
 from mcp_admin_core.app import create_app
 from mcp_admin_core.auth.middleware import authenticate_request
 from mcp_admin_core.config import get_config_store
 from mcp_admin_core.profiles import get_profile_registry
 from mcp_admin_core.launch_policy import LaunchPolicy
+from mcp_admin_core.origin_security import HEADSCALE_ENV, log_denial
 from mcp_admin_core.request_limits import McpRequestLimits
 from mcp_admin_core.routers.tools import create_tools_router
 from headscale_mcp_server.errors import HeadscaleError
@@ -49,7 +51,7 @@ async def invalid_input(request, exc):
 async def admin_boundary(request: Request, call_next):
     # Enforce the product surface before routing (including lazily included routers).
     # General connection editing would bypass the explicit credential/origin rules.
-    path = request.url.path.rstrip("/")
+    path = get_route_path(request.scope).rstrip("/")
     if path.startswith("/private_") or (
             path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS")):
         try:
@@ -57,11 +59,14 @@ async def admin_boundary(request: Request, call_next):
         except RuntimeError:
             return JSONResponse({"detail": "ORIGIN_POLICY_UNAVAILABLE"}, status_code=503)
         if not permitted:
+            if path.startswith("/private_"):
+                # 共用層 McpOriginMiddleware 在這一層之內、碰不到這個 403：記同一行（只有 Origin 值與 env 名稱，不含路徑）。
+                log_denial(request.headers.getlist("origin"), env=HEADSCALE_ENV)
             return JSONResponse({"detail": "ORIGIN_DENIED"}, status_code=403)
     if path.startswith("/api/settings") and path not in (
             "/api/settings/mcp/status", "/api/settings/mcp/restart"):
         return JSONResponse({"detail": "Not Found"}, status_code=404)
-    if request.url.path.startswith("/api/"):
+    if path.startswith("/api/"):
         if request.method in ("POST", "PUT", "PATCH"):
             length = request.headers.get("content-length", "0")
             if not length.isdigit() or int(length) > 1024 * 1024:
@@ -75,7 +80,7 @@ async def admin_boundary(request: Request, call_next):
             request._body = bytes(data)
     result = await call_next(request)
     secure_session_cookie(result)
-    if request.url.path.startswith("/api/"):
+    if path.startswith("/api/"):
         result.headers["Cache-Control"] = "no-store"
     return result
 

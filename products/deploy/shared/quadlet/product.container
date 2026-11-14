@@ -13,6 +13,9 @@ ReadOnly=true
 Tmpfs=/tmp:rw,size=64m
 NoNewPrivileges=true
 DropCapability=ALL
+# The shared core sizes extra profiles from this cgroup memory limit
+# (Podman 4.9 Quadlet has no Memory= key).
+PodmanArgs=--memory=@@MCP_MEMORY_LIMIT@@
 Environment=MCP_ADMIN_CONFIG=/data/config.json
 EnvironmentFile=@@ENV_FILE@@
 Secret=@@APP@@-jwt-secret,type=env,target=JWT_SECRET
@@ -27,6 +30,9 @@ HealthRetries=3
 SuccessExitStatus=143
 Restart=always
 RestartSec=10
+# Exit 3 is uvicorn's startup failure (for example a corrupt profile index or an
+# unfinished restore); restarting every 10 s cannot fix it.
+RestartPreventExitStatus=3
 TimeoutStartSec=180
 
 [Install]

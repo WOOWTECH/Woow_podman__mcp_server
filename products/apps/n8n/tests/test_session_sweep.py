@@ -90,3 +90,15 @@ def test_max_sessions_field_explains_how_to_free_slots():
     text = help_text.group(1)
     assert "429" in text
     assert "Restart" in text  # 立即清掉崩潰用戶端留下的 session 的方法
+
+
+def test_docs_do_not_claim_the_gateway_reclaims_sessions_while_automatic_reclaim_is_off():
+    """f-2：本版自動回收關閉（proxy._AUTOMATIC_RECLAIM_EXPERIMENTAL=False），說明不能還寫「閘道會回收」。"""
+    from mcp_admin_core import proxy
+    from n8n_mcp_admin import child_env
+
+    assert proxy._AUTOMATIC_RECLAIM_EXPERIMENTAL is False
+    assert "現在由閘道回收" not in (child_env.__doc__ or "")
+    assert "429" in (child_env.__doc__ or "") and "不會" in (child_env.__doc__ or "")
+    frontend = _field_line("mcp_max_sessions") + _field_line("mcp_session_timeout")
+    assert "閘道先結束" not in frontend and "閘道會先結束" not in frontend

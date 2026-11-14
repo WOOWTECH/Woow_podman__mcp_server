@@ -47,6 +47,8 @@ def test_main_execs_node_mcp_index_with_http_env(monkeypatch) -> None:
     monkeypatch.setattr(launcher, "resolve_entrypoint", lambda: "/x/n8n-mcp/dist/mcp/index.js")
     # 本測試只驗 exec 契約；真 DB 初始化與持久性由 core 的整合測試驗證。
     monkeypatch.setattr(launcher, "prepare_database", lambda *args: "/data/n8n-mcp/nodes.db")
+    # main() 先呼叫 upstream.package_dir()（未設 N8N_MCP_PACKAGE_DIR 時跑 `npm root -g`）；不依賴 PATH 上有 npm。
+    monkeypatch.setattr(launcher.upstream, "package_dir", lambda: "/x/n8n-mcp")
     monkeypatch.setenv("USE_FIXED_HTTP", "true")
     captured: dict = {}
 

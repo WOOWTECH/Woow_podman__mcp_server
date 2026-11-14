@@ -6,11 +6,18 @@ from typing import Any, Iterable, Mapping
 
 from fastapi import HTTPException, status
 
+from .log_redaction import PathTokenRedactionFilter
+from .owner_defaults import _StdoutHandler
 from .util import ssrf
 
 #: 存檔時被 SSRF 規則擋下的錯誤代碼（HTTP 400 的 ``detail.code``；前端顯示 ``detail.message``）。
 SSRF_BLOCKED = "ssrf_blocked"
 logger = logging.getLogger(__name__)
+if not any(isinstance(handler, _StdoutHandler) for handler in logger.handlers):
+    _handler = _StdoutHandler()
+    _handler.setLevel(logging.WARNING)
+    _handler.addFilter(PathTokenRedactionFilter())
+    logger.addHandler(_handler)  # 同 process：child 還原失敗要在 kubectl logs 看得到
 
 
 async def save_bound_connection(store, pm, updates: dict[str, Any], *, identity_keys: frozenset[str], make_token):

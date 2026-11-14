@@ -208,6 +208,8 @@ def test_launcher_userinfo_rule_is_the_save_rule(url, expected):
 @pytest.fixture
 def launch(monkeypatch):
     monkeypatch.setattr(launcher, "resolve_entrypoint", lambda: "/x/n8n-mcp/dist/mcp/index.js")
+    # main() 會先呼叫 upstream.package_dir()（未設 N8N_MCP_PACKAGE_DIR 時執行 `npm root -g`）；測試不該依賴 PATH 上有 npm。
+    monkeypatch.setattr(launcher.upstream, "package_dir", lambda: "/x/n8n-mcp")
     monkeypatch.setattr(launcher, "prepare_database", lambda *args: "/data/n8n-mcp/nodes.db")
     captured = {}
 

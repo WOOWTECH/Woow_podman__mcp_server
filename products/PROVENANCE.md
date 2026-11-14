@@ -1,8 +1,16 @@
 # MCP product source and parity
 
-The ten active `products/apps/*` and `products/packages/mcp-admin-core` and
+The nine active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`0e432c3ebd7a481b8994105a187f29837d941fd6` (Gitea). The Headscale app
+`443e95a942c7ef0484d963631382aab94d0e0567` (Gitea, 2026-11-13). Since the
+previous pin `0e432c3ebd7a481b8994105a187f29837d941fd6`, Gitea merged #140
+(security release: Origin report-only default, restore without old tokens,
+child identity checks), #141 (Logs buffer per profile), #142 (profile
+management and startup robustness), #143 and #146 (restore runbook and
+Headscale restore), #144 (redaction of encoded `/private_` paths) and #145
+(per-profile gateway connection quota, clean errors when a child exits or a
+token changes mid-response). The refresh changes no tool registry, lock file,
+Dockerfile or package manifest. The Headscale app
 implements the Headscale v0.29.4 29-operation native contract, its dedicated
 management GUI, operation policy, Origin checks, session revocation, and the
 optional PaaS binding. The HA Add-on's Headscale child came from the same
@@ -11,7 +19,7 @@ authorization and ingress adaptation.
 
 For the Headscale application/core code, the only source edit is
 `deployment_kind="podman"` in `apps/headscale/headscale_mcp_admin/main.py`.
-For the other nine products, application and UI source is identical except:
+For the other eight products, application and UI source is identical except:
 
 - each `main.py` reports `deployment_kind="podman"`;
 - each application Dockerfile starts through the shared first-boot bootstrap;
@@ -24,6 +32,13 @@ The shared Quadlet installer, first-boot credential seeding, and rootless
 volume ownership live in `products/deploy/shared` and do not change any MCP
 operation or GUI code. The archived `odoo-manage` frontend directory is present
 only to satisfy the PaaS npm workspace lock and is not a deployed product.
+VK was retired from the Podman products on 2026-11-14. `apps/vk` stays
+vendored with the same edits as the other apps, because the uv and npm
+workspace locks include it and the shared core tests iterate every app; no
+VK image is built or installed.
+`docs/paas-config-restore-runbook.md` is the PaaS Kubernetes restore runbook,
+vendored unchanged only because the shared core tests read it; it does not
+describe a Podman procedure.
 
 The existing root Podman-host MCP uses MCP SDK 1.x and remains in its own
 environment. New MCP products use this `products/` workspace and the same
@@ -46,7 +61,7 @@ The HA Add-on Store includes Headscale alongside Odoo, n8n, Hermes, EMQX,
 LiteLLM and Nextcloud. OpenDesign is a source candidate; K8s and VK are absent.
 HA uses its own GUI, HA authentication and ingress adapter. These are genuine
 distribution differences; the Podman workspace follows the pinned PaaS product
-contracts and does not claim that HA already publishes all ten products.
+contracts and does not claim that HA already publishes all nine products.
 
 At HA source commit `1b45bdfa5338170d2b397ef5940bb4c241f8b343`, the
 six published products have exactly the same tool names as PaaS/Podman:

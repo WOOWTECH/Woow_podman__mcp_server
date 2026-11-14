@@ -21,9 +21,12 @@ for product in $(python3 "$DEPLOY/shared/catalog.py" list | awk '$1 != "headscal
     cp -- "$DEPLOY/shared/quadlet/product.$ext" "$work/src/$app.$ext"
   done
   ql_render "$work/src" "$envfile" "$DEPLOY/shared/quadlet/render-vars" "$work/out" \
-    "PRODUCT=$product" "APP=$app" "IMAGE=$image" "VOLUME=$volume" "ENV_FILE=$envfile"
+    "PRODUCT=$product" "APP=$app" "IMAGE=$image" "VOLUME=$volume" "ENV_FILE=$envfile" \
+    "MCP_MEMORY_LIMIT=1g"
+  grep -qx 'PodmanArgs=--memory=1g' "$work/out/$app.container"
+  grep -qx 'RestartPreventExitStatus=3' "$work/out/$app.container"
   ql_lint_policy "$work/out"
   ql_dryrun "$work/out" --verify
   rm -f -- "$work/src"/* "$work/out"/*
 done
-printf 'Nine common product Quadlet units rendered and verified\n'
+printf 'Common product Quadlet units rendered with a memory ceiling and verified\n'

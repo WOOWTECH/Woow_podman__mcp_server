@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, MutableMapping
 
+from starlette._utils import get_route_path
+
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[Message]]
@@ -46,7 +48,7 @@ class SecurityHeadersMiddleware:
         ]
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope.get("path", "").startswith(_EXCLUDED_PREFIX):
+        if scope["type"] != "http" or get_route_path(scope).startswith(_EXCLUDED_PREFIX):
             await self.app(scope, receive, send)
             return
 

@@ -51,11 +51,24 @@ def _policy(required=FIELDS):
     )
 
 
-class _RunningPM:
-    """子行程在跑（只給閘道與 /healthz 看狀態；不 spawn 任何東西）。"""
+from mcp_admin_core.process import McpProcessManager
+from types import SimpleNamespace
 
-    is_running = True
-    child_pid = 4242
+
+class _RunningPM(McpProcessManager):
+    """子行程在跑（只給閘道與 /healthz 看狀態；不 spawn 任何東西）。
+
+    *trusted*：它的 listener 已經通過身分檢查（blocker 3 的合成替身，見 ``managed_proxy_fixture``），閘道會轉發；
+    預設沒有——等同剛 spawn、還沒通過檢查的子行程。
+    """
+
+    def __init__(self, trusted=False):
+        super().__init__()
+        self._process = SimpleNamespace(pid=4242, returncode=None)
+        self._running = True
+        if trusted:
+            from managed_proxy_fixture import trust_listener
+            trust_listener(self)
 
 
 @pytest.fixture
@@ -69,7 +82,7 @@ def gateway(tmp_config_path, monkeypatch):
     import mcp_admin_core.proxy as proxy_mod
     from mcp_admin_core import create_app
 
-    def _make(*, connection=None, policy=_DEFAULT, port=None, running=False, tools=None,
+    def _make(*, connection=None, policy=_DEFAULT, port=None, running=False, trusted=False, tools=None,
               title="Nextcloud MCP Admin", base_url=f"https://{HOST}", app_kwargs=None, **client_kwargs):
         cfg = json.loads(json.dumps(store_mod._DEFAULT_CONFIG))
         cfg.update({"mcp_auth_token": TOKEN, "admin_password": "admin-SECRET-pw"})
@@ -80,7 +93,7 @@ def gateway(tmp_config_path, monkeypatch):
         tmp_config_path.write_text(json.dumps(cfg))
         monkeypatch.setenv("MCP_ADMIN_CONFIG", str(tmp_config_path))
         monkeypatch.setattr(store_mod, "_instance", None)
-        monkeypatch.setattr(process_mod, "_instance", _RunningPM() if running else None)
+        monkeypatch.setattr(process_mod, "_instance", _RunningPM(trusted) if running else None)
         monkeypatch.setattr(proxy_mod, "_client", None)
         store_mod.get_config_store()
         app = create_app(title=title, launch_policy=_policy() if policy is _DEFAULT else policy, **(app_kwargs or {}))
@@ -573,7 +586,11 @@ def test_legacy_sse_and_other_paths_keep_the_503(gateway, method, path):
 
 def test_running_child_that_is_not_listening_yet_is_still_502(gateway):
     c = gateway(connection=COMPLETE, running=True)  # 剛 spawn、還沒開始聽 port（啟動窗口）
-    assert _initialize(c).status_code == 502
+    # 還沒通過身分檢查的世代不轉發（blocker 3）：其他請求照舊 502；initialize 回「還沒準備好」的 503
+    # （正式環境這段期間設定探測在跑，initialize 會先等它，見 test_initialize_presend_readiness.py）。
+    assert c.post(URL, headers=HEADERS, json=_rpc("tools/list", 1)).status_code == 502
+    response = _initialize(c)
+    assert response.status_code == 503 and "not ready" in response.json()["detail"]
 
 
 def test_restart_attempt_without_required_fields_still_answers_the_setup_steps(gateway):
@@ -658,8 +675,8 @@ def test_after_the_child_comes_up_the_placeholder_session_gets_404_and_reinitial
     tools = c.post(URL, headers=placeholder, json=_rpc("tools/list", 2)).json()["result"]["tools"]
     assert [tool["name"] for tool in tools] == ["setup_status"]
 
-    start()  # 連線存好、子行程起來
-    monkeypatch.setattr(process_mod, "_instance", _RunningPM())
+    start()  # 連線存好、子行程起來（而且通過身分檢查）
+    monkeypatch.setattr(process_mod, "_instance", _RunningPM(trusted=True))
     for method in ("POST", "GET"):
         proxy_mod._client = None
         r = c.request(method, URL, headers=placeholder, json=_rpc("tools/list", 3) if method == "POST" else None)
@@ -737,7 +754,7 @@ def test_n8n_documentation_mode_is_forwarded_unchanged(gateway, monkeypatch):
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": message["id"], "result": {"tools": doc_tools}})
 
     upstream = httpx.AsyncClient(transport=httpx.MockTransport(handler), trust_env=False)
-    c = gateway(policy=LAUNCH_POLICY, title="n8n MCP Admin", running=True, app_kwargs=dict(
+    c = gateway(policy=LAUNCH_POLICY, title="n8n MCP Admin", running=True, trusted=True, app_kwargs=dict(
         tool_registry=tool_registry, mcp_request_limits=McpRequestLimits(4 * 1024 * 1024, 10_000),
         session_reclaimer=SessionReclaimer(is_session_limit=child_env.is_session_limit_reply,
                                            session_lifetime=child_env.upstream_session_lifetime_seconds,

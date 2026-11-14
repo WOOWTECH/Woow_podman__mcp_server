@@ -65,8 +65,14 @@ PORT=$(ql_env_get MCP_ADMIN_PORT)
 ORIGINS=$(ql_env_get HEADSCALE_MCP_ALLOWED_ORIGINS)
 COOKIE=$(ql_env_get HEADSCALE_MCP_SECURE_COOKIE)
 CIDRS=$(ql_env_get HEADSCALE_MCP_ALLOWED_PRIVATE_CIDRS)
+# Env files from before the memory ceiling get the default written into them.
+if [[ -z $(ql_env_get MCP_MEMORY_LIMIT '') ]]; then
+  setenv MCP_MEMORY_LIMIT 1g
+  ql_env_load "$envsrc"
+fi
+MEMORY=$(ql_env_get MCP_MEMORY_LIMIT)
 python3 "$DEPLOY/validate_env.py" --bind "$BIND" --port "$PORT" \
-  --origins "$ORIGINS" --secure-cookie "$COOKIE" --cidrs "$CIDRS" \
+  --origins "$ORIGINS" --secure-cookie "$COOKIE" --cidrs "$CIDRS" --memory "$MEMORY" \
   || ql_die "invalid Headscale deployment settings"
 [[ $BIND == 127.0.0.1 ]] || ql_warn "GUI is reachable on $BIND; use a trusted HTTPS reverse proxy"
 
@@ -79,7 +85,7 @@ fi
 
 mkdir -p "$WORK/out"
 ql_render "$DEPLOY/quadlet" "$envsrc" "$DEPLOY/quadlet/render-vars" "$WORK/out" \
-  "IMAGE=$IMAGE"
+  "IMAGE=$IMAGE" "MCP_MEMORY_LIMIT=$MEMORY"
 ql_dryrun "$WORK/out" --verify --ref-dir "$QDIR" \
   || ql_die "rendered Headscale units failed Quadlet validation"
 for file in "$WORK/out"/*; do

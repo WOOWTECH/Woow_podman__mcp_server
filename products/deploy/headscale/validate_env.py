@@ -12,7 +12,8 @@ _PRIVATE_DESTINATIONS = tuple(ipaddress.ip_network(value) for value in (
 ))  # Keep aligned with headscale_mcp_server.http_policy._PRIVATE.
 
 
-def validate(bind: str, port: str, origins: str, secure_cookie: str, cidrs: str) -> None:
+def validate(bind: str, port: str, origins: str, secure_cookie: str, cidrs: str,
+             memory: str = "1g") -> None:
     try:
         address = ipaddress.IPv4Address(bind)
     except ipaddress.AddressValueError as exc:
@@ -21,6 +22,8 @@ def validate(bind: str, port: str, origins: str, secure_cookie: str, cidrs: str)
         raise ValueError("MCP_ADMIN_BIND cannot publish to every network")
     if not port.isdecimal() or not 1 <= int(port) <= 65535:
         raise ValueError("MCP_ADMIN_PORT must be 1..65535")
+    shared = runpy.run_path(str(Path(__file__).resolve().parents[1] / "shared/validate_env.py"))
+    shared["memory_mib"](memory)
     if secure_cookie not in ("true", "false"):
         raise ValueError("HEADSCALE_MCP_SECURE_COOKIE must be true or false")
     if not origins:
@@ -62,8 +65,9 @@ def main() -> None:
     parser.add_argument("--origins", required=True)
     parser.add_argument("--secure-cookie", required=True)
     parser.add_argument("--cidrs", default="")
+    parser.add_argument("--memory", default="1g")
     args = parser.parse_args()
-    validate(args.bind, args.port, args.origins, args.secure_cookie, args.cidrs)
+    validate(args.bind, args.port, args.origins, args.secure_cookie, args.cidrs, args.memory)
 
 
 if __name__ == "__main__":

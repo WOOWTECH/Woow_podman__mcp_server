@@ -36,8 +36,10 @@ LAUNCH_POLICY = LaunchPolicy(
     profile_child_memory_mib=300,
 )
 
-# 上游 session 有名額上限（Max Sessions）；用戶端重連時常不送 DELETE。名額滿時由閘道對最久沒活動、閒置超過 5 分鐘的
-# session 送 DELETE 再重試 initialize，不讓新連線被拒到舊 session 逾時（見 mcp_admin_core/session_reclaim.py、child_env）。
+# 上游 session 有名額上限（Max Sessions）；用戶端重連時常不送 DELETE。本版自動回收維持關閉
+# （proxy._AUTOMATIC_RECLAIM_EXPERIMENTAL=False）：名額滿時閘道原樣傳回上游 429，直到舊 session 逾時
+# （Session Timeout 加上上游最多 5 分鐘的清掃週期）；維運可調高 Max Sessions、縮短 Session Timeout 或重啟子行程。
+# 這個物件只保留 session 紀錄與測試用，正式路徑不會用它送 DELETE。
 SESSION_RECLAIMER = SessionReclaimer(
     is_session_limit=child_env.is_session_limit_reply,
     session_lifetime=child_env.upstream_session_lifetime_seconds,

@@ -1,6 +1,6 @@
 # Product Quadlet release proof (draft)
 
-This draft gate covers the ten MCP products under `products/`. It deliberately
+This draft gate covers the nine MCP products under `products/`. It deliberately
 has no production manifest, signing key, or expected image ID. An install or
 upgrade without an independently reviewed release proof stops before changing
 the env file, secrets, volume, backup, or Quadlet unit. Existing running units
@@ -117,16 +117,14 @@ separate rollout gates.
 
 ## Current release state
 
-The Headscale DNS and shared logout changes were merged as canonical Gitea
-`0e432c3ebd7a481b8994105a187f29837d941fd6`. The Podman catalog pins
+The multi-profile hardening (Gitea #140-#146) was merged as canonical Gitea
+`443e95a942c7ef0484d963631382aab94d0e0567`. The Podman catalog pins
 that exact commit, and both direct parity checks passed against a clean
-canonical checkout. The Headscale product version is `0.1.3-podman.1`.
+checkout of it. The Headscale product version is `0.1.4-podman.1`.
 
-The published Headscale release remains `0.1.3-podman.1`; the reviewed
-security-base update advances the next candidate to `0.1.3-podman.2` so the
-prior immutable image remains available for rollback. Its reviewed image
-identity, signed manifest, and live Quadlet upgrade are separate release
-artifacts. This source branch does not include them. The EMQX [Draft #135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135)
+The signing key, reviewed image identity, signed manifest, and live Quadlet
+upgrade are separate release artifacts. This source branch does not include
+them. The EMQX [Draft #135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135)
 is outside the Headscale release and must be reviewed before an EMQX image is
 signed. Existing running Quadlets are not evidence that the release guard has
 passed.

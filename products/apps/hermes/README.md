@@ -81,7 +81,7 @@
 - **Gateway Control** -- Gateway status monitoring, restart, and drain-restart controls
 - **Session Manager** -- View, inspect, and bulk-delete chat sessions
 - **Token Manager** -- Generate, rotate, and set MCP proxy authentication tokens
-- **Log Viewer** -- Real-time SSE log streaming with regex search over a 5000-line ring buffer
+- **Log Viewer** -- Real-time SSE log streaming with regex search over a per-profile 5000-line ring buffer
 - **Deny List** -- Read-only view of blocked config keys, MCP operations, and env operations
 - **Settings** -- Full config.json management with per-section editing and MCP process controls
 - **Login Page** -- JWT-based authentication with configurable admin password
@@ -218,7 +218,7 @@ The project is organized into three Python packages, each with a distinct respon
 | `routers/tools.py` | MCP tool enable/disable with per-tool operation granularity |
 | `routers/tokens.py` | Token generation, rotation, and history with auto-restart on change |
 | `routers/health.py` | Dual health checks + summary data (model, tools, skills, sessions) |
-| `routers/logs.py` | SSE log streaming + regex search over a 5000-line ring buffer |
+| `routers/logs.py` | SSE log streaming + regex search over a per-profile 5000-line ring buffer |
 | `routers/dashboard_proxy.py` | Proxy layer for skills, model, MCP servers, toolsets, sessions, gateway, config editor, and deny list |
 
 ### hermes_mcp_server -- FastMCP Tools
@@ -331,7 +331,7 @@ View, inspect, and bulk-delete Hermes chat sessions.
 
 ### Log Viewer
 
-Real-time SSE log streaming with regex search and a 5000-line in-memory ring buffer.
+Real-time SSE log streaming with regex search and a 5000-line in-memory ring buffer per profile (one profile's traffic cannot evict another profile's lines).
 
 <p align="center">
   <img src="docs/screenshots/log_viewer.png" alt="Log Viewer" width="720"/>

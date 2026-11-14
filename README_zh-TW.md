@@ -3,7 +3,7 @@
 [English](README.md) · **繁體中文**
 
 此 repo 保留根目錄原有的 Podman 主機 MCP，並在 [`products/`](products/README.md) 提供
-Headscale、EMQX、Hermes、n8n、Odoo、LiteLLM、Nextcloud、OpenDesign、K8s、VK 共 10 個產品。
+Headscale、EMQX、Hermes、n8n、Odoo、LiteLLM、Nextcloud、OpenDesign、K8s 共 9 個產品。
 它們共用 PaaS 的應用、核心與前端原始碼；每個產品使用獨立的 rootless Podman Quadlet、
 port、volume 與憑證，且不掛載 Podman socket。
 
@@ -20,7 +20,7 @@ products/deploy/manage.sh emqx upgrade \
   --source-checkout /path/to/merged-canonical-checkout
 ```
 
-這十支產品的安裝與升級都需要獨立審查的簽章發行清單、乾淨的來源 checkout，及已審查映像的
+這九支產品的安裝與升級都需要獨立審查的簽章發行清單、乾淨的來源 checkout，及已審查映像的
 精確 ID；[發行證明與信任限制](docs/release-provenance-guard.md)有完整步驟。上方路徑是
 佔位範例；此 Draft 尚無正式簽章清單或映像 ID。產品安裝程式會拒絕 `--rebuild`，只接受
 事先建置及審查的映像。下文根目錄 Podman 主機 MCP 使用另一套安裝腳本。
@@ -51,7 +51,7 @@ Headscale API 連線和備份方式見[產品說明](products/deploy/headscale/R
 ## 安裝原有 Podman 主機 MCP（rootless Podman + Quadlet + systemd）
 
 本節及下方根目錄的 `scripts/upgrade.sh` 只適用於原有的 Podman 主機 MCP；不適用於
-`products/deploy/` 下十支產品。
+`products/deploy/` 下九支產品。
 
 支援的部署方式是一組由使用者 systemd 管理的 [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)
 單元。已在 Ubuntu 24.04、podman 4.9.3（本 repo 接受的最低版本為 4.9）、systemd 255、rootless 並啟用

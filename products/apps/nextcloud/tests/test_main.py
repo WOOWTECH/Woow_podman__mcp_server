@@ -217,6 +217,20 @@ def test_unauthenticated_put_does_not_restart(make_client, pm, config_path):
     assert pm.restarts == 0 and stored_config(config_path)["tools"]["disabled"] == WRITE_DELETE
 
 
+def test_stale_policy_update_does_not_restart(make_client, pm, config_path):
+    client = _seeded(make_client)
+    response = client.put("/api/tools", json={"disabled_tools": []}, headers={"If-Match": '"stale"'})
+    assert response.status_code == 409
+    assert pm.restarts == 0 and stored_config(config_path)["tools"]["disabled"] == WRITE_DELETE
+
+
+def test_unknown_profile_does_not_restart(make_client, pm, config_path):
+    client = _seeded(make_client)
+    response = client.put("/api/tools", json={"disabled_tools": []}, headers={"X-MCP-Profile": "missing"})
+    assert response.status_code == 404
+    assert pm.restarts == 0 and stored_config(config_path)["tools"]["disabled"] == WRITE_DELETE
+
+
 def test_other_routes_pass_through(make_client, pm):
     client = _seeded(make_client)
     assert client.get("/api/tools").status_code == 200

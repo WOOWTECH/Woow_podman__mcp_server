@@ -8,8 +8,15 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-def test_healthz_ok_without_config():
+def test_healthz_ok_without_config(config_path, monkeypatch):
+    import mcp_admin_core.config.store as store_mod
+
     from k8s_mcp_admin.main import app
+
+    # 「沒有設定檔」＝tmp 路徑下尚未建立；不可落到預設的 /data/config.json（非 root 的 CI 容器沒有 /data 也建不了）。
+    assert not config_path.exists()
+    monkeypatch.setenv("MCP_ADMIN_CONFIG", str(config_path))
+    monkeypatch.setattr(store_mod, "_instance", None)
 
     client = TestClient(app)
     resp = client.get("/healthz")

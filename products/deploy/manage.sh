@@ -62,6 +62,12 @@ case $ACTION in
         --bind) sets+=("MCP_ADMIN_BIND=${2:?--bind needs an address}"); shift ;;
         --backend-network) sets+=("MCP_BACKEND_NETWORK=${2:?--backend-network needs a network name}"); shift ;;
         --ssrf-mode) sets+=("WEBHOOK_SECURITY_MODE=${2:?--ssrf-mode needs strict, moderate or permissive}"); shift ;;
+        --memory) sets+=("MCP_MEMORY_LIMIT=${2:?--memory needs a size such as 1g}"); shift ;;
+        --origins) sets+=("MCP_ADMIN_ALLOWED_ORIGINS=${2?--origins needs a comma-separated list (empty clears it)}"); shift ;;
+        --origin-mode) sets+=("MCP_ADMIN_ORIGIN_MODE=${2:?--origin-mode needs report-only or enforce}"); shift ;;
+        --gateway-connections) sets+=("MCP_GATEWAY_MAX_CONNECTIONS_PER_PROFILE=${2:?--gateway-connections needs 2..1024}"); shift ;;
+        --gateway-streams) sets+=("MCP_GATEWAY_MAX_STREAMS_PER_PROFILE=${2:?--gateway-streams needs a number}"); shift ;;
+        --gateway-timeout) sets+=("MCP_GATEWAY_POOL_TIMEOUT_SECONDS=${2:?--gateway-timeout needs seconds}"); shift ;;
         --rebuild) ql_die "installer builds are disabled; use a reviewed immutable release image" ;;
         --no-build) : ;;
         --release-manifest) release_manifest=${2:?--release-manifest needs a file}; shift ;;
@@ -82,7 +88,7 @@ case $ACTION in
     ql_preflight 4.9
     WORK=$(mktemp -d "${TMPDIR:-/tmp}/$APP-install.XXXXXX")
     ql_cleanup work rm -rf "$WORK"
-    printf 'MCP_ADMIN_BIND=127.0.0.1\nMCP_ADMIN_PORT=%s\nMCP_BACKEND_NETWORK=\nWEBHOOK_SECURITY_MODE=strict\n' "$DEFAULT_PORT" >"$WORK/example.env"
+    printf 'MCP_ADMIN_BIND=127.0.0.1\nMCP_ADMIN_PORT=%s\nMCP_BACKEND_NETWORK=\nWEBHOOK_SECURITY_MODE=strict\nMCP_MEMORY_LIMIT=1g\n' "$DEFAULT_PORT" >"$WORK/example.env"
     envsrc=$WORK/$APP.env
     if [[ -f $ENV_FILE ]]; then cp -- "$ENV_FILE" "$envsrc"; else cp -- "$WORK/example.env" "$envsrc"; fi
     chmod 600 "$envsrc"
@@ -90,6 +96,18 @@ case $ACTION in
       QL_DRY_RUN=0 ql_env_set "$envsrc" "${kv%%=*}" "${kv#*=}"
     done
     ql_env_load "$envsrc"
+    # Units installed before the memory ceiling existed get the default written into their env file.
+    if [[ -z $(ql_env_get MCP_MEMORY_LIMIT '') ]]; then
+      QL_DRY_RUN=0 ql_env_set "$envsrc" MCP_MEMORY_LIMIT 1g
+      ql_env_load "$envsrc"
+    fi
+    MEMORY=$(ql_env_get MCP_MEMORY_LIMIT)
+    runtime=("MCP_MEMORY_LIMIT=$MEMORY")
+    for key in MCP_ADMIN_ALLOWED_ORIGINS MCP_ADMIN_ORIGIN_MODE MCP_GATEWAY_MAX_CONNECTIONS_PER_PROFILE \
+        MCP_GATEWAY_MAX_STREAMS_PER_PROFILE MCP_GATEWAY_POOL_TIMEOUT_SECONDS; do
+      runtime+=("$key=$(ql_env_get "$key" '')")
+    done
+    python3 "$DEPLOY/shared/validate_env.py" --runtime "${runtime[@]}" || ql_die "invalid runtime settings"
     BIND=$(ql_env_get MCP_ADMIN_BIND)
     PORT=$(ql_env_get MCP_ADMIN_PORT)
     BACKEND_NETWORK=$(ql_env_get MCP_BACKEND_NETWORK '')
@@ -114,7 +132,8 @@ case $ACTION in
       cp -- "$DEPLOY/shared/quadlet/product.$ext" "$WORK/src/$APP.$ext"
     done
     ql_render "$WORK/src" "$envsrc" "$DEPLOY/shared/quadlet/render-vars" "$WORK/out" \
-      "PRODUCT=$PRODUCT" "APP=$APP" "IMAGE=$IMAGE" "VOLUME=$VOLUME" "ENV_FILE=$ENV_FILE"
+      "PRODUCT=$PRODUCT" "APP=$APP" "IMAGE=$IMAGE" "VOLUME=$VOLUME" "ENV_FILE=$ENV_FILE" \
+      "MCP_MEMORY_LIMIT=$MEMORY"
     if [[ -n $BACKEND_NETWORK ]]; then
       sed -i "/^Network=$APP\\.network$/a Network=$BACKEND_NETWORK" "$WORK/out/$APP.container"
     fi

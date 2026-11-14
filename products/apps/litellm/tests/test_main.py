@@ -216,7 +216,11 @@ def test_logs_page_buffer_has_no_token(make_client):
     logging.getLogger("uvicorn.access").info(
         '%s - "%s %s HTTP/%s" %d', "10.0.0.1:5555", "GET", f"/private_{token}", "1.1", 403
     )
+    # access log 不屬於任何帳號，不進 Logs 頁緩衝區（只進容器 stdout，遮罩見上一個測試）；進緩衝區的應用紀錄照樣遮罩。
+    logging.getLogger("litellm_mcp_admin").warning("synthetic request to /private_%s was refused", token)
     with logs_mod._buffer_lock:
-        messages = [e["message"] for e in logs_mod._log_buffer]
+        entries = list(logs_mod._log_buffer)
+    messages = [e["message"] for e in entries]
     assert not any(token in m for m in messages)
+    assert not any(e["source"] == "uvicorn.access" for e in entries)
     assert any("/private_***" in m for m in messages)

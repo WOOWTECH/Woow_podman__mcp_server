@@ -50,7 +50,7 @@ def mcp_child():
                 if proc.poll() is not None or time.monotonic() > deadline:
                     raise RuntimeError("test MCP server did not start")
                 time.sleep(0.1)
-        yield port
+        yield port, proc
     finally:
         proc.terminate()
         try:
@@ -79,10 +79,14 @@ def _fresh_upstream_client(proxy_mod) -> None:
 def proxied(make_app, mcp_child, monkeypatch):
     """經 proxy 完成 MCP initialize 握手，回傳 (client, headers, proxy_mod)。"""
     import mcp_admin_core.proxy as proxy_mod
+    from managed_proxy_fixture import attach
+
+    port, proc = mcp_child
+    attach(monkeypatch, proc)
 
     monkeypatch.setattr(proxy_mod, "_client", None)  # 測完還原，別把綁在已關閉迴圈的 client 留給別的測試
     c = make_app(
-        {"mcp_auth_token": "secret", "mcp_server": {"command": "", "args": [], "port": mcp_child, "env": {}}}
+        {"mcp_auth_token": "secret", "mcp_server": {"command": "", "args": [], "port": port, "env": {}}}
     )
     _fresh_upstream_client(proxy_mod)
     r = c.post(

@@ -15,6 +15,7 @@ from contextlib import contextmanager
 
 import anyio
 from fastapi import HTTPException
+from starlette._utils import get_route_path
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from mcp_admin_core.auth.middleware import authenticate_request
@@ -155,7 +156,7 @@ class AdminSessionStreams:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not scope["path"].startswith("/api/"):
+        if scope["type"] != "http" or not get_route_path(scope).startswith("/api/"):
             return await self.app(scope, receive, send)
         stream = anyio.Event()
         streaming = started = ended = False

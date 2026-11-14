@@ -14,6 +14,7 @@ import httpx
 from fastapi import APIRouter
 
 from .config import get_config_store
+from .launch_policy import coerce_port
 from .process import get_process_manager
 from .operation_policy import conditional_writes_for, operation_status, policies_for, read_policy
 
@@ -193,7 +194,12 @@ def create_capabilities_router(*, product_id: str, registry, deployment_kind: st
         pm = get_process_manager()
         before = await pm.status()
         observed, reason = None, "child_stopped"
-        if before.get("running"):
+        # The probe carries the child's bearer: only to a generation whose listener passed the identity check.
+        routable = getattr(pm, "forward_generation", None)
+        port = coerce_port((config.get("mcp_server") or {}).get("port", 8000))
+        if before.get("running") and routable is not None and routable(port) is None:
+            reason = "child_probe_failed"
+        elif before.get("running"):
             try:
                 observed = await discover_tools(config)
                 reason = None

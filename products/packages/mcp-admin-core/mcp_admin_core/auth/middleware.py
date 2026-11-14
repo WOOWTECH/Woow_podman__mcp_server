@@ -12,6 +12,7 @@ import jwt
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette._utils import get_route_path
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -126,7 +127,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        path = request.url.path
+        path = get_route_path(request.scope)
 
         # Public: non-API routes, auth endpoints, MCP proxy, healthz
         if not path.startswith("/api/") or path.startswith("/api/auth/"):

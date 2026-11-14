@@ -319,14 +319,24 @@ def test_app_policies_match_template_seeds():
         assert policies[name].build_command(port) == expected, name
 
 
-def test_only_nextcloud_declares_required_connection():
-    """只有 Nextcloud 的子行程缺連線就結束（exit 2）；n8n（文件模式）、odoo、litellm、hermes…沒有連線也照樣啟動，
-    宣告了反而會把別的原因（當掉、重啟中）誤報成缺設定——它們改宣告 backend_connection（見 test_backend_connection_per_product）。
-    k8s 是「kubeconfig 或 in-cluster」的條件式需求，不宣告。"""
+def test_required_connection_only_where_the_child_exits_without_it():
+    """required_connection＝子行程缺了就結束的欄位；宣告了，管理程序在這些欄位存好之前就不 spawn 子行程（每個帳號都一樣，
+    預設帳號也是），存好連線才啟動，不會「exit → 看門狗 2、5、15…秒重啟」無限循環（2026-11-13 mp-products：Headscale 的
+    預設帳號原本就這樣一直重啟，額外帳號才有等設定）。
+
+    PaaS 範本的八個產品（_policies）裡只有 Nextcloud 缺連線就結束（exit 2）；n8n（文件模式）、odoo、litellm、hermes…沒有
+    連線也照樣啟動，宣告了反而會讓子行程不啟動、也把別的原因（當掉、重啟中）誤報成缺設定——它們改宣告 backend_connection
+    （見 test_backend_connection_per_product）。k8s 是「kubeconfig 或 in-cluster」的條件式需求，不宣告。
+    Headscale（自己的 chart，不在 _TEMPLATE_SEEDS）也宣告：launcher 沒有 API 金鑰時 HeadscaleClient 直接拋錯（exit 1），
+    API 位址是它唯一的後端；其餘欄位（註冊入口、Headplane、PaaS 綁定）選填。"""
     policies = _policies()
     assert policies["nextcloud"].required_connection == (
         ("base_url", "Nextcloud 網址"), ("username", "Nextcloud 帳號"), ("app_password", "App password"))
     assert {name for name, policy in policies.items() if policy.required_connection} == {"nextcloud"}
+
+    from headscale_mcp_admin.main import LAUNCH_POLICY as headscale
+    assert headscale.required_connection == (("base_url", "Headscale API 位址"), ("api_key", "Headscale API 金鑰"))
+    assert headscale.backend_connection == ()
 
 
 # 第五輪（負責人 2026-10-27）：子行程沒有連線也起得來、但等於沒接上後端的產品宣告 backend_connection（/healthz 的 backend）。

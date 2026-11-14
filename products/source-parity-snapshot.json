@@ -1,14 +1,14 @@
 {
   "all_products": {
-    "files": 651,
-    "sha256": "94a30e4e88d1a5ea4354b51fb2135939f2b17a9b37cf4adbe72b82bc8ead369b"
+    "files": 698,
+    "sha256": "892d33932d0eaebd6c308bba2c95cdcae40c22e0fb60333c5cb14d08fb90c7ca"
   },
   "headscale": {
-    "files": 92,
-    "sha256": "c3f74a1899f4865037c091f55a4086393011347f09c6880155938b77a5f37ea5"
+    "files": 101,
+    "sha256": "752bd6fcf91021ab264cd9fc128efabadb91af7f3c1c2260c63901d8cbe88f63"
   },
-  "headscale_version": "0.1.3-podman.2",
-  "paas_source_commit": "0e432c3ebd7a481b8994105a187f29837d941fd6",
+  "headscale_version": "0.1.4-podman.1",
+  "paas_source_commit": "443e95a942c7ef0484d963631382aab94d0e0567",
   "schema": "woowtech.podman.source-parity-snapshot.v1",
-  "shared_image_version": "paas-0e432c3-podman.1"
+  "shared_image_version": "paas-443e95a-podman.1"
 }
