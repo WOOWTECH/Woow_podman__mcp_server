@@ -35,6 +35,11 @@ separate explicit OK.
    `5a06d53` (#147, #148, #150), so the first rollout already carries the
    gateway queue fixes. It merges only after the owner confirms the review
    of those PRs.
+7. The root Podman host MCP is retired (2026-11-14): Pi Web covers what it
+   did. The host MCP track (Phases 4-9) is cancelled. Its code leaves the
+   repository and stays in the git tag `archive/podman-host-mcp-20261114`,
+   and its stopped units are removed from the host. The products are not
+   affected.
 
 ## Starting point
 
@@ -75,7 +80,7 @@ Products track:
    chose an unsigned release (2026-11-14): `--skip-release-signature` with
    images built from merged `main`.
 
-Podman host MCP track:
+Podman host MCP track, cancelled on 2026-11-14 (decision 7):
 
 4. Child on MCP SDK 2.x with Streamable HTTP and SSE. It refuses to start
    without an explicit endpoint. Unit tests plus an integration test against
@@ -87,14 +92,12 @@ Podman host MCP track:
    allowlist.
 8. Live install and connector cutover. Needs a separate OK.
 
-Optional, only on request:
+Optional, only on request (cancelled with the host MCP track):
 
 9. Several endpoints behind one URL, the Docker-compatible API, or ssh.
 
 ## Open questions for later phases
 
-- Which Podman accounts to support: the same user's socket, other local
-  users' sockets, or remote endpoints over https with client certificates.
-- The memory ceiling per product container on the target host.
-- Where the host app lives: at the repository root on the vendored core, or
-  upstream in PaaS.
+None remain. The memory ceiling is 1 GiB per product container (Phase 2). The
+questions about the host MCP's Podman accounts and where its code lives
+closed with decision 7.

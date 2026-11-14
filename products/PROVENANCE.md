@@ -46,9 +46,9 @@ VK image is built or installed.
 vendored unchanged only because the shared core tests read it; it does not
 describe a Podman procedure.
 
-The existing root Podman-host MCP uses MCP SDK 1.x and remains in its own
-environment. New MCP products use this `products/` workspace and the same
-shared admin core as the PaaS source. The Headscale product resolves the
+The root Podman host MCP, which used MCP SDK 1.x, was retired on 2026-11-14.
+MCP products use this `products/` workspace and the same shared admin core
+as the PaaS source. The Headscale product resolves the
 listed protocol/security dependency versions from the PaaS lock; the local
 `uv.lock` records the full Podman product graph.
 
