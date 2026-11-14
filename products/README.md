@@ -51,6 +51,8 @@ products/deploy/manage.sh odoo install --backend-network odoo18-network \
 
 `--backend-network` 僅接受已存在的 Podman network 名稱。連線頁可填該網路內的容器 DNS 名稱與內部 port；各產品仍保有自己的獨立網路。Hermes、n8n、EMQX 等對私網 URL 有 SSRF 檢查；本機私網服務需由部署者明確指定 `--ssrf-mode permissive`，這會放行私有位址但仍封鎖雲端 metadata 位址。預設維持 `strict`。需要對外提供 GUI 時可用 `--bind <單一 LAN IPv4> --port <port>`，不接受 `0.0.0.0`。
 
+每個產品容器都有記憶體上限（`--memory`，預設 `1g`，至少 `512m`，寫在 env 檔的 `MCP_MEMORY_LIMIT`）。共用核心依這個上限計算還能新增幾個帳號（設定檔）：放不下另一個子行程時，新增帳號會回 409，並說明需要的記憶體。請在建立額外帳號之前就設好上限；之後調低，排在後面的帳號可能因容量不足而無法啟動。`--origins`（`MCP_ADMIN_ALLOWED_ORIGINS`，逗號分隔的精確 http(s) 來源）與 `--origin-mode report-only|enforce`（`MCP_ADMIN_ORIGIN_MODE`，預設 report-only）控制 MCP 請求的 Origin 檢查；`--gateway-connections`、`--gateway-streams`、`--gateway-timeout` 調整每個帳號的閘道連線名額。安裝與升級時會先驗證這些值，不合法就不寫入，避免核心啟動失敗。
+
 Headscale 沿用其專用安裝、Origin 與 cookie 檢查。若本機 18081 已被其他服務使用，指定另一個 port 與相同 Origin：
 
 ```bash
@@ -72,7 +74,7 @@ products/deploy/manage.sh emqx upgrade \
 products/deploy/manage.sh emqx uninstall --dry-run
 ```
 
-備份先停止服務再匯出 volume 與 SHA256，並保存 0600 的 env 檔。還原會檢查 SHA256、重建 volume、輪替管理 session generation，再啟動與測試。`upgrade` 先留存 Quadlet 設定與資料備份，安裝失敗時回復。一般 `uninstall` 保留資料及 secrets；明確指定 `--purge --yes` 才會先備份再刪除。備份含服務憑證，請使用私有儲存空間。
+備份先停止服務再匯出 volume 與 SHA256，並保存 0600 的 env 檔。還原會檢查 SHA256、重建 volume，再由已安裝的映像以共用核心的 `restore_guard` 產生「全部撤銷」的副本：帳號（設定檔）、連線與工具開關都會回來，但每個帳號的 MCP token 一律撤銷、舊的操作紀錄過期、管理 session 失效，管理密碼改為 podman secret `<產品>-mcp-admin-password` 的值。還原後請登入 GUI，逐一確認各帳號的後端連線，再到 Tokens 頁為需要的帳號發新 token，並更新 MCP 用戶端的網址。升級失敗時的自動回復是用同一次升級剛做的備份，不撤銷 token。`upgrade` 先留存 Quadlet 設定與資料備份，安裝失敗時回復。一般 `uninstall` 保留資料及 secrets；明確指定 `--purge --yes` 才會先備份再刪除。備份含服務憑證，請使用私有儲存空間。
 
 ## 來源與驗證
 

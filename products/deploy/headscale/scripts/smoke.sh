@@ -32,7 +32,10 @@ login_code=$(podman exec "$APP" python -c \
 
 token=$(podman exec "$APP" python -c \
   'import json; print(json.load(open("/data/config.json")).get("mcp_auth_token", ""))')
-[[ -n $token ]] || ql_die "MCP token was not issued on first boot"
+revoked=$(podman exec "$APP" python -c \
+  'import json; print(str(json.load(open("/data/config.json")).get("mcp_auth_revoked") is True).lower())')
+# A restore revokes every MCP token on purpose; the operator issues new ones in the GUI.
+[[ -n $token || $revoked == true ]] || ql_die "MCP token was not issued on first boot"
 init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"headscale-podman-smoke","version":"1"}}}'
 mcp_code() {
   local candidate=$1 origin=${2:-}
@@ -43,13 +46,17 @@ mcp_code() {
         "${headers[@]}" --data "$init"
 }
 mcp_state=$(curl -fsS -m 10 "$BASE/healthz" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("mcp", ""))')
-if [[ $mcp_state == not_configured ]]; then
+if [[ -z $token ]]; then
+  ql_info "MCP token is revoked (restored backup); issue a new one in the GUI before testing MCP initialize"
+elif [[ $mcp_state == not_configured ]]; then
   ql_info "Headscale connection is not configured yet; complete it in the GUI before testing MCP initialize"
 else
   [[ $(mcp_code "$token") == 200 ]] || ql_die "MCP initialize failed ($mcp_state)"
 fi
 [[ $(mcp_code invalid-smoke-token) == 403 ]] || ql_die "wrong MCP token was not rejected"
-[[ $(mcp_code "$token" https://untrusted.example) == 403 ]] \
-  || ql_die "untrusted Origin was not rejected"
+if [[ -n $token ]]; then
+  [[ $(mcp_code "$token" https://untrusted.example) == 403 ]] \
+    || ql_die "untrusted Origin was not rejected"
+fi
 token=''
 ql_info "Headscale management, token and Origin smoke checks passed"

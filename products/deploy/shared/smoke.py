@@ -37,8 +37,10 @@ def main() -> None:
     state = json.loads(subprocess.check_output(
         ["podman", "exec", container, "cat", "/data/config.json"], text=True))
     password = state["admin_password"]
-    token = state["mcp_auth_token"]
-    if not password or not token:
+    token = state.get("mcp_auth_token", "")
+    # A restore revokes every MCP token on purpose; the operator issues new ones in the GUI.
+    revoked = state.get("mcp_auth_revoked") is True and not token
+    if not password or not (token or revoked):
         raise RuntimeError("first-boot credentials or MCP token are missing")
     status, body = request(base, "/healthz")
     assert status == 200, ("healthz", status)
@@ -58,7 +60,9 @@ def main() -> None:
         "protocolVersion": "2025-03-26", "capabilities": {},
         "clientInfo": {"name": "quadlet-smoke", "version": "1"}}}
     assert request(base, "/private_invalid-smoke-token/mcp", initialize)[0] == 403
-    if health.get("mcp") == "running":
+    if revoked:
+        print(f"{container}: MCP token is revoked (restored backup); issue a new one in the GUI")
+    elif health.get("mcp") == "running":
         for _ in range(15):
             if request(base, f"/private_{token}/mcp", initialize)[0] == 200:
                 break

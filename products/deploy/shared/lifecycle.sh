@@ -18,6 +18,7 @@ UNIT=$APP.service
 VOLUME=${APP//-/_}_data
 VOLUME_UNIT=$APP-volume.service
 ENV_FILE=$HOME/.config/$APP/$APP.env
+QDIR=${QL_QUADLET_DIR:-$HOME/.config/containers/systemd}
 STATE=${QL_STATE_ROOT:-$HOME/.local/state/woow-quadlet}/$APP
 export QL_APP=$APP
 
@@ -59,9 +60,14 @@ backup() {
   printf '%s\n' "$out"
 }
 
+# restore DIR MODE [--yes]
+#   revoke: an operator restore. The installed image writes the shared core's fully revoked copy
+#           (restore_guard): every profile's MCP token is revoked and the GUI password becomes the
+#           $APP-password secret, so old or rotated URLs in the backup never work again.
+#   as-is:  only the upgrade rollback, whose backup was taken moments before by the same upgrade.
 restore() {
-  local dir=$1 answer tarfile mountpoint
-  shift
+  local dir=$1 mode=$2 answer tarfile mountpoint image=''
+  shift 2
   [[ -d $dir ]] || ql_die "backup directory $dir does not exist"
   [[ ${1:-} == --yes ]] || {
     [[ -t 0 ]] || ql_die "restore replaces $VOLUME; add --yes for a noninteractive run"
@@ -75,18 +81,33 @@ restore() {
   [[ -f $tarfile.sha256 ]] || ql_die "backup checksum missing"
   (cd -- "$dir" && sha256sum -c --quiet -- "${tarfile##*/}.sha256") || ql_die "backup checksum failed"
   [[ $(systemctl --user show -p LoadState --value "$UNIT") == loaded ]] || ql_die "$UNIT not installed"
+  if [[ $mode == revoke ]]; then
+    image=$(sed -n 's/^Image=//p' "$QDIR/$APP.container" 2>/dev/null || true)
+    [[ $image == sha256:* ]] && podman image exists "$image" \
+      || ql_die "the installed $APP image is not available; nothing was changed"
+    # shellcheck source=restore-volume.sh
+    . "$DEPLOY/shared/restore-volume.sh"
+  fi
   systemctl --user stop "$UNIT" || ql_die "could not stop $UNIT"
   if podman volume exists "$VOLUME"; then
     podman volume rm "$VOLUME" >/dev/null || ql_die "could not remove $VOLUME"
   fi
   systemctl --user restart "$VOLUME_UNIT" || ql_die "could not recreate $VOLUME"
-  podman volume import "$VOLUME" "$tarfile" || ql_die "volume import failed; service remains stopped"
-  mountpoint=$(podman volume inspect --format '{{.Mountpoint}}' "$VOLUME")
-  podman unshare python3 "$DEPLOY/shared/rotate-restored-auth.py" "$mountpoint/config.json" \
-    || ql_die "could not invalidate restored GUI sessions; service remains stopped"
+  if [[ $mode == revoke ]]; then
+    mcp_restore_revoked "$VOLUME" "$tarfile" "$image" "$APP-password" "$PRODUCT" \
+      || ql_die "restore preparation failed; $VOLUME is empty and the service remains stopped"
+  else
+    podman volume import "$VOLUME" "$tarfile" || ql_die "volume import failed; service remains stopped"
+    mountpoint=$(podman volume inspect --format '{{.Mountpoint}}' "$VOLUME")
+    podman unshare python3 "$DEPLOY/shared/rotate-restored-auth.py" "$mountpoint/config.json" \
+      || ql_die "could not invalidate restored GUI sessions; service remains stopped"
+  fi
   systemctl --user start "$UNIT" || ql_die "could not start restored $UNIT"
   ql_wait_container_healthy "$APP" 180 || ql_die "restored container not healthy"
   "$DEPLOY/manage.sh" "$PRODUCT" smoke || ql_die "restored service failed smoke"
+  if [[ $mode == revoke ]]; then
+    ql_info "every MCP token from the backup is revoked: sign in with the password in podman secret $APP-password and issue a new token for each profile"
+  fi
   ql_info "restore complete: $dir"
 }
 
@@ -96,7 +117,7 @@ case $ACTION in
     ;;
   restore)
     ((${#} >= 1)) || ql_die "usage: manage.sh $PRODUCT restore BACKUP_DIR [--yes]"
-    restore "$@"
+    restore "$1" revoke "${@:2}"
     ;;
   upgrade)
     release_manifest='' source_checkout=''
@@ -136,7 +157,7 @@ case $ACTION in
       cp -p -- "$snapshot/manifest" "$STATE/manifest"
       rm -f -- "$STATE/pending-restart"
       systemctl --user daemon-reload || ql_die "rollback reload failed"
-      restore "$backup_dir" --yes || ql_die "rollback restore failed; backup remains $backup_dir"
+      restore "$backup_dir" as-is --yes || ql_die "rollback restore failed; backup remains $backup_dir"
       ql_die "upgrade rolled back to previous version"
     fi
     ql_info "upgrade complete; rollback snapshot $snapshot"
