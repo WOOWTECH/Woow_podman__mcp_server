@@ -23,7 +23,9 @@ products/deploy/manage.sh emqx upgrade \
 ```
 
 Product install and upgrade require an independently reviewed release manifest,
-clean source checkouts and an exact local image ID. See the
+clean source checkouts and an exact local image ID, or, for an owner-approved
+unsigned release, `--skip-release-signature` with an image that
+`products/deploy/build-release-images.sh` built from merged `main`. See the
 [release proof and trust limits](docs/release-provenance-guard.md). The product
 release proof does not apply to the separate Podman host MCP described below.
 These paths are placeholders; this draft has no production signed manifest or

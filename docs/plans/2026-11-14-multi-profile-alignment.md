@@ -66,7 +66,9 @@ Products track:
    the core's capacity check applies, a restore that leaves every profile
    token revoked, validated Origin and gateway settings, a second-profile
    container smoke test, and no restart loop on the core's deliberate exits.
-3. Signed release and gated rollout of the products. Needs a separate OK.
+3. Release and gated rollout of the products. Needs a separate OK. The owner
+   chose an unsigned release (2026-11-14): `--skip-release-signature` with
+   images built from merged `main`.
 
 Podman host MCP track:
 

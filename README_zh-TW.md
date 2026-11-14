@@ -21,7 +21,8 @@ products/deploy/manage.sh emqx upgrade \
 ```
 
 這九支產品的安裝與升級都需要獨立審查的簽章發行清單、乾淨的來源 checkout，及已審查映像的
-精確 ID；[發行證明與信任限制](docs/release-provenance-guard.md)有完整步驟。上方路徑是
+精確 ID；擁有者核准不簽章發布時，改用 `--skip-release-signature`，映像須由
+`products/deploy/build-release-images.sh` 從已合併的 `main` 建置；[發行證明與信任限制](docs/release-provenance-guard.md)有完整步驟。上方路徑是
 佔位範例；此 Draft 尚無正式簽章清單或映像 ID。產品安裝程式會拒絕 `--rebuild`，只接受
 事先建置及審查的映像。下文根目錄 Podman 主機 MCP 使用另一套安裝腳本。
 

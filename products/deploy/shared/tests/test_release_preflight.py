@@ -70,6 +70,8 @@ class ReleasePreflightTests(unittest.TestCase):
         self.git(repo, "add", ".")
         self.git(repo, "commit", "-qm", "Podman fixture")
         podman_commit = self.git(repo, "rev-parse", "HEAD")
+        # As if fetched after the merge; only the unsigned path reads it.
+        self.git(repo, "update-ref", "refs/remotes/origin/main", podman_commit)
         return source, repo, canonical_commit, podman_commit
 
     def archive_hash(self, repo: Path, commit: str) -> str:
@@ -317,6 +319,106 @@ class ReleasePreflightTests(unittest.TestCase):
             self.git(source, "commit", "--allow-empty", "-qm", "different HEAD")
             result = self.verify(repo, source, manifest, public, image, "emqx")
             self.assertIn("canonical checkout HEAD differs", result.stderr)
+
+    def local_image(self, base: Path, podman_commit: str, canonical_commit: str,
+                    overrides: dict[str, str] | None = None) -> dict[str, str]:
+        """A local image for the owner-approved unsigned path, and the env that inspects it."""
+        image_labels = {
+            "org.opencontainers.image.revision": podman_commit,
+            "io.woowtech.canonical-source": canonical_commit,
+            "io.woowtech.release-build": "local-build-0001",
+        }
+        image_labels.update(overrides or {})
+        image = base / "image.json"
+        image.write_text(json.dumps({"Id": "c" * 64, "Os": "linux", "Architecture": "amd64",
+                                     "Labels": image_labels}))
+        bin_dir = base / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        shim = bin_dir / "podman"
+        shim.write_text('#!/bin/sh\n[ "$1 $2 $3" = "image inspect --format" ] || exit 9\ncat "$RELEASE_TEST_IMAGE"\n')
+        shim.chmod(0o755)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env['PATH']}"
+        env["RELEASE_TEST_IMAGE"] = str(image)
+        return env
+
+    def unsigned(self, repo: Path, product: str, env: dict[str, str],
+                 *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(PREFLIGHT), "--repo", str(repo), "--product", product,
+             "--unsigned", *extra],
+            env=env, capture_output=True, text=True,
+        )
+
+    def test_unsigned_release_accepts_an_image_built_from_this_clean_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            _, repo, source_commit, repo_commit = self.fixture(base)
+            env = self.local_image(base, repo_commit, source_commit)
+            for product in ("emqx", "headscale"):
+                with self.subTest(product=product):
+                    result = self.unsigned(repo, product, env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), "sha256:" + "c" * 64)
+
+    def test_unsigned_release_refuses_a_checkout_with_local_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            _, repo, source_commit, repo_commit = self.fixture(base)
+            env = self.local_image(base, repo_commit, source_commit)
+            (repo / "products/deploy/unreviewed.txt").write_text("not committed\n")
+            result = self.unsigned(repo, "emqx", env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Podman checkout has local changes", result.stderr)
+            self.assertEqual(result.stdout, "")
+
+    def test_unsigned_release_refuses_an_image_from_another_commit_pin_or_build(self):
+        cases = (
+            ({"org.opencontainers.image.revision": "0" * 40}, "not built from this Podman checkout"),
+            ({"io.woowtech.canonical-source": "0" * 40}, "another canonical pin"),
+            ({"io.woowtech.release-build": "short"}, "no release build label"),
+        )
+        for labels, message in cases:
+            with self.subTest(message=message):
+                with tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory)
+                    _, repo, source_commit, repo_commit = self.fixture(base)
+                    env = self.local_image(base, repo_commit, source_commit, labels)
+                    result = self.unsigned(repo, "headscale", env)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(message, result.stderr)
+                    self.assertEqual(result.stdout, "")
+
+    def test_unsigned_release_refuses_a_commit_that_is_not_on_origin_main(self):
+        for case in ("local commit", "no origin/main"):
+            with self.subTest(case=case):
+                with tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory)
+                    _, repo, source_commit, repo_commit = self.fixture(base)
+                    if case == "local commit":
+                        self.git(repo, "commit", "--allow-empty", "-qm", "not pushed")
+                        repo_commit = self.git(repo, "rev-parse", "HEAD")
+                    else:
+                        self.git(repo, "update-ref", "-d", "refs/remotes/origin/main")
+                    env = self.local_image(base, repo_commit, source_commit)
+                    result = self.unsigned(repo, "emqx", env)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("not on origin/main", result.stderr)
+                    self.assertEqual(result.stdout, "")
+
+    def test_unsigned_release_takes_no_manifest_and_signed_release_still_needs_one(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            mixed = self.unsigned(ROOT, "emqx", os.environ.copy(),
+                                  "--release-manifest", str(base / "release.json"))
+            self.assertNotEqual(mixed.returncode, 0)
+            self.assertIn("--unsigned takes no --release-manifest", mixed.stderr)
+            bare = subprocess.run(
+                [sys.executable, str(PREFLIGHT), "--repo", str(ROOT), "--product", "emqx"],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(bare.returncode, 0)
+            self.assertIn("--release-manifest and --source-checkout are required", bare.stderr)
 
 
 if __name__ == "__main__":

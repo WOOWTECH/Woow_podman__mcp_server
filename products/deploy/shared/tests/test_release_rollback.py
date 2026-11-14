@@ -35,6 +35,12 @@ def executable(path: Path, body: str) -> None:
 @unittest.skipUnless(shutil.which("podman"), "rootless Podman is required")
 class ReleaseRollbackTests(unittest.TestCase):
     def test_shared_upgrade_restores_unit_volume_and_auth_after_later_failure(self):
+        self.shared_upgrade_rollback(unsigned=False)
+
+    def test_unsigned_shared_upgrade_passes_the_choice_on_and_still_rolls_back(self):
+        self.shared_upgrade_rollback(unsigned=True)
+
+    def shared_upgrade_rollback(self, unsigned: bool) -> None:
         product = "qa_release_rollback_" + secrets.token_hex(4)
         app = product + "-mcp-admin"
         volume = app.replace("-", "_") + "_data"
@@ -83,7 +89,13 @@ class ReleaseRollbackTests(unittest.TestCase):
                     set -euo pipefail
                     [[ $1 == "$QA_PRODUCT" ]]
                     if [[ $2 == smoke ]]; then exit 0; fi
-                    [[ $2 == install && $3 == --release-manifest && $5 == --source-checkout ]]
+                    cat "$QA_SYSTEMD_STATE" > "$QA_AT_INSTALL"
+                    if [[ $QA_UNSIGNED == 1 ]]; then
+                      [[ $2 == install && $3 == --skip-release-signature && $# == 3 ]]
+                    else
+                      [[ $2 == install && $3 == --release-manifest && $5 == --source-checkout ]]
+                    fi
+                    touch "$QA_ARGS_OK"
                     printf 'Image=synthetic-new\n' > "$QA_OLD_UNIT"
                     printf 'Image=synthetic-extra\n' > "$QA_NEW_UNIT"
                     printf 'newhash  %s\nextrahash  %s\n' "$QA_OLD_UNIT" "$QA_NEW_UNIT" > "$QA_STATE/manifest"
@@ -126,14 +138,23 @@ class ReleaseRollbackTests(unittest.TestCase):
                            QA_BACKUP_ROOT=str(root / "backups" / app),
                            QA_VOLUME=volume, QA_OLD_UNIT=str(old_unit),
                            QA_NEW_UNIT=str(new_unit), QA_STATE=str(state),
-                           QA_SYSTEMD_STATE=str(systemd_state))
+                           QA_SYSTEMD_STATE=str(systemd_state),
+                           QA_AT_INSTALL=str(root / "at-install"),
+                           QA_ARGS_OK=str(root / "args-ok"),
+                           QA_UNSIGNED="1" if unsigned else "0")
+                release = (["--skip-release-signature"] if unsigned else
+                           ["--release-manifest", str(root / "approved.json"),
+                            "--source-checkout", str(root / "canonical")])
                 outcome = subprocess.run(
-                    ["bash", str(lifecycle), product, "upgrade", "--release-manifest",
-                     str(root / "approved.json"), "--source-checkout", str(root / "canonical")],
+                    ["bash", str(lifecycle), product, "upgrade", *release],
                     env=env, text=True, capture_output=True, timeout=100,
                 )
                 self.assertNotEqual(outcome.returncode, 0)
                 self.assertIn("upgrade rolled back", outcome.stderr)
+                self.assertTrue((root / "args-ok").exists(), outcome.stderr)
+                # The installer refuses an active service on another image, so the upgrade
+                # stops the backed-up service first.
+                self.assertEqual((root / "at-install").read_text(), "inactive")
                 backups = list((root / "backups" / app).glob("*/" + volume + "-*.tar"))
                 self.assertEqual(len(backups), 1)
                 self.assertEqual(subprocess.run(

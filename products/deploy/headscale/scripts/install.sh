@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Install the Headscale product as an independent rootless Quadlet stack.
 # Usage: install.sh [--port N] [--bind IP] [--origin URL] [--set KEY=VALUE]...
-#                   --release-manifest FILE --source-checkout DIR [--no-start] [--dry-run]
+#                   (--release-manifest FILE --source-checkout DIR | --skip-release-signature)
+#                   [--no-start] [--dry-run]
 set -euo pipefail
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)
 DEPLOY=$REPO/products/deploy/headscale
@@ -30,9 +31,10 @@ while (($#)); do
     --no-build) : ;;
     --release-manifest) release_manifest=${2:?--release-manifest needs a file}; shift ;;
     --source-checkout) source_checkout=${2:?--source-checkout needs a directory}; shift ;;
+    --skip-release-signature) MCP_RELEASE_UNSIGNED=1 ;;
     --no-start) no_start=1 ;;
     --dry-run) export QL_DRY_RUN=1 ;;
-    -h | --help) sed -n '2,3p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,5p' "$0"; exit 0 ;;
     *) ql_die "unknown option $1" ;;
   esac
   shift
