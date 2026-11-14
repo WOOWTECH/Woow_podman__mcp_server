@@ -65,23 +65,28 @@ if ((!yes)); then
   [[ $answer == "$APP" ]] || ql_die "aborted; nothing was changed"
 fi
 
-ql_info "stopping $UNIT"
-systemctl --user stop "$UNIT"
-if podman volume exists "$VOLUME"; then
-  podman volume rm "$VOLUME" >/dev/null || ql_die "cannot remove volume $VOLUME (still in use?)"
-fi
-systemctl --user restart "$VOLUME_UNIT" || ql_die "cannot recreate $VOLUME through $VOLUME_UNIT"
-
-# Secrets first: the restored GUI password is whatever headscale-mcp-admin-password holds.
+# Secrets first: the restored GUI password is whatever headscale-mcp-admin-password holds. The
+# running service keeps its current values until it restarts.
 if ((with_secrets)); then
   ql_env_load "$dir/secrets.env"
   for sv in "${SECRET_VARS[@]}"; do
     if [[ -n ${QL_ENV[${sv#*:}]+x} ]]; then ql_secret_ensure "${sv%%:*}" "env:${sv#*:}" --update; fi
   done
 fi
-# restore_guard never restores admin-sessions.sqlite3: the service starts a new session database.
-mcp_restore_revoked "$VOLUME" "$tar" "$image" headscale-mcp-admin-password headscale \
-  || ql_die "restore preparation failed; $VOLUME is empty and the service was not restarted"
+# Prepared while the service still runs: a refused backup changes nothing. restore_guard never
+# restores admin-sessions.sqlite3, so the service starts a new session database.
+prepared=${VOLUME}_restore_ready
+mcp_prepare_revoked "$tar" "$image" headscale-mcp-admin-password headscale "$prepared" \
+  || ql_die "the backup could not be prepared with every token revoked; nothing was changed"
+
+ql_info "stopping $UNIT"
+systemctl --user stop "$UNIT"
+if podman volume exists "$VOLUME"; then
+  podman volume rm "$VOLUME" >/dev/null || ql_die "cannot remove volume $VOLUME (still in use?)"
+fi
+systemctl --user restart "$VOLUME_UNIT" || ql_die "cannot recreate $VOLUME through $VOLUME_UNIT"
+mcp_publish_prepared "$prepared" "$VOLUME" \
+  || ql_die "could not copy the prepared restore into $VOLUME; the service was not restarted and volume $prepared keeps the copy"
 ql_info "restored $VOLUME from ${tar##*/} with every MCP token revoked"
 
 systemctl --user start "$UNIT"

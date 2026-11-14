@@ -3,6 +3,7 @@
 
 usage: restore-revoked.py PRODUCT SOURCE_DIR TARGET_DIR
 
+SOURCE_DIR must be a disposable copy of the backup (derived files are deleted from it).
 Runs inside the installed product image (restore-volume.sh starts it) so the
 validation is the core's own mcp_admin_core.restore_guard: every profile's MCP
 token ends revoked, old operation receipts expire and profiles are checked
@@ -20,6 +21,10 @@ import sys
 import tempfile
 
 STAGED = ".restore-revoked"
+# Files a product launcher writes next to each config.json and rewrites from it on every child
+# start (k8s: apps/k8s/k8s_mcp_admin/launcher.py). restore_guard refuses unknown files, and these
+# hold nothing that config.json does not, so they are dropped from the scratch copy.
+DERIVED = {"k8s": ("k8s-mcp.toml", "kubeconfig")}
 
 
 def _write_private(path: Path, data: dict) -> None:
@@ -44,6 +49,20 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
+def _drop_derived(product: str, source: Path) -> None:
+    names = DERIVED.get(product, ())
+    profiles = source / "profiles"
+    directories = [source]
+    if profiles.is_dir() and not profiles.is_symlink():
+        directories += [path for path in profiles.iterdir() if path.is_dir() and not path.is_symlink()]
+    for directory in directories:
+        for name in names:
+            path = directory / name
+            # Anything but a regular file stays and makes restore_guard refuse the backup.
+            if path.is_file() and not path.is_symlink():
+                path.unlink()
+
+
 def restore(product: str, source: Path, target: Path, password: str) -> None:
     from mcp_admin_core.restore_guard import prepare
 
@@ -51,6 +70,7 @@ def restore(product: str, source: Path, target: Path, password: str) -> None:
         raise ValueError("installed admin password secret is missing or too short")
     if any(target.iterdir()):
         raise ValueError("target volume is not empty")
+    _drop_derived(product, source)
     staged = target / STAGED
     # restore_guard publishes atomically next to its stage, so stage inside the target volume.
     prepare(source, staged, product="n8n" if product == "n8n" else "generic")

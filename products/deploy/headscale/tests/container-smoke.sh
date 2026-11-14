@@ -10,13 +10,14 @@ C="headscale-smoke-$suffix"
 V="headscale-smoke-data-$suffix"
 FIRST=$V
 R="headscale-smoke-restored-$suffix"
+PREP="headscale-smoke-prepared-$suffix"
 WORK=$(mktemp -d)
 PASS="headscale-smoke-password-$suffix"
 JWT="headscale-smoke-jwt-$suffix"
 PORT=18991
 cleanup() {
   podman rm -f "$C" >/dev/null 2>&1 || true
-  podman volume rm "$FIRST" "$R" >/dev/null 2>&1 || true
+  podman volume rm -f "$FIRST" "$R" "$PREP" "${PREP}_source" >/dev/null 2>&1 || true
   podman secret rm "$PASS" "$JWT" >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
@@ -57,8 +58,9 @@ after=$(podman exec "$C" sha256sum /data/config.json | cut -d' ' -f1)
 old_token=$(podman exec "$C" python -c 'import json; print(json.load(open("/data/config.json"))["mcp_auth_token"])')
 podman rm -f "$C" >/dev/null
 podman volume export "$V" -o "$WORK/backup.tar"
+mcp_prepare_revoked "$WORK/backup.tar" "$IMAGE" "$PASS" headscale "$PREP"
 podman volume create "$R" >/dev/null
-mcp_restore_revoked "$R" "$WORK/backup.tar" "$IMAGE" "$PASS" headscale
+mcp_publish_prepared "$PREP" "$R"
 V=$R
 start
 EXPECTED=$PASS_VALUE python3 - "$C" <<'PY'

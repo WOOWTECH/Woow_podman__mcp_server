@@ -166,3 +166,28 @@ def test_restore_revoked_refuses_a_weak_password_and_a_used_volume(tmp_path):
     (target / "config.json").write_text("{}")
     with pytest.raises(ValueError):
         restore("emqx", source, target, "installed-secret-password")
+
+
+def test_restore_revoked_drops_k8s_derived_files_but_not_unknown_ones(tmp_path):
+    guard = pytest.importorskip("mcp_admin_core.restore_guard")
+    restore = module("restore-revoked").restore
+    source, target = tmp_path / "backup", tmp_path / "volume"
+    source.mkdir()
+    target.mkdir(mode=0o755)
+    seed_backup(source)
+    for directory in (source, source / "profiles" / PROFILE):
+        for name in ("k8s-mcp.toml", "kubeconfig"):
+            (directory / name).write_text("rewritten from config.json on every child start")
+            (directory / name).chmod(0o600)
+    restore("k8s", source, target, "installed-secret-password")
+    assert not list(target.rglob("k8s-mcp.toml")) and not list(target.rglob("kubeconfig"))
+    assert json.loads((target / "config.json").read_text())["mcp_auth_revoked"] is True
+    other, other_target = tmp_path / "other", tmp_path / "other-volume"
+    other.mkdir()
+    other_target.mkdir(mode=0o755)
+    seed_backup(other)
+    (other / "kubeconfig").write_text("not derived for this product")
+    (other / "kubeconfig").chmod(0o600)
+    with pytest.raises(guard.RestoreError):
+        restore("emqx", other, other_target, "installed-secret-password")
+    assert not any(other_target.iterdir())

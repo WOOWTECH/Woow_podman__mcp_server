@@ -66,7 +66,7 @@ backup() {
 #           $APP-password secret, so old or rotated URLs in the backup never work again.
 #   as-is:  only the upgrade rollback, whose backup was taken moments before by the same upgrade.
 restore() {
-  local dir=$1 mode=$2 answer tarfile mountpoint image=''
+  local dir=$1 mode=$2 answer tarfile mountpoint image='' prepared=''
   shift 2
   [[ -d $dir ]] || ql_die "backup directory $dir does not exist"
   [[ ${1:-} == --yes ]] || {
@@ -87,6 +87,10 @@ restore() {
       || ql_die "the installed $APP image is not available; nothing was changed"
     # shellcheck source=restore-volume.sh
     . "$DEPLOY/shared/restore-volume.sh"
+    # Prepared while the service still runs: a refused backup changes nothing.
+    prepared=${VOLUME}_restore_ready
+    mcp_prepare_revoked "$tarfile" "$image" "$APP-password" "$PRODUCT" "$prepared" \
+      || ql_die "the backup could not be prepared with every token revoked; nothing was changed"
   fi
   systemctl --user stop "$UNIT" || ql_die "could not stop $UNIT"
   if podman volume exists "$VOLUME"; then
@@ -94,8 +98,8 @@ restore() {
   fi
   systemctl --user restart "$VOLUME_UNIT" || ql_die "could not recreate $VOLUME"
   if [[ $mode == revoke ]]; then
-    mcp_restore_revoked "$VOLUME" "$tarfile" "$image" "$APP-password" "$PRODUCT" \
-      || ql_die "restore preparation failed; $VOLUME is empty and the service remains stopped"
+    mcp_publish_prepared "$prepared" "$VOLUME" \
+      || ql_die "could not copy the prepared restore into $VOLUME; the service remains stopped and volume $prepared keeps the copy"
   else
     podman volume import "$VOLUME" "$tarfile" || ql_die "volume import failed; service remains stopped"
     mountpoint=$(podman volume inspect --format '{{.Mountpoint}}' "$VOLUME")

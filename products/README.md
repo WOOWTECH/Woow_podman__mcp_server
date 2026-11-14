@@ -74,7 +74,7 @@ products/deploy/manage.sh emqx upgrade \
 products/deploy/manage.sh emqx uninstall --dry-run
 ```
 
-備份先停止服務再匯出 volume 與 SHA256，並保存 0600 的 env 檔。還原會檢查 SHA256、重建 volume，再由已安裝的映像以共用核心的 `restore_guard` 產生「全部撤銷」的副本：帳號（設定檔）、連線與工具開關都會回來，但每個帳號的 MCP token 一律撤銷、舊的操作紀錄過期、管理 session 失效，管理密碼改為 podman secret `<產品>-mcp-admin-password` 的值。還原後請登入 GUI，逐一確認各帳號的後端連線，再到 Tokens 頁為需要的帳號發新 token，並更新 MCP 用戶端的網址。升級失敗時的自動回復是用同一次升級剛做的備份，不撤銷 token。`upgrade` 先留存 Quadlet 設定與資料備份，安裝失敗時回復。一般 `uninstall` 保留資料及 secrets；明確指定 `--purge --yes` 才會先備份再刪除。備份含服務憑證，請使用私有儲存空間。
+備份先停止服務再匯出 volume 與 SHA256，並保存 0600 的 env 檔。還原會檢查 SHA256，先在暫存 volume 由已安裝的映像以共用核心的 `restore_guard` 產生「全部撤銷」的副本（這一步失敗時服務與資料都不動；k8s 的 kubeconfig 與 TOML 派生檔不還原，啟動時依設定重新產生），成功後才停止服務、換上這份副本：帳號（設定檔）、連線與工具開關都會回來，但每個帳號的 MCP token 一律撤銷、舊的操作紀錄過期、管理 session 失效，管理密碼改為 podman secret `<產品>-mcp-admin-password` 的值。還原後請登入 GUI，逐一確認各帳號的後端連線，再到 Tokens 頁為需要的帳號發新 token，並更新 MCP 用戶端的網址。升級失敗時的自動回復是用同一次升級剛做的備份，不撤銷 token。`upgrade` 先留存 Quadlet 設定與資料備份，安裝失敗時回復。一般 `uninstall` 保留資料及 secrets；明確指定 `--purge --yes` 才會先備份再刪除。備份含服務憑證，請使用私有儲存空間。
 
 ## 來源與驗證
 

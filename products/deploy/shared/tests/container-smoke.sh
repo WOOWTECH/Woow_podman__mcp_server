@@ -12,6 +12,7 @@ suffix="${GITHUB_RUN_ID:-local}-$$"
 container="$PRODUCT-mcp-smoke-$suffix"
 first_volume="${PRODUCT}_mcp_smoke_data_$suffix"
 restored_volume="${PRODUCT}_mcp_smoke_restored_$suffix"
+prepared_volume="${PRODUCT}_mcp_smoke_prepared_$suffix"
 small_volume="${PRODUCT}_mcp_smoke_small_$suffix"
 volume=$first_volume
 password="$PRODUCT-mcp-smoke-password-$suffix"
@@ -22,7 +23,8 @@ work=$(mktemp -d)
 
 cleanup() {
   podman rm -f "$container" >/dev/null 2>&1 || true
-  podman volume rm "$first_volume" "$restored_volume" "$small_volume" >/dev/null 2>&1 || true
+  podman volume rm -f "$first_volume" "$restored_volume" "$small_volume" "$prepared_volume" \
+    "${prepared_volume}_source" >/dev/null 2>&1 || true
   podman secret rm "$password" "$jwt" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -65,8 +67,17 @@ after=$(podman exec "$container" sha256sum /data/config.json | cut -d' ' -f1)
 # Restore the exported volume the way manage.sh restore does, into a fresh volume.
 podman rm -f "$container" >/dev/null
 podman volume export "$volume" -o "$work/backup.tar"
+# A backup restore_guard refuses must fail before anything is replaced, leaving no volume behind.
+printf 'not a volume export\n' >"$work/broken.tar"
+if mcp_prepare_revoked "$work/broken.tar" "$IMAGE" "$password" "$PRODUCT" "$prepared_volume" 2>/dev/null \
+    || podman volume exists "$prepared_volume"; then
+  echo "a broken backup was accepted or left a prepared volume" >&2
+  exit 1
+fi
+mcp_prepare_revoked "$work/backup.tar" "$IMAGE" "$password" "$PRODUCT" "$prepared_volume"
 podman volume create "$restored_volume" >/dev/null
-mcp_restore_revoked "$restored_volume" "$work/backup.tar" "$IMAGE" "$password" "$PRODUCT"
+mcp_publish_prepared "$prepared_volume" "$restored_volume"
+if podman volume exists "$prepared_volume"; then echo "prepared volume was not removed" >&2; exit 1; fi
 volume=$restored_volume
 start
 smoke
