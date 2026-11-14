@@ -10,7 +10,6 @@
     "litellm": {"package": "woow-litellm-mcp-server", "module": "litellm_mcp_admin.main:app", "default_port": 18505},
     "nextcloud": {"package": "woow-nextcloud-mcp-server", "module": "nextcloud_mcp_admin.main:app", "default_port": 18506},
     "opendesign": {"package": "woow-opendesign-mcp-server", "module": "opendesign_mcp_admin.main:app", "default_port": 18507},
-    "k8s": {"package": "woow-k8s-mcp-server", "module": "k8s_mcp_admin.main:app", "default_port": 18508},
-    "vk": {"package": "woow-vk-mcp-server", "module": "vk_mcp_admin.main:app", "default_port": 18509}
+    "k8s": {"package": "woow-k8s-mcp-server", "module": "k8s_mcp_admin.main:app", "default_port": 18508}
   }
 }

@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        product: [emqx, hermes, k8s, litellm, n8n, nextcloud, odoo, opendesign, vk]
+        product: [emqx, hermes, k8s, litellm, n8n, nextcloud, odoo, opendesign]
     steps:
       - uses: actions/checkout@v4
       - name: Install Podman

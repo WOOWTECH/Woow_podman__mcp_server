@@ -13,9 +13,9 @@
 | Nextcloud | 18506 | PaaS、HA 已發布 |
 | OpenDesign | 18507 | PaaS；HA 程式碼尚未啟用發布 |
 | K8s | 18508 | PaaS；HA 尚無產品 |
-| VK | 18509 | PaaS；HA 尚無產品 |
 
 `odoo-manage` 已封存，不安裝其服務；保留它的 frontend 目錄只是為了符合 PaaS npm workspace lock。
+`vk`（Vibe Kanban）自 2026-11-14 起不再部署：`apps/vk` 照 PaaS 原樣保留、不套 Podman 修改，只為符合 PaaS 的 uv 與 npm workspace lock，不建置也不安裝映像。
 
 ## 安裝與連線
 
@@ -58,7 +58,7 @@ products/deploy/manage.sh headscale install --port 18500 --origin http://127.0.0
   --release-manifest /path/to/reviewed-release.json --source-checkout /path/to/merged-canonical-checkout
 ```
 
-K8s 需要在 GUI 提供可用的 kubeconfig 或掛載叢集內 ServiceAccount，空白初次安裝只驗證管理頁；VK 也需設定 Vibe Kanban 後端才可驗證實際操作。其他產品未設定後端時，安裝 smoke 會區分 MCP 協定已啟動、工具可觀測及後端尚未設定的狀態。
+K8s 需要在 GUI 提供可用的 kubeconfig 或掛載叢集內 ServiceAccount，空白初次安裝只驗證管理頁。其他產品未設定後端時，安裝 smoke 會區分 MCP 協定已啟動、工具可觀測及後端尚未設定的狀態。
 
 ## 維護
 

@@ -1,6 +1,6 @@
 # MCP product source and parity
 
-The ten active `products/apps/*` and `products/packages/mcp-admin-core` and
+The nine active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
 `0e432c3ebd7a481b8994105a187f29837d941fd6` (Gitea). The Headscale app
 implements the Headscale v0.29.4 29-operation native contract, its dedicated
@@ -11,7 +11,7 @@ authorization and ingress adaptation.
 
 For the Headscale application/core code, the only source edit is
 `deployment_kind="podman"` in `apps/headscale/headscale_mcp_admin/main.py`.
-For the other nine products, application and UI source is identical except:
+For the other eight products, application and UI source is identical except:
 
 - each `main.py` reports `deployment_kind="podman"`;
 - each application Dockerfile starts through the shared first-boot bootstrap;
@@ -24,6 +24,9 @@ The shared Quadlet installer, first-boot credential seeding, and rootless
 volume ownership live in `products/deploy/shared` and do not change any MCP
 operation or GUI code. The archived `odoo-manage` frontend directory is present
 only to satisfy the PaaS npm workspace lock and is not a deployed product.
+VK was retired from the Podman products on 2026-11-14. `apps/vk` stays
+vendored byte for byte from PaaS, without the Podman edits, only so the uv
+and npm workspace locks still match; no VK image is built or installed.
 
 The existing root Podman-host MCP uses MCP SDK 1.x and remains in its own
 environment. New MCP products use this `products/` workspace and the same
@@ -46,7 +49,7 @@ The HA Add-on Store includes Headscale alongside Odoo, n8n, Hermes, EMQX,
 LiteLLM and Nextcloud. OpenDesign is a source candidate; K8s and VK are absent.
 HA uses its own GUI, HA authentication and ingress adapter. These are genuine
 distribution differences; the Podman workspace follows the pinned PaaS product
-contracts and does not claim that HA already publishes all ten products.
+contracts and does not claim that HA already publishes all nine products.
 
 At HA source commit `1b45bdfa5338170d2b397ef5940bb4c241f8b343`, the
 six published products have exactly the same tool names as PaaS/Podman:

@@ -18,6 +18,8 @@ PATHS = tuple(f"apps/{name}" for name in APPS) + (
     "packages/mcp-admin-core/pyproject.toml", "packages/mcp-admin-core/tests",
     "packages/mcp-admin-ui", "pyproject.toml",
     "uv.lock", "package.json", "package-lock.json",
+    # Retired on Podman (2026-11-14); vendored unchanged for the workspace locks.
+    "apps/vk",
 )
 IGNORE_DIRS = {"__pycache__", ".pytest_cache", "node_modules", "dist"}
 
@@ -105,7 +107,7 @@ def main() -> int:
     if failures or extras:
         print(f"parity failed: changed/missing={failures}, extra={extras}", file=sys.stderr)
         return 1
-    print(f"parity ok: {len(tracked)} PaaS files at {PIN}; nine Podman apps differ only in image startup and deployment kind")
+    print(f"parity ok: {len(tracked)} PaaS files at {PIN}; {len(APPS)} Podman apps differ only in image startup and deployment kind")
     return 0
 
 
