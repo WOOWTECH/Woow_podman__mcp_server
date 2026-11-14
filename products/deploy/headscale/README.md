@@ -86,8 +86,11 @@ products/deploy/headscale/scripts/uninstall.sh --dry-run
 ```
 
 備份會暫停服務以保證 SQLite session 資料與設定檔一致；備份檔含管理密碼、API key
-與 MCP token，須以私有權限儲存。還原腳本會驗證校驗碼、重建同名 volume，並更新
-session epoch，使還原前的 GUI cookie 全部失效。卸載預設保留 volume 與 secrets；
+與 MCP token，須以私有權限儲存。還原腳本會驗證校驗碼，先在暫存 volume 由已安裝的映像以
+共用核心的 `restore_guard` 產生「全部撤銷」的副本（失敗時服務與資料都不動），成功後才停止服務、
+重建同名 volume 並換上：設定檔、連線與工具開關會回來，但每個帳號的
+MCP token 一律撤銷，管理密碼改為 `headscale-mcp-admin-password` secret 的值，SQLite session
+資料不還原（服務啟動時建立新的），還原前的 GUI cookie 全部失效。還原後請登入 GUI 為各帳號發新 token。卸載預設保留 volume 與 secrets；
 `--purge` 會先做最後一次備份，再清除資料。
 
 ## 驗證

@@ -15,10 +15,13 @@ python3 "$DEPLOY/validate_env.py" \
   --port "$(ql_env_get MCP_ADMIN_PORT)" \
   --origins "$(ql_env_get HEADSCALE_MCP_ALLOWED_ORIGINS)" \
   --secure-cookie "$(ql_env_get HEADSCALE_MCP_SECURE_COOKIE)" \
-  --cidrs "$(ql_env_get HEADSCALE_MCP_ALLOWED_PRIVATE_CIDRS)"
+  --cidrs "$(ql_env_get HEADSCALE_MCP_ALLOWED_PRIVATE_CIDRS)" \
+  --memory "$(ql_env_get MCP_MEMORY_LIMIT)"
 mkdir -p "$WORK/out"
 ql_render "$DEPLOY/quadlet" "$EXAMPLE" "$DEPLOY/quadlet/render-vars" "$WORK/out" \
   "IMAGE=sha256:$(printf 'a%.0s' {1..64})"
+grep -qx 'PodmanArgs=--memory=1g' "$WORK/out/headscale-mcp-admin.container"
+grep -qx 'RestartPreventExitStatus=3' "$WORK/out/headscale-mcp-admin.container"
 ql_lint_policy "$WORK/out"
 ql_dryrun "$WORK/out" --verify
 echo "Headscale Quadlet render and generator dry-run passed"
