@@ -1,5 +1,8 @@
 """閘道主動回收上游閒置的 MCP session（名額已滿時）。
 
+安全候選狀態：proxy 預設停用自動 DELETE 與 initialize 重送，直接回傳上游 429。
+下列說明是保留供測試／後續審查的回收演算法，並非目前對外啟用的行為。
+
 背景（n8n，2026-10-26 第二輪驗證）：上游 n8n-mcp（``dist/http-server-single-session.js``）的 Streamable HTTP session
 有名額上限（``N8N_MCP_MAX_SESSIONS``），名額滿時新的 ``initialize`` 回 HTTP 429＋JSON-RPC -32000
 ``Session limit reached (N). Please wait for existing sessions to expire.``。session 只在三種情況結束：用戶端送
@@ -286,9 +289,14 @@ class SessionReclaimer:
                 raise
             except Exception as exc:
                 # 送不出去或逾時：上游可能還留著這個 session，紀錄保留、冷卻後才再試。
-                self._cool_down(sid)
+                if self._sessions.get(sid) is tracked:
+                    self._cool_down(sid)
                 logger.warning("%s session 名額已滿：回收 session %s 失敗（%s），保留紀錄、%d 秒內不再對它回收",
                                self.label, session_tag(sid), type(exc).__name__, int(self.retry_cooldown_seconds))
+                return False
+            # A different generation may have recorded the same opaque ID
+            # while DELETE was in flight. Never mutate its replacement entry.
+            if self._sessions.get(sid) is not tracked:
                 return False
             if status in _RELEASED:
                 self.forget(sid)

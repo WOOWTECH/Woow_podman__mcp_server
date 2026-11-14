@@ -109,3 +109,28 @@ def _reset_launch_policy():
     set_launch_policy(None)
     yield
     set_launch_policy(saved)
+
+
+@pytest.fixture
+def synthetic_child(monkeypatch):
+    """Opt-in for proxy tests whose upstream the test owns (MockTransport, a stub client or a test server).
+
+    Since blocker 3 the gateway forwards only to a generation that passed the manager's OS listener check.
+    This installs, for the default profile and every additional profile, a running synthetic child that is
+    trusted for whatever loopback port the test configures. It stands in for that check and is not evidence
+    of it; tests about the check itself (``test_child_identity_*``) never use it.
+    """
+    import mcp_admin_core.process as process_mod
+    import mcp_admin_core.profiles as profiles_mod
+    from managed_proxy_fixture import synthetic_manager
+
+    default = synthetic_manager()
+    monkeypatch.setattr(process_mod, "_instance", default)
+
+    def manager_for(self, profile_id):
+        if profile_id == profiles_mod.DEFAULT_PROFILE:
+            return process_mod.get_default_process_manager()
+        return self._managers.setdefault(profile_id, synthetic_manager())
+
+    monkeypatch.setattr(profiles_mod.ProfileRegistry, "manager_for", manager_for)
+    return default

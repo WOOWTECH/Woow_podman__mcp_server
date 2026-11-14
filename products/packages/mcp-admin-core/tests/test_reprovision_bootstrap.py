@@ -94,6 +94,12 @@ class Deployment:
     def read(self):
         return json.loads(self.target.read_text())
 
+    def trust_child(self):
+        """The offline fixture child never starts. Since blocker 3 nothing is forwarded without a running,
+        identity-verified child: stand in for one (synthetic, see managed_proxy_fixture)."""
+        from managed_proxy_fixture import synthetic_manager
+        self.monkeypatch.setattr(process, "_instance", synthetic_manager())
+
     @contextmanager
     def boot(self, product="hermes"):
         self.monkeypatch.setattr(stores, "_instance", None)
@@ -142,7 +148,13 @@ def test_seed_once_revoke_reseed_reissue_rotate_and_restart(deployment, product)
     d.inputs()
     assert "seeded" in d.seed()
     with d.boot(product) as client:
-        assert d.launches
+        from mcp_admin_core.launch_policy import get_launch_policy
+        if get_launch_policy().required_connection:
+            # The seed has no connection: a child that exits without its required fields (nextcloud) is not
+            # spawned until they are saved (2026-11-13); the launch path still ran up to that check.
+            assert not d.launches and process.get_default_process_manager()._attempted_revision
+        else:
+            assert d.launches
         login(client)
         assert call(client, INITIAL, name="fixture_read").status_code == 200
         assert client.post("/api/tokens/revoke", headers=revision_headers(client, None, read_path='/api/settings')).status_code == 200
@@ -197,6 +209,7 @@ def test_policy_api_survives_reseed_and_explicit_reissue(deployment):
         login(client)
         assert client.get("/api/tools").json()["disabled_operations"] == {"hermes_session": ["delete"]}
         assert client.put("/api/tokens", json={"token": REISSUED}, headers=revision_headers(client, None, read_path='/api/settings')).status_code == 200
+        d.trust_child()
         before = len(d.forwarded)
         assert call(client, REISSUED, arguments={"action": "delete"}).json()["result"]["isError"] is True
         assert len(d.forwarded) == before

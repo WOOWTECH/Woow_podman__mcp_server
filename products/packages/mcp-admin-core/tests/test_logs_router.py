@@ -67,6 +67,7 @@ def test_install_is_idempotent():
 def test_search_and_sse_keep_profile_logs_separate(make_app):
     import asyncio
 
+    from mcp_admin_core.process import CHILD_OUTPUT_ATTR
     from mcp_admin_core.profiles import get_profile_registry
     from mcp_admin_core.routers import logs
 
@@ -78,10 +79,12 @@ def test_search_and_sse_keep_profile_logs_separate(make_app):
     second = client.post("/api/profiles", headers=auth, json={"label": "second"}).json()["id"]
     registry = get_profile_registry()
     logs.install_log_capture()
+    # 與 McpProcessManager._drain_logs 相同：子行程輸出帶結構標記（Logs 頁存成來源 mcp-server、去掉前綴）
+    child_output = {"extra": {CHILD_OUTPUT_ATTR: True}}
     with registry.activate(first):
-        logging.getLogger("mcp_admin_core.process").info("[mcp-server] first-private-log-needle")
+        logging.getLogger("mcp_admin_core.process").info("[mcp-server] %s", "first-private-log-needle", **child_output)
     with registry.activate(second):
-        logging.getLogger("mcp_admin_core.process").info("[mcp-server] second-private-log-needle")
+        logging.getLogger("mcp_admin_core.process").info("[mcp-server] %s", "second-private-log-needle", **child_output)
     logs._install_admin_log_capture(("uvicorn.access",))
     logging.getLogger("uvicorn.access").info("access-log-private-needle")
 

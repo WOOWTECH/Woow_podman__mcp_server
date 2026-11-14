@@ -154,7 +154,8 @@ async def probe_connection(store=None) -> Any:
 async def mcp_state(store=None) -> str:
     """``/healthz`` 的 ``mcp``：``running``｜``not_configured``｜``not_running``，不含任何細節。
 
-    缺必要欄位時一律 ``not_configured``——那時子行程「在跑」只會是看門狗的重啟嘗試，一定起不來。不等設定檔的鎖
+    缺必要欄位時一律 ``not_configured``——管理程序這時不 spawn 子行程（2026-11-13 起，``process._start_locked``）；還在跑的
+    只可能是以 apply=false 清空欄位前就在跑的舊子行程，它停止後在欄位存好之前不會再啟動。不等設定檔的鎖
     （:func:`probe_missing_fields`）。
     """
     return _mcp_value(bool(await probe_missing_fields(store)))
@@ -201,9 +202,18 @@ async def placeholder_session_answer(request: Request, rpc: Any, *, store, port:
     if request.method == "DELETE":
         return terminated()
     missing = await missing_fields(store)
-    if not missing and get_process_manager().is_running and await child_accepts_connections(port):
+    pm = get_process_manager()
+    if not missing and pm.is_running and await _child_is_up(pm, port):
         return session_gone()
     return answer(request, rpc, missing)
+
+
+async def _child_is_up(pm, port: int) -> bool:
+    """子行程真的起來了：受管子行程看它的世代是否通過身分檢查（只是有東西在聽 port 不算，blocker 3）。"""
+    routable = getattr(pm, "forward_generation", None)
+    if routable is not None:
+        return routable(port) is not None
+    return await child_accepts_connections(port)
 
 
 async def unreachable_answer(request: Request, rpc: Any, *, store) -> Response | None:

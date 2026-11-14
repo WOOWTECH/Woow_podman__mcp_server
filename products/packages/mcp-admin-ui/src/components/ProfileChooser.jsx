@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { DEFAULT_PROFILE_ID } from '../api';
+import { profileDisabledNotice, profileOptionLabel } from '../profileStatus';
 
 export default function ProfileChooser({ profiles, selectedId, onSelect, onCreate, onRename, onDelete }) {
   const selected = profiles.find(profile => profile.id === selectedId);
+  const disabledNotice = profileDisabledNotice(selected);
   const [action, setAction] = useState(null);
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
@@ -58,7 +60,7 @@ export default function ProfileChooser({ profiles, selectedId, onSelect, onCreat
         >
           {profiles.map(profile => (
             <option key={profile.id} value={profile.id}>
-              {profile.label}
+              {profileOptionLabel(profile)}
             </option>
           ))}
         </select>
@@ -66,6 +68,7 @@ export default function ProfileChooser({ profiles, selectedId, onSelect, onCreat
         <button type="button" disabled={busy || selected?.is_default || selectedId === DEFAULT_PROFILE_ID} onClick={() => begin('rename')} className="text-sm text-brand-400 hover:text-brand-300 disabled:opacity-50">Rename</button>
         <button type="button" disabled={busy || selected?.is_default || selectedId === DEFAULT_PROFILE_ID} onClick={() => begin('delete')} className="text-sm text-red-600 hover:text-red-500 disabled:opacity-50">Delete</button>
       </div>
+      {disabledNotice && <p role="status" className="mt-2 text-sm text-amber-700">{disabledNotice}</p>}
 
       {action === 'delete' && (
         <div className="mt-3 border-t border-border pt-3 text-sm text-ink-2">

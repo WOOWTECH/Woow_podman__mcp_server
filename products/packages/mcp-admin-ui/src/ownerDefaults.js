@@ -31,6 +31,9 @@ export function ownerDefaultsMessage(view) {
   const decision = view.decision || '負責人 2026-10-25「預設全開」';
   const at = view.at ? `${view.at} ` : '';
   const token = tokenSentence(view);
+  if (view.applied === 'restore_preserved') {
+    return `還原時保留備份內的工具與寫入限制，未自動改為全開。${token}${KEEP}`;
+  }
   if (view.applied === 'migrated') {
     return `已套用${decision}：既有設定已於 ${view.at || '升級時'} 一次性改成全開（${SCOPE}）。${token}${KEEP}`;
   }

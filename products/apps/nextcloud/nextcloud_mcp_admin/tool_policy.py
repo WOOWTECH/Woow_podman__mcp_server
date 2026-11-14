@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 
+from starlette._utils import get_route_path
+
 from mcp_admin_core.config import get_config_store
 from mcp_admin_core.process import get_process_manager
 from mcp_admin_core.tool_filter import read_disabled_tools
@@ -62,7 +64,7 @@ class ToolPolicyMiddleware:
         if (
             scope.get("type") != "http"
             or scope.get("method") != "PUT"
-            or scope.get("path", "").rstrip("/") != TOOLS_PATH
+            or get_route_path(scope).rstrip("/") != TOOLS_PATH
         ):
             await self.app(scope, receive, send)
             return

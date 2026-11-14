@@ -53,7 +53,7 @@ def test_proxy_upstream_down_while_process_running_is_502(make_app, monkeypatch)
     assert r.status_code == 502
 
 
-def test_proxy_forwards_loopback_host_with_port(make_app, monkeypatch):
+def test_proxy_forwards_loopback_host_with_port(make_app, monkeypatch, synthetic_child):
     """轉發給子行程的 Host header 必須帶 port（``127.0.0.1:{mcp_port}``）。
 
     FastMCP 子行程的 TransportSecurityMiddleware（DNS-rebinding 保護）只收
@@ -84,11 +84,13 @@ def test_proxy_forwards_loopback_host_with_port(make_app, monkeypatch):
         }
     )
     r = c.get("/private_secret/sse")
-    assert r.status_code == 503  # 通過 token 驗證、攔截 build_request 後 send→ConnectError（子行程未運行）→503
+    # 通過 token 驗證、攔截 build_request 後 send→ConnectError；只有通過身分檢查的子行程會被轉發（blocker 3），
+    # 所以這裡是「在跑但連不上」的合成子行程 → 502
+    assert r.status_code == 502
     assert captured["headers"]["host"] == "127.0.0.1:8123"
 
 
-def test_proxy_drops_external_origin(make_app, monkeypatch):
+def test_proxy_drops_external_origin(make_app, monkeypatch, synthetic_child):
     """轉發給子行程的請求必須 drop 外部 Origin header（Host 修正的對稱另一半）。
 
     FastMCP 子行程的 TransportSecurityMiddleware 同時驗 Origin：loopback binding 自動
@@ -99,6 +101,8 @@ def test_proxy_drops_external_origin(make_app, monkeypatch):
     proxy 反代 = 受信任 loopback client，外部 Origin 對子行程無意義，必須 drop。
     """
     import httpx
+
+    monkeypatch.setenv("MCP_ADMIN_ALLOWED_ORIGINS", "https://ws-xxx.woowtech.io")
 
     import mcp_admin_core.proxy as proxy_mod
 
@@ -121,7 +125,7 @@ def test_proxy_drops_external_origin(make_app, monkeypatch):
         }
     )
     r = c.get("/private_secret/sse", headers={"Origin": "https://ws-xxx.woowtech.io"})
-    assert r.status_code == 503
+    assert r.status_code == 502  # 合成子行程在跑、stub 連不上（見上一個測試）
     # 外部 Origin 必須被 drop（不透傳給子行程，否則 FastMCP 回 403）
     assert "origin" not in {k.lower() for k in captured["headers"]}
     # Host 仍正規化帶 port（不回歸）
@@ -145,7 +149,7 @@ def _stub_slow_upstream(monkeypatch, delay: float):
     return proxy_mod
 
 
-def test_slow_tool_call_gets_jsonrpc_error_before_cloudflare_524(make_app, monkeypatch):
+def test_slow_tool_call_gets_jsonrpc_error_before_cloudflare_524(make_app, monkeypatch, synthetic_child):
     """DATA-OMCP-007-3：同步 tools/call 超過閘道期限 → 回可讀的 JSON-RPC 錯誤，而不是等 CF 的 524。"""
     proxy_mod = _stub_slow_upstream(monkeypatch, delay=5)
     monkeypatch.setattr(proxy_mod, "TOOL_CALL_TIMEOUT", 0.2)

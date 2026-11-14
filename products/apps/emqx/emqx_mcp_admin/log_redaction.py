@@ -52,6 +52,9 @@ def install():
                 record.exc_text = scrub(record.exc_text)
             if record.stack_info:
                 record.stack_info = scrub(record.stack_info)
+            # The exception was rendered again from raw exc_info above. Apply
+            # the shared URL policy after the EMQX-specific substitutions.
+            core.scrub_record(record)
             return record
         logging.setLogRecordFactory(factory)
         _installed = True

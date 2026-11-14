@@ -5,7 +5,7 @@
 ## 執行與連線契約
 
 - 管理程式：`uvicorn headscale_mcp_admin.main:app --host 0.0.0.0 --port 8080`。
-- 子行程：`headscale-mcp-server` → `headscale_mcp_admin.launcher:main`，固定只監聽 `127.0.0.1:8000`，Streamable HTTP `/mcp`。管理員不可用設定檔改成任意執行命令。
+- 子行程：`headscale-mcp-server` → `headscale_mcp_admin.launcher:main`，固定只監聽 `127.0.0.1:8000`，Streamable HTTP `/mcp`。管理員不可用設定檔改成任意執行命令。`base_url` 與 `api_key` 是 `LaunchPolicy.required_connection`：兩個都存好之前，任何設定檔（含預設）都不啟動子行程（沒有金鑰時 launcher 會 exit 1；2026-11-13 之前預設設定檔會被看門狗每 2、5、15…秒重啟），存好連線時才啟動。
 - 對外 GUI 為 `/`；MCP 用戶端使用管理介面發出的 `/private_<token>/mcp`。管理密碼、MCP token、Headscale API key、PaaS API token 是不同用途的憑證。
 - 狀態位於 `MCP_ADMIN_CONFIG=/data/config.json`，PVC 掛載 `/data`；uid/gid `1000:1000`。升級保留既有設定，chart initContainer 僅在檔案不存在時 seed。
 - 前端直接複製 `static/` 到 `/app/static`，不執行 npm、不使用共用 React 管理殼。Python wheel 安裝只涵蓋兩個 Python package；正式映像另行攜帶靜態資產。
@@ -38,8 +38,14 @@ Standalone 的本機 HTTP 範例另外加上
 `-e HEADSCALE_MCP_ALLOWED_ORIGINS=http://127.0.0.1:8080`，並以相同網址開啟 GUI。
 
 管理者登出會撤銷當次登入；其餘瀏覽器登入維持有效。撤銷狀態與 `config.json`
-位於同一持久目錄的 `admin-sessions.sqlite3`。備份／還原時須與 `config.json`、
-存在時的 `.config.json.operations.json` 一併處理；停止管理程式後進行一致性還原。
+位於同一持久目錄的 `admin-sessions.sqlite3`：管理程式每次啟動時沒有就建立，內容只有隨機
+epoch 與已登出登入的雜湊，所以設定卷的備份裡會有它（可能還有 `-journal` 等附屬檔）。
+還原一律照[設定卷還原手冊](../../docs/paas-config-restore-runbook.md)用 `restore_inplace`，映像要含
+「略過 `admin-sessions.sqlite3`」的 guard 修正（沒有的映像，例如 e0a80d6，會在備份檢查與 `prepare`
+拒絕）。還原工具不讀、不複製、不還原這個檔與它的 `-journal`／`-wal`／`-shm`，live 卷上原有的也隨
+其他舊資料丟棄；服務還原後第一次啟動時建立新的空資料庫（新 epoch）。所以還原前的管理登入，
+包括備份之後才登出的，都不會再被接受（還原另外換掉了管理密碼與 `admin_session_generation`），
+重設密碼後重新登入即可。不要把備份裡的這個檔手動放回 live 卷，也不要單獨回滾這個檔。
 升級後舊版沒有獨立 session 識別的 GUI 登入需要重新登入一次；不更換 MCP token、
 Headscale API key 或已配對裝置的身分。既有密碼變更機制仍會令所有管理登入失效。
 

@@ -102,6 +102,8 @@ async def test_core_proxy_reaches_child_despite_host_and_origin_checks(tmp_path,
     import mcp_admin_core.process as process_mod
     import mcp_admin_core.proxy as proxy_mod
 
+    monkeypatch.setenv("MCP_ADMIN_ALLOWED_ORIGINS", "https://claude.ai")
+
     port = _free_port()
     cfg = json.loads(json.dumps(store_mod._DEFAULT_CONFIG))
     cfg["mcp_auth_token"] = "ci-token-0123456789"

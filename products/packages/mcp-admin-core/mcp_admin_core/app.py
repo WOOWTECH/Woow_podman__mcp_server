@@ -10,7 +10,6 @@ from typing import AsyncGenerator, Sequence
 
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -33,6 +32,8 @@ from .routers.tokens import router as tokens_router
 from .routers.operations import router as operations_router
 from .routers.profiles import router as profiles_router
 from .security_headers import SecurityHeadersMiddleware
+from .origin_security import AppCORSMiddleware, McpOriginMiddleware, check_origin_policy_at_startup
+from .restore_marker import RestoreInProgress, RestoreInProgressGuard, restore_in_progress
 from .validation_errors import validation_error_without_input
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,7 @@ def create_app(
         Path to a directory of static files to serve.
         Defaults to ``./static`` if it exists.
     cors_origins:
-        List of allowed CORS origins.  Defaults to ``["*"]``.
+        List of allowed CORS origins for non-MCP routes. Defaults to none.
     launch_policy:
         MCP 子行程政策（#1530）：固定 command／args、connection 與 env 白名單。
         每個 app 都應該宣告；None 只用於測試或自行組裝（沿用 config.json＋黑名單）。
@@ -90,19 +91,28 @@ def create_app(
         SPA fallback 會回 index.html 的前端路由（不含開頭斜線、"" 代表 /）。
         預設 :data:`SPA_ROUTES`；其他路徑一律 404。
     session_reclaimer:
-        子行程的 Streamable HTTP session 有名額上限的產品（n8n）：名額已滿時由閘道回收最久沒活動的閒置
-        session 再重試 initialize（見 :mod:`mcp_admin_core.session_reclaim`）。None＝不記錄、不回收。
+        子行程的 Streamable HTTP session 有名額上限的產品（n8n）。本版自動回收維持關閉（``proxy._AUTOMATIC_RECLAIM_EXPERIMENTAL``）：
+        名額已滿時原樣回上游 429，不會送 DELETE 或重試 initialize（演算法見 :mod:`mcp_admin_core.session_reclaim`，
+        僅供測試與後續審查）。None＝不記錄。
     admin_session_policy:
         Optional product policy; the default persists per-login revocation in the
         private config volume. Existing JWTs without a session ID require login.
     """
     set_launch_policy(launch_policy)
+    origin_env = "HEADSCALE_MCP_ALLOWED_ORIGINS" if product_id == "headscale" else "MCP_ADMIN_ALLOWED_ORIGINS"
     # #1614：URL 裡的憑證（/private_<token>、Logs 頁 EventSource 的 ?token=<JWT>）不進 log。
     # 每個 app 都經 create_app 組裝，所以在這裡統一安裝（idempotent）。
     log_redaction.install()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # 還原進行中標記（restore_marker）：主要由最外層的 RestoreInProgressGuard 在任何 lifespan（含 app 自己包在外面的
+        # seed／遷移）之前擋下；這裡再檢查一次，直接呼叫 core lifespan 的路徑也不會讀寫設定或啟動子行程。
+        if restore_in_progress():
+            raise RestoreInProgress("MCP configuration restore in progress")
+        # MCP Origin 清單與模式（MCP_ADMIN_ORIGIN_MODE；Headscale 固定 enforce）：不合法就在讀寫設定、啟動子行程之前失敗
+        # （Starlette router 先送 lifespan.startup.failed，uvicorn exit 3、不聽 port）；合法就記一行生效中的政策。
+        check_origin_policy_at_startup(origin_env)
         # 負責人 2026-10-25「預設全開」：沒有標記的既有 config.json 在子行程啟動前一次性改成全開
         # （見 owner_defaults）；讀不到設定時這裡拋 ConfigUnavailable，子行程不會啟動。
         await apply_owner_defaults()
@@ -146,9 +156,13 @@ def create_app(
     app.add_middleware(ConfigAvailabilityMiddleware)
 
     # -- CORS ------------------------------------------------------------------
-    origins = cors_origins if cors_origins is not None else ["*"]
+    # 非 MCP 路徑（管理 API、SPA、/healthz）維持 #136 收緊後的設定：預設不給任何跨來源許可，與
+    # MCP_ADMIN_ORIGIN_MODE 無關。管理頁同源、不需要 CORS；平台也不從瀏覽器呼叫管理 API；而舊的 ["*"]＋credentials
+    # 會把任何網站的來源原樣回給帶管理 cookie 的請求。report-only 只放寬 /private_* 的 MCP 請求（見 origin_security）：
+    # 沒通過的 MCP 請求由 McpOriginMiddleware 交給舊設定的 CORS，這一層（AppCORSMiddleware）看到 scope 標記就略過。
+    origins = cors_origins if cors_origins is not None else []
     app.add_middleware(
-        CORSMiddleware,
+        AppCORSMiddleware,
         allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
@@ -159,6 +173,22 @@ def create_app(
     # 最後加入＝最外層：401／CORS preflight／SPA／API 回應都帶到；/private_* MCP proxy
     # 由 middleware 自行略過，不影響 SSE／串流。
     app.add_middleware(SecurityHeadersMiddleware)
+
+    # The public MCP boundary must run before CORSMiddleware's preflight
+    # shortcut. Headscale already owns its deployment-specific allowlist.
+    # MCP_ADMIN_ORIGIN_MODE（負責人 2026-11-12）：report-only（預設）只記 decision=would_deny、照 #136 之前的 CORS
+    # 回應；enforce 回 403。Headscale 一律 enforce（它在 #136 之前就擋不受信任的 Origin）。
+    app.add_middleware(McpOriginMiddleware, env=origin_env)
+
+    # Last added is outermost: fence initialize headers after BaseHTTPMiddleware
+    # scheduling, without holding a child across the subsequent SSE stream.
+    from .initialize_fence import InitializeFenceMiddleware
+    app.add_middleware(InitializeFenceMiddleware)
+
+    # 最後加入＝core 的最外層：MCP 設定還原進行中（<設定目錄>/.mcp-restore-in-progress）時讓 lifespan 啟動失敗，
+    # 在 app 自己包的 seed／遷移、owner_defaults、自動發 token、子行程之前（見 restore_marker）。app 之後另加的外層
+    # middleware 都只處理 http，lifespan 照樣先到這裡。
+    app.add_middleware(RestoreInProgressGuard)
 
     # -- Core routers ----------------------------------------------------------
     app.include_router(login_router)

@@ -1,6 +1,7 @@
 """操作政策 HTTP/batch/SSE 整合；真實 Hermes 子行程只連記錄式假 Dashboard。"""
 
 from management_client import revision_headers, async_revision_headers
+from managed_proxy_fixture import attach
 import asyncio
 import json
 import socket
@@ -49,7 +50,7 @@ def hermes_process(tmp_path):
                 if process.poll() is not None or time.monotonic() > deadline:
                     pytest.fail((tmp_path / "child.log").read_text())
                 time.sleep(.05)
-        yield port, audit
+        yield port, audit, process
     finally:
         process.terminate()
         try:
@@ -71,7 +72,8 @@ def running_proxy(hermes_process, store_env, monkeypatch):
 
     monkeypatch.setattr(app_module, "get_process_manager", lambda: PM())
     monkeypatch.setattr(proxy, "_client", None)
-    port, audit = hermes_process
+    port, audit, process = hermes_process
+    attach(monkeypatch, process)
     asyncio.run(store_env.update({"mcp_auth_token": "secret", "mcp_server": {"port": port}}))
     with _Upstream(app()) as admin:
         yield f"http://127.0.0.1:{admin.port}", audit
@@ -146,7 +148,7 @@ async def test_real_legacy_sse_denied_operation_never_dispatches_and_read_surviv
                 assert len(audit.read_text().splitlines()) == len(before.splitlines()) + 1
 
 
-def test_json_mixed_batch_rewrites_only_denied_calls(store_env, monkeypatch):
+def test_json_mixed_batch_rewrites_only_denied_calls(store_env, monkeypatch, synthetic_child):
     from mcp_admin_core import proxy
     from test_operation_policy import call
     asyncio.run(store_env.put("mcp_auth_token", "secret"))

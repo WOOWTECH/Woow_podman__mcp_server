@@ -28,7 +28,7 @@ async function api(path, {method='GET',body,revision=false}={}) {
     if(r.status!==204)try{data=await r.json();}catch{if(generation!==profileGeneration)throw staleRequest();throw Object.assign(new Error('服務回應無法讀取。請重新檢查狀態，避免重複送出修改。'),{outcome:'unknown'});}
     if(scoped&&generation!==profileGeneration)throw staleRequest();
     if(r.status===401){displayLogin();throw new Error('請重新登入管理介面。');}
-    if(!r.ok){let detail=data.detail||data;const code=typeof detail==='string'?detail:detail.code;const outcome=detail.outcome||(r.status>=500?'unknown':'not_sent');throw Object.assign(new Error((messages[code]||code||'操作失敗')+(outcome==='unknown'?'；結果未確認，請先讀回狀態再決定是否重試。':'')),{outcome});}
+    if(!r.ok){let detail=data.detail||data;const code=typeof detail==='string'?detail:detail.code;const outcome=detail.outcome||(r.status>=500?'unknown':'not_sent');throw Object.assign(new Error((messages[code]||(typeof detail.message==='string'&&detail.message)||code||'操作失敗')+(outcome==='unknown'?'；結果未確認，請先讀回狀態再決定是否重試。':'')),{outcome});}
     // Core operation IDs reject future timestamps; prefer the editor read's server clock.
     if(scoped&&Number.isSafeInteger(data.configuration?.server_time_ms))S.serverTimeMs=data.configuration.server_time_ms;
     if(scoped&&r.headers.get('ETag'))S.revision=r.headers.get('ETag');
@@ -72,9 +72,11 @@ function output(value, container) {
 }
 function status(ok) {const n=$('#status');n.textContent=ok?'控制台 API 可連線':'尚未確認 API 連線';n.className='badge'+(ok?' good':'');}
 let profileBusy=false,profileEditMode=null;
+// GET /api/profiles disabled_reason: why that profile's MCP child is not started (null: it runs as usual).
+const profileDisabled={memory_capacity:'記憶體不足，已停用',profile_limit:'超過帳號上限，已停用',port_conflict:'port 衝突，已停用'};
 function renderProfiles() {
   const chooser=$('#profile-select');chooser.replaceChildren();
-  for(const profile of S.profiles)chooser.append(el('option',profile.label+(profile.is_default?'（預設）':''),{value:profile.id}));
+  for(const profile of S.profiles)chooser.append(el('option',profile.label+(profile.is_default?'（預設）':'')+(profile.disabled_reason?'（'+(profileDisabled[profile.disabled_reason]||'已停用')+'）':''),{value:profile.id}));
   chooser.value=S.profileId;
   chooser.disabled=profileBusy;
   $('#profile-create').disabled=profileBusy;

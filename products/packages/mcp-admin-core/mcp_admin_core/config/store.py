@@ -156,6 +156,12 @@ class ConfigStore:
             pass
         except OSError as exc:
             raise ConfigUnavailable("Configuration state unavailable") from exc
+        # 還原進行中（restore_marker）：設定目錄可能剛被清空、正要放進還原結果；不可補一份出廠設定（admin／admin）。
+        # 看自己所在目錄的標記；profile 的 store（<設定目錄>/profiles/<id>/config.json）另看設定目錄的標記。
+        from ..restore_marker import marker_path, restore_in_progress
+        if restore_in_progress(self._path) or (
+                marker_path().parent in self._path.parents and restore_in_progress()):
+            raise ConfigUnavailable("Configuration state unavailable")
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if self._atomic_write(json.dumps(fresh_config(), indent=2), create_only=True):
             logger.info("Created default config at %s", self._path)

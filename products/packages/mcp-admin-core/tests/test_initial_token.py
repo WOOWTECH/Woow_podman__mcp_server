@@ -102,7 +102,7 @@ def test_same_generator_as_rotation():
 
 
 @pytest.fixture
-def boot(tmp_config_path, monkeypatch):
+def boot(tmp_config_path, monkeypatch, synthetic_child):
     import mcp_admin_core.config.store as store_mod
     from mcp_admin_core import proxy
     from mcp_admin_core.process import get_process_manager

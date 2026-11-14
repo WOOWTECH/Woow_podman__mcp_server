@@ -2,7 +2,15 @@
 
 The nine active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`0e432c3ebd7a481b8994105a187f29837d941fd6` (Gitea). The Headscale app
+`443e95a942c7ef0484d963631382aab94d0e0567` (Gitea, 2026-11-13). Since the
+previous pin `0e432c3ebd7a481b8994105a187f29837d941fd6`, Gitea merged #140
+(security release: Origin report-only default, restore without old tokens,
+child identity checks), #141 (Logs buffer per profile), #142 (profile
+management and startup robustness), #143 and #146 (restore runbook and
+Headscale restore), #144 (redaction of encoded `/private_` paths) and #145
+(per-profile gateway connection quota, clean errors when a child exits or a
+token changes mid-response). The refresh changes no tool registry, lock file,
+Dockerfile or package manifest. The Headscale app
 implements the Headscale v0.29.4 29-operation native contract, its dedicated
 management GUI, operation policy, Origin checks, session revocation, and the
 optional PaaS binding. The HA Add-on's Headscale child came from the same
@@ -28,6 +36,9 @@ VK was retired from the Podman products on 2026-11-14. `apps/vk` stays
 vendored with the same edits as the other apps, because the uv and npm
 workspace locks include it and the shared core tests iterate every app; no
 VK image is built or installed.
+`docs/paas-config-restore-runbook.md` is the PaaS Kubernetes restore runbook,
+vendored unchanged only because the shared core tests read it; it does not
+describe a Podman procedure.
 
 The existing root Podman-host MCP uses MCP SDK 1.x and remains in its own
 environment. New MCP products use this `products/` workspace and the same

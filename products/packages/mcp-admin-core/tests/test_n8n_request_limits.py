@@ -7,6 +7,9 @@ from starlette.requests import Request
 
 from mcp_admin_core.request_limits import McpRequestLimits
 
+# Blocker 3: these tests own their upstream; stand in for the OS listener check (conftest.py).
+pytestmark = pytest.mark.usefixtures("synthetic_child")
+
 LIMITS = McpRequestLimits(4 * 1024 * 1024, 10_000)
 
 

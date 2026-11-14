@@ -29,7 +29,9 @@
   不會被拿掉。
 - ``required_connection``：子行程缺了就起不來的連線欄位，``(鍵, Connection 頁上的標籤)``，依 Connection 頁的順序
   （例如 Nextcloud 的網址／帳號／app password：缺任何一個子行程就 exit 2）。有欄位是空的時，閘道對 MCP 用戶端回的
-  佔位 MCP 伺服器與 ``/healthz`` 的 ``mcp`` 欄位說「尚未設定」並列出缺的欄位（``mcp_admin_core/setup_status.py``）。
+  佔位 MCP 伺服器與 ``/healthz`` 的 ``mcp`` 欄位說「尚未設定」並列出缺的欄位（``mcp_admin_core/setup_status.py``）；
+  管理程序也不 spawn 子行程（每個 profile 都一樣、預設 profile 也是，``process.McpProcessManager._start_locked``），存好
+  連線時（``start_or_restart``）才啟動，不會「exit → 看門狗退避重啟」無限循環。
   **只列缺了真的起不來的欄位**：沒有連線也能啟動的產品（n8n 文件模式、odoo、litellm、hermes…）不要列，否則子行程
   在跑時 ``/healthz`` 也會報「尚未設定」、子行程因別的原因結束時會被誤報成缺設定。**只認 config.json 的
   ``connection``**：子行程另外繼承容器的 env（``process._build_subprocess_env`` 以 ``os.environ`` 為底），若有部署改用

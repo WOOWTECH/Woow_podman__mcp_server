@@ -107,7 +107,7 @@ key／workflow list 權限，Native MCP tool 的成功、拒絕或未啟用須�
 - **n8n API URL** -- n8n 實例的對外網址（例如 `https://n8n.example.com`）。私網、本機、叢集內名稱（例如 `http://n8n:5678`）、雲端 metadata 與帶帳號密碼的網址，存檔時就會被拒（HTTP 400）：MCP 子行程不連這些位址
 - **n8n API Key** -- 用於 n8n REST API 驗證的 API 金鑰
 - **MCP 工作階段逾時** -- MCP 連線的工作階段逾時（60 秒 - 86400 秒，預設 900 秒）。實際以分鐘生效，上游每 5 分鐘清掃一次，所以會在設定值之後 0–5 分鐘內才結束
-- **MCP 最大工作階段數** -- 最大同時 MCP 工作階段數（1-100，預設 20）。名額滿時，閘道先結束最久沒活動、5 分鐘沒有呼叫的 session（用戶端重連或結束時沒送 DELETE 留下的；Claude Code 結束時不送 DELETE）；開著 GET 串流不算使用中（上游的逾時也不看它，而 Claude Code 一直開著），還有呼叫在跑的才不結束；每分鐘最多結束 10 個，再重試新的 `initialize`。被結束的用戶端下次呼叫會收到 HTTP 404，要依 MCP 規範重新 initialize（Claude Code 2.1.310 實測會自動重連並重試那次呼叫；Claude.ai 尚未實測）。所有 session 都在 5 分鐘內有呼叫（或還有呼叫在跑）時，`initialize` 才回 HTTP 429。用較早版本存過 Connection 頁的服務沿用當時存的值（較早的預設是 3600 秒／10）
+- **MCP 最大工作階段數** -- 最大同時 MCP 工作階段數（1-100，預設 20）。名額滿時，新的 `initialize` 回 HTTP 429，直到舊 session 逾時：本版**不會**由閘道自動結束閒置 session（自動回收維持關閉）。用戶端重連或結束時沒送 DELETE（Claude Code 結束時不送 DELETE）留下的 session 會一直占名額，時間是 Session Timeout 再加上上游最多 5 分鐘的清掃週期（預設 900 秒約 15～20 分鐘）。要更快恢復：調高最大工作階段數、縮短 Session Timeout，或在 Settings 重啟 MCP 子行程（連線中的用戶端會斷線，需重新 initialize）。用較早版本存過 Connection 頁的服務沿用當時存的值（較早的預設是 3600 秒／10）
 - **連線測試** -- 一鍵測試，驗證 n8n REST API 是否可連線並回傳 n8n 版本
 - **自動重啟** -- 設定變更後可選擇自動重啟 MCP 伺服器
 - **還沒存 API 網址與 API Key 時是文件模式**（第五輪 2026-10-27）：上游 n8n-mcp 兩個都有才列出 21 支管理工具，缺一個就只有 7 支文件工具（不會報錯，只是看不到管理工具）。這時公開的 `/healthz` 回 `"backend": "missing"`（兩個都填了是 `"configured"`；選填的 Native MCP Access Token 與 session 兩欄不算；`mcp` 照舊是 `running`／`not_running`），PaaS 平台服務頁據此顯示「尚未設定後端連線」的提示。`configured` 只代表欄位都填了，連不連得上請按連線測試
@@ -179,7 +179,7 @@ n8n-mcp 伺服器提供 **24 個工具**，分為 **3 個類別**：
 
 - **SSE 串流** -- 透過 Server-Sent Events 即時更新日誌
 - **連線時尾部載入** -- 可設定初始日誌行數（1-1000）
-- **搜尋** -- 在 5000 行記憶體內緩衝區中進行全文或正則表達式搜尋
+- **搜尋** -- 在目前帳號（profile）的 5000 行記憶體內緩衝區中進行全文或正則表達式搜尋（每個帳號各自一個緩衝區）
 - **自動捲動** -- 自動捲動至最新的日誌項目
 - **來源篩選** -- 依日誌來源篩選（mcp-server）
 

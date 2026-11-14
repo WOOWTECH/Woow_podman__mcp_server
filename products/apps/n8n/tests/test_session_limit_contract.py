@@ -104,16 +104,18 @@ def _field(name: str) -> tuple[str, str]:
 
 
 def test_admin_page_fields_match_the_gateway_behaviour():
-    """DATA-NMCP-003-3：管理頁說明要跟實際行為一致（預設值、閘道回收的 5 分鐘下限、GET 串流不算使用中、仍會 429 的情況）。"""
+    """DATA-NMCP-003-3：管理頁說明要跟實際行為一致（預設值、5 分鐘清掃週期、GET 串流不算使用中、名額滿回 429 與處置）。"""
     default, help_text = _field("mcp_session_timeout")
     assert default == str(child_env.SESSION_TIMEOUT_DEFAULT_SECONDS) and "預設 900" in help_text
     assert "5 分鐘" in help_text and "閘道" in help_text and "開著 GET 串流不算使用中" in help_text
     default, help_text = _field("mcp_max_sessions")
     assert default == str(child_env.MAX_SESSIONS_DEFAULT) and "預設 20" in help_text
-    for words in ("5 分鐘", "開著 GET 串流不算使用中", "還有呼叫在跑", "DELETE", "404", "429", "每分鐘最多結束 10 個",
-                  "Claude Code", "Claude.ai"):
+    # 本版自動回收關閉（f-2）：名額滿回 429，直到舊 session 逾時；說明要寫處置，不能再說閘道會先結束 session。
+    for words in ("5 分鐘", "429", "不會主動結束", "Session Timeout", "15～20 分鐘", "調高", "Restart", "DELETE",
+                  "Claude Code"):
         assert words in help_text, words
-    assert "60 秒" not in help_text
+    for stale in ("每分鐘最多結束 10 個", "閘道先結束", "404", "60 秒"):
+        assert stale not in help_text, stale
 
 
 def test_connection_api_defaults_come_from_child_env():

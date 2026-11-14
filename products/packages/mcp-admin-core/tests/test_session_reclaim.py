@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from mcp_admin_core.process import McpProcessManager
+from managed_proxy_fixture import trust_listener
 from mcp_admin_core.request_limits import McpRequestLimits
 from mcp_admin_core.session_reclaim import IDLE_FLOOR_SECONDS as FLOOR
 from mcp_admin_core.session_reclaim import SessionReclaimer, session_tag
@@ -88,8 +90,15 @@ def gateway(make_app, monkeypatch):
     """n8n 形狀的閘道（4 MiB 界線＋n8n 的「名額已滿」判斷式），上游是 FakeN8nMcp，時鐘可控。"""
     from mcp_admin_core import proxy
 
+    # Exercise the fenced prototype; production defaults to 429 passthrough.
+    monkeypatch.setattr(proxy, '_AUTOMATIC_RECLAIM_EXPERIMENTAL', True)
     upstream = FakeN8nMcp()
     clock = Clock()
+    pm = McpProcessManager()
+    pm._process = SimpleNamespace(pid=101, returncode=None)
+    pm._running = True
+    trust_listener(pm)  # blocker 3: synthetic stand-in for the OS listener check
+    monkeypatch.setattr(proxy, 'get_process_manager', lambda: pm)
     monkeypatch.setattr(proxy, "_get_client",
                         lambda timeout=86400: httpx.AsyncClient(transport=httpx.MockTransport(upstream)))
     client = make_app({"mcp_auth_token": TOKEN, "proxy": {"timeout": 30, "bearer_token": "child-bearer"},
@@ -238,12 +247,15 @@ def test_unknown_session_ids_from_clients_are_not_tracked(gateway):
 
 
 def test_child_restart_drops_previous_records(gateway, monkeypatch):
+    from mcp_admin_core import proxy
     client, upstream, clock, reclaimer = gateway
-    generation = [101]
-    monkeypatch.setattr(McpProcessManager, "child_pid", property(lambda self: generation[0]))
     initialize(client)
     initialize(client)
-    generation[0] = 202  # 子行程重啟：舊 session 在新子行程裡不存在，紀錄不能拿來回收
+    pm = proxy.get_process_manager()
+    pm._invalidate_initialize_generation()
+    pm._process = SimpleNamespace(pid=202, returncode=None)
+    import asyncio
+    pm._initialize_generation_changed = asyncio.Event()
     clock.advance(600)
     assert initialize(client).status_code == 429
     assert upstream.deletes == [] and reclaimer.tracked() == {}

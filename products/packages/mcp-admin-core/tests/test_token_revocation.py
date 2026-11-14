@@ -8,11 +8,13 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import FastAPI
-from starlette.requests import ClientDisconnect
 
 from mcp_admin_core.config.store import ConfigStore
 from mcp_admin_core.mcp_access import AccessChanged, AccessLease
 from mcp_admin_core import proxy
+
+# Blocker 3: these tests own their upstream; stand in for the OS listener check (conftest.py).
+pytestmark = pytest.mark.usefixtures("synthetic_child")
 
 
 def auth(client):
@@ -125,7 +127,10 @@ async def test_two_active_streams_close_on_revocation(fresh_store, monkeypatch, 
                 await fresh_store.change_mcp_token(None, action='revoke')
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
             assert all(s.closed for s in streams)
-            assert all(isinstance(r, ClientDisconnect) for r in responses)
+            # 以前拋 ClientDisconnect 給 uvicorn（每筆一段 traceback，P3-a）；現在正常結束回應，換 token 之後子行程的位元組
+            # 一個都沒送出。GET 串流沒有請求 id，不補 JSON-RPC 錯誤。
+            assert all(isinstance(r, httpx.Response) and r.status_code == 200 for r in responses), responses
+            assert all(b'NEVER_AFTER_REVOCATION' not in r.content for r in responses)
             assert (await c.get('/private_shared/'+path)).status_code == 403
 
 
@@ -232,6 +237,10 @@ async def test_cancellation_during_successful_header_cleanup_closes_unclaimed_re
 
 @pytest.mark.parametrize('buffered', [False, True])
 async def test_revocation_cancels_blocked_downstream_delivery(fresh_store, monkeypatch, buffered):
+    from mcp_admin_core import mcp_access
+
+    # 用戶端一直不讀：閘道補結尾（JSON-RPC 錯誤）也送不出去，最多等這麼久就放棄，不再拋 ClientDisconnect（P3-a）
+    monkeypatch.setattr(mcp_access, 'INTERRUPTED_FINISH_TIMEOUT', 0.2)
     await fresh_store.change_mcp_token('shared', action='set')
     if buffered:
         await fresh_store.put('tools', {'disabled': ['hidden']})
@@ -261,8 +270,7 @@ async def test_revocation_cancels_blocked_downstream_delivery(fresh_store, monke
         task = asyncio.create_task(response({'type':'http', 'asgi':{'spec_version':'2.4'}}, receive, send))
         await asyncio.wait_for(blocked.wait(), 2)
         await fresh_store.change_mcp_token(None, action='revoke')
-        with pytest.raises(ClientDisconnect):
-            await asyncio.wait_for(task, 2)
+        await asyncio.wait_for(task, 2)
         assert buffered or stream.closed
         release.set()
         await asyncio.sleep(0)

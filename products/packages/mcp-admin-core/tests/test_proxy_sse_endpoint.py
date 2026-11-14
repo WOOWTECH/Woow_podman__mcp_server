@@ -29,6 +29,7 @@ from mcp.server.lowlevel import Server
 
 from mcp_admin_core.mcp_sse_wrapper import DualTransportApp
 from mcp_admin_core.tool_filter import SseToolsFilter
+from managed_proxy_fixture import attach
 
 PREFIX = "/private_secret"
 
@@ -155,6 +156,7 @@ def admin_app(tmp_config_path, monkeypatch):
     monkeypatch.setattr(proxy_mod, "_client", None)
 
     def factory(port: int):
+        attach(monkeypatch)
         cfg = json.loads(json.dumps(store_mod._DEFAULT_CONFIG))
         cfg.update({"mcp_auth_token": "secret",
                     "mcp_server": {"command": "", "args": [], "port": port, "env": {}}})

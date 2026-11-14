@@ -153,6 +153,17 @@ class OperationJournal:
         self._write(data)
         return self.public(operation_id, item)
 
+    def discard(self, operation_id, data):
+        """Drop a pending intent whose operation refused before any effect (``configuration.OperationRefused``).
+
+        Only the outcome "nothing changed" is known here; it is not a completion. Without the receipt the same ID
+        is checked and run again on its next send. A failed write keeps the intent pending (reported as unknown).
+        """
+        if data["receipts"].get(operation_id, {}).get("state") != "pending":
+            return
+        del data["receipts"][operation_id]
+        self._write(data)
+
     def query(self, operation_id):
         data = self._load(operation_id)
         item = data["receipts"].get(operation_id)
