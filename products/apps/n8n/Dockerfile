@@ -12,7 +12,7 @@ RUN npm ci --no-audit --no-fund
 RUN npm run build -w apps/n8n/frontend
 # 產物：/app/apps/n8n/frontend/dist
 
-# ── Node.js 執行環境來源：官方映像，以多架構 index digest 固定（vk、opendesign 用同一個 digest） ──
+# ── Node.js 執行環境來源：官方映像，以多架構 index digest 固定（opendesign 用同一個 digest） ──
 FROM node:26.12.1-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS node-runtime
 
 # ── Stage 2: python + node runtime ──────────────────────────────────────────

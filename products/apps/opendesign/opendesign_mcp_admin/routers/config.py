@@ -6,7 +6,7 @@
 **故鍵名不可改**（後端 router、前端 appConfig、部署 seed 三處必須同名）。
 
 連線模型（G2-B 已決不設 secret 欄）：
-- ``od_api_base``：Open Design daemon URL，非 secret；GET 不遮罩、可清空為 ""（比照 vk）。
+- ``od_api_base``：Open Design daemon URL，非 secret；GET 不遮罩、可清空為 ""。
 - ``od_chat_timeout``：AI 生成最長等待秒數，選配、非 secret、字串化正數；空字串＝**清除**
   （真移除該鍵，讓 vendored server 回退上游預設 300）。⚠️ 不可存 ""——那會令
   _build_subprocess_env 注入 ``OD_CHAT_TIMEOUT=""``，上游 ``float("")`` 會 crash 子行程。

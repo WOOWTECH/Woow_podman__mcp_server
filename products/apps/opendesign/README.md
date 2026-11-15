@@ -31,16 +31,18 @@ secret-like 限制。拒絕發生在子行程送出 daemon HTTP 請求前。
 匯入專案 ID，因此兩側的 ID 語法並非完全相同。上游 vendored 檔仍保持 byte-faithful；若工具名稱或參數變更，
 guard 在啟動時 fail closed，須重新審查對應輸入規則。
 
-## 與 apps/vk 的差異
+## 規格摘要
 
-| | apps/vk（Vibe Kanban 版） | apps/opendesign（Open Design 版） |
-|---|---|---|
-| 底層 MCP server | npm `supergateway` 包 Rust binary `vibe-kanban-mcp`（binary Dockerfile 下載＋sha256 驗證） | 原生 launcher `opendesign-mcp-server`（core `DualTransportApp` 跑 vendored FastMCP，單一行程；無 supergateway） |
-| 連線欄位 | 單欄 `vibe_backend_url`（非 secret） | `od_api_base`（非 secret URL）＋ `od_chat_timeout`（非 secret、選配、字串秒數） |
-| 工具數 | 34 tools / 4 類 | 15 tools / 3 類（System & Discovery 7、Projects & Files – Read 5、Projects – Write 3） |
-| dangerous | 3 支 | 3 支（`create_project` / `send_message` / `delete_project`），皆寫入或長時（≤300s） |
-| 對外 transport | 僅 `/mcp`（streamableHttp） | `/mcp`（streamableHttp、stateless）＋ `/sse`（legacy SSE） |
-| 健康探測目標 | VK Host `/api/health` | Open Design daemon `/api/health`（`OD_HEALTH_PATH` 單一常數；無 db／模組概念，version best-effort） |
+| 項目 | apps/opendesign（Open Design 版） |
+|---|---|
+| 底層 MCP server | 原生 launcher `opendesign-mcp-server`（core `DualTransportApp` 跑 vendored FastMCP，單一行程；無 supergateway） |
+| 連線欄位 | `od_api_base`（非 secret URL）＋ `od_chat_timeout`（非 secret、選配、字串秒數） |
+| 工具數 | 15 tools / 3 類（System & Discovery 7、Projects & Files – Read 5、Projects – Write 3） |
+| dangerous | 3 支（`create_project` / `send_message` / `delete_project`），皆寫入或長時（≤300s） |
+| 對外 transport | `/mcp`（streamableHttp、stateless）＋ `/sse`（legacy SSE） |
+| 健康探測目標 | Open Design daemon `/api/health`（`OD_HEALTH_PATH` 單一常數；無 db／模組概念，version best-effort） |
+
+（這張表原本是與 VK MCP 的對照；VK 已於 2026-11-14 移除並封存，舊版對照表在標籤 `archive/vk-mcp-20261114`。）
 
 ## 分層（與其他 app 一致）
 

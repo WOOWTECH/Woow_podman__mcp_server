@@ -56,6 +56,18 @@ async def emqx_request(
     return response
 
 
+def text_body(response: httpx.Response) -> str:
+    """The text of a plain-text response (the Prometheus exposition), refusing an empty one.
+
+    The counterpart of json_body for the one tool that asks for text/plain: HTTP 200 (or 204) with nothing in it is not
+    a successful answer. Size and compression limits are enforced earlier, in the transport, for every response.
+    """
+    text = response.text
+    if not text.strip():
+        raise EmqxApiError("EMQX_INVALID_RESPONSE: expected non-empty text")
+    return text
+
+
 def json_body(response: httpx.Response) -> dict | list:
     """Parse a response body, tolerating EMQX's empty 204s."""
     if response.status_code == 204:

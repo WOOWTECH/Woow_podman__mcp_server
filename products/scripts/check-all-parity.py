@@ -13,10 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CATALOG = json.loads((ROOT / "deploy/catalog.json").read_text())
 PIN = CATALOG["paas_source_commit"]
 APPS = tuple(name for name in CATALOG["products"] if name != "headscale")
-# Retired on Podman (2026-11-14) but still vendored with the same edits: the uv and npm
-# workspace locks include them and the shared core tests iterate every app.
-RETIRED_APPS = ("vk",)
-PATHS = tuple(f"apps/{name}" for name in APPS + RETIRED_APPS) + (
+PATHS = tuple(f"apps/{name}" for name in APPS) + (
     "apps/odoo-manage/frontend", "packages/mcp-admin-core/mcp_admin_core",
     "packages/mcp-admin-core/pyproject.toml", "packages/mcp-admin-core/tests",
     "packages/mcp-admin-ui", "pyproject.toml",
@@ -33,7 +30,7 @@ def git(source: Path, *args: str) -> bytes:
 
 def expected(path: str, value: bytes) -> bytes:
     app = path.split("/")[1] if path.startswith("apps/") else ""
-    if app in APPS + RETIRED_APPS and path == f"apps/{app}/{app}_mcp_admin/main.py":
+    if app in APPS and path == f"apps/{app}/{app}_mcp_admin/main.py":
         for quote in (b'"', b"'"):
             before = b"deployment_kind=" + quote + b"paas" + quote
             if value.count(before) == 1:
@@ -61,7 +58,7 @@ def expected(path: str, value: bytes) -> bytes:
             b'    c = make_app({"mcp_auth_token": "secret", "mcp_server": {"port": child_port}})\n'
         )
         return value.replace(before_port, isolated_port)
-    if app in APPS + RETIRED_APPS and path == f"apps/{app}/Dockerfile":
+    if app in APPS and path == f"apps/{app}/Dockerfile":
         module = f"{app}_mcp_admin.main:app"
         before = (f'CMD ["uvicorn", "{module}", "--host", "0.0.0.0", '
                   '"--port", "8080"]').encode()
@@ -110,7 +107,7 @@ def main() -> int:
     if failures or extras:
         print(f"parity failed: changed/missing={failures}, extra={extras}", file=sys.stderr)
         return 1
-    print(f"parity ok: {len(tracked)} PaaS files at {PIN}; {len(APPS)} Podman apps and retired {', '.join(RETIRED_APPS)} differ only in image startup and deployment kind")
+    print(f"parity ok: {len(tracked)} PaaS files at {PIN}; {len(APPS)} Podman apps differ only in image startup and deployment kind")
     return 0
 
 

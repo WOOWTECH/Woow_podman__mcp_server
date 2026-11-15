@@ -22,6 +22,12 @@ import httpx
 from mcp_admin_core.util.ssrf import address_block_reason, check_url_syntax, current_mode
 
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+# The only Accept values a request may carry: JSON for every tool, plain text for emqx_prometheus_stats (EMQX answers
+# GET /prometheus/stats with the Prometheus exposition text only to 'text/plain', with JSON statistics otherwise).
+ACCEPT_JSON = 'application/json'
+ACCEPT_TEXT = 'text/plain'
+# httpx refuses any URL or URL component longer than this (httpx._urlparse.MAX_URL_LENGTH, pinned with httpx 0.28.1).
+MAX_URL_CHARS = 65536
 _SOURCES = {
     'httpx/_transports/default.py': '03379a454c95c0271c4f2c8d25ec437f49f57457f3cf2769748420bf0ecf2e79',
     'httpcore/_async/connection_pool.py': '0ce210dacd9909ff6a7f0c61ccca6b4cf2ea08bf0ec465e2285eaa447c6f5726',
@@ -251,7 +257,7 @@ class BrokerClient:
             auth=(api_key, api_secret), transport=BrokerTransport(destination),
             trust_env=False, follow_redirects=False,
             timeout=httpx.Timeout(connect=5, read=min(float(request_timeout), 60), write=10, pool=5),
-            headers={'Accept': 'application/json', 'Accept-Encoding': 'identity'})
+            headers={'Accept': ACCEPT_JSON, 'Accept-Encoding': 'identity'})
         for name in ('httpx', 'httpcore'):
             logging.getLogger(name).setLevel(logging.WARNING)
 
@@ -263,15 +269,23 @@ class BrokerClient:
     def timeout(self):
         return self._client.timeout
 
-    async def request(self, method, url, **kwargs):
-        if set(kwargs) - {'params', 'json', 'content', 'data'}:
+    async def request(self, method, url, *, accept=ACCEPT_JSON, **kwargs):
+        if accept not in (ACCEPT_JSON, ACCEPT_TEXT) or set(kwargs) - {'params', 'json', 'content', 'data'}:
+            raise DestinationDenied()
+        # A path httpx would refuse anyway is refused first, before the path analysis below spends linear work on it.
+        if len(str(url)) > MAX_URL_CHARS:
             raise DestinationDenied()
         # Validate before HTTPX normalizes dot segments; tools use only API paths.
         u = urlsplit(str(url))
         if u.scheme or u.netloc or u.query or u.fragment or not unquote(u.path).startswith('/'):
             raise DestinationDenied()
         path_value(u.path, literal_percent=True)  # '\\', dot segments, a '%' a further decode could misread
-        request = self._client.build_request(method, url, **kwargs)
+        try:
+            request = self._client.build_request(method, url, headers={'Accept': accept}, **kwargs)
+        except (httpx.InvalidURL, UnicodeError):
+            # Not an HTTPError, so it used to escape as a traceback: a URL part httpx will not build (too long) or a
+            # value that cannot be encoded (a lone surrogate in a path, query or JSON value). Refused before any I/O.
+            raise DestinationDenied() from None
         response = await self._client.send(request, stream=True)
         try:
             if response.headers.get('content-encoding', 'identity').lower() != 'identity':

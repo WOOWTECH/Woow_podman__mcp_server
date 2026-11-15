@@ -36,11 +36,22 @@ from .routers import config
 # 標籤與 frontend/src/appConfig.jsx 的 Connection 頁相同（tests/test_setup_status.py 比對）。
 # 不宣告 backend_connection：三個連線欄位都已是 required_connection（缺了子行程就起不來），/healthz 的 mcp 已經是
 # not_configured；一個鍵也只能是其中一種。
+# url_connection_keys＝base_url（2026-11-14 實測 F-1）：存檔前過核心的 SSRF 檢查（產品的 PUT /api/config/connection 與共用的
+# PUT /api/settings/connection 都擋，400＋ssrf_blocked，與 n8n、EMQX 同一套；模式讀部署端的 WEBHOOK_SECURITY_MODE）。
+# 映像沒有 backend_policy，子行程連 Nextcloud 前自己不做 SSRF 檢查，所以存檔時擋是唯一的一道。
+# identity_connection_keys＝base_url、username（2026-11-14 實測 F-3）：token 永遠綁一個 Nextcloud 帳號，換使用者或網址時舊的 MCP 網址在
+# 同一次原子寫入撤銷、換成新 token、子行程一定重啟（產品的 PUT /api/config/connection 與共用的 PUT /api/settings/connection 都一樣，
+# 核心 save_bound_connection，與 Odoo 同一套）；app_password 不是身分，只換密碼不換 token。
+# normalize_connection＝與 Connection 頁同一套驗證與正規化：共用路徑不經過它的話，同一個網址的不同寫法（大小寫、尾斜線）會被核心
+# 逐字比對成「換了網址」而誤換 token。
 LAUNCH_POLICY = LaunchPolicy(
     command="nextcloud-mcp-server",
     args=("--port", "{port}"),
     env_prefix="NEXTCLOUD_MCP_",
     connection_keys=frozenset({"base_url", "username", "app_password"}),
+    url_connection_keys=config.URL_FIELDS,
+    identity_connection_keys=config.IDENTITY_KEYS,
+    normalize_connection=config.normalize_connection_update,
     required_connection=(
         ("base_url", "Nextcloud 網址"),
         ("username", "Nextcloud 帳號"),

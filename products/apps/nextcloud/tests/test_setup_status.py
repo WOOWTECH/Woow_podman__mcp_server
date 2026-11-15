@@ -55,6 +55,10 @@ def test_fresh_service_explains_the_setup_then_hands_over_once_the_connection_is
     fake.add_folder("Docs")
     token = "ci-token-setup-status-0123456789"
     child_port = _free_port()
+    # 後端是只綁 127.0.0.1 的假 Nextcloud：連線存檔現在過核心的 SSRF 檢查（base_url，2026-11-14 F-1），strict（預設）會擋
+    # loopback，所以這個端到端測試明確用 moderate（放行 localhost、仍擋私網與 metadata）；正式環境的模式只有部署端能設。
+    # 擋下 loopback 的預設行為由 test_base_url_ssrf.py 驗證。
+    monkeypatch.setenv("WEBHOOK_SECURITY_MODE", "moderate")
     with _FakeNextcloudHTTP(fake) as backend:
         cfg = json.loads(json.dumps(store_mod._DEFAULT_CONFIG))
         cfg["mcp_auth_token"] = token

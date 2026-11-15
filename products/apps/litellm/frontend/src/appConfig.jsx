@@ -18,7 +18,7 @@ export const appConfig = {
       { to: '/settings', label: 'Settings', icon: Settings },
     ] },
   ],
-  // Sidebar 硬性依賴：healthBadges 缺鍵會讓受保護頁 TypeError 白屏（比照 vk / opendesign 給空陣列）。
+  // Sidebar 硬性依賴：healthBadges 缺鍵會讓受保護頁 TypeError 白屏（比照 opendesign 給空陣列）。
   healthBadges: [],
   connection: {
     description: '設定要管理的 LiteLLM AI 模型閘道（PaaS 同工作區的 LiteLLM 會自動預填網址；金鑰需自行貼上）',

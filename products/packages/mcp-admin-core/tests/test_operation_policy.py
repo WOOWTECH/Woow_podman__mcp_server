@@ -14,7 +14,7 @@ from mcp_admin_core.operation_policy import (
 )
 
 # apps/odoo-manage 已封存且移出 uv workspace（#78：它的 mcp-server-odoo 0.7.1 要求 mcp<2），不再測試。
-PRODUCTS = ["hermes", "n8n", "nextcloud", "litellm", "odoo", "k8s", "vk", "opendesign"]
+PRODUCTS = ["hermes", "n8n", "nextcloud", "litellm", "odoo", "k8s", "opendesign"]
 
 
 def registry(product):

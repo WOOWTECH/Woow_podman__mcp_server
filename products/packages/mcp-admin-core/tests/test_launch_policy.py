@@ -290,10 +290,9 @@ def _policies():
     from nextcloud_mcp_admin.main import LAUNCH_POLICY as nextcloud
     from odoo_mcp_admin.main import LAUNCH_POLICY as odoo
     from opendesign_mcp_admin.main import LAUNCH_POLICY as opendesign
-    from vk_mcp_admin.main import LAUNCH_POLICY as vk
 
     return dict(hermes=hermes, k8s=k8s, litellm=litellm, n8n=n8n, nextcloud=nextcloud,
-                odoo=odoo, opendesign=opendesign, vk=vk)
+                odoo=odoo, opendesign=opendesign)
 
 
 # woow_paas_platform src/data/cloud_app_templates.xml 的 mcp_server seed（opendesign 是 #1369 原生 launcher）。
@@ -303,8 +302,6 @@ _TEMPLATE_SEEDS = {
     "odoo": (8000, ["woow-odoo-mcp", "--transport", "streamable-http", "--host", "127.0.0.1", "--port", "8000"]),
     "n8n": (3000, ["n8n-mcp-http", "--port", "3000"]),
     "k8s": (8000, ["k8s-mcp-http", "--port", "8000"]),
-    "vk": (8000, ["supergateway", "--stdio", "vibe-kanban-mcp --mode global", "--port", "8000",
-                  "--outputTransport", "streamableHttp", "--healthEndpoint", "/healthz"]),
     "opendesign": (8000, ["opendesign-mcp-server", "--host", "127.0.0.1", "--port", "8000"]),
     "litellm": (8000, ["litellm-mcp-server", "--port", "8000"]),
     # nextcloud 的 PaaS 範本尚未上架；此為 apps/nextcloud/README.md 與 seed_defaults 的 seed 契約。
@@ -324,7 +321,7 @@ def test_required_connection_only_where_the_child_exits_without_it():
     預設帳號也是），存好連線才啟動，不會「exit → 看門狗 2、5、15…秒重啟」無限循環（2026-11-13 mp-products：Headscale 的
     預設帳號原本就這樣一直重啟，額外帳號才有等設定）。
 
-    PaaS 範本的八個產品（_policies）裡只有 Nextcloud 缺連線就結束（exit 2）；n8n（文件模式）、odoo、litellm、hermes…沒有
+    PaaS 範本的七個產品（_policies）裡只有 Nextcloud 缺連線就結束（exit 2）；n8n（文件模式）、odoo、litellm、hermes…沒有
     連線也照樣啟動，宣告了反而會讓子行程不啟動、也把別的原因（當掉、重啟中）誤報成缺設定——它們改宣告 backend_connection
     （見 test_backend_connection_per_product）。k8s 是「kubeconfig 或 in-cluster」的條件式需求，不宣告。
     Headscale（自己的 chart，不在 _TEMPLATE_SEEDS）也宣告：launcher 沒有 API 金鑰時 HeadscaleClient 直接拋錯（exit 1），
@@ -342,7 +339,7 @@ def test_required_connection_only_where_the_child_exits_without_it():
 # 第五輪（負責人 2026-10-27）：子行程沒有連線也起得來、但等於沒接上後端的產品宣告 backend_connection（/healthz 的 backend）。
 # 每個鍵＝沒填就「工具呼叫失敗或只剩部分功能」：odoo 上游四個 ODOO_* 都在才建連線、XML-RPC 要資料庫＋帳號＋密碼；litellm 沒網址
 # 連 localhost:4000、沒金鑰 LiteLLM 回 401；hermes 10 支工具要 Dashboard 登入、chat 要 Gateway＋API Key；n8n 上游兩個都有才開
-# 21 支管理工具（否則 7 支文件工具）；vk 沒有 VIBE_BACKEND_URL 時 vibe-kanban-mcp 找不到 VK Host 就結束；opendesign 沒有 daemon
+# 21 支管理工具（否則 7 支文件工具）；opendesign 沒有 daemon
 # 網址。不宣告：nextcloud（三個欄位都是 required_connection）、k8s（沒有 kubeconfig 上游就起不來，屬於「必要」而且是
 # 「kubeconfig 或 in-cluster」的條件式需求）。選填欄位（n8n 的 Native MCP token、opendesign 的 Basic Auth／Chat Timeout）不算。
 _BACKEND_CONNECTION = {
@@ -350,7 +347,6 @@ _BACKEND_CONNECTION = {
     "litellm": ("base_url", "master_key"),
     "hermes": ("gateway_url", "gateway_api_key", "dashboard_url", "dashboard_username", "dashboard_password"),
     "n8n": ("n8n_api_url", "n8n_api_key"),
-    "vk": ("vibe_backend_url",),
     "opendesign": ("od_api_base",),
     "nextcloud": (),
     "k8s": (),
@@ -384,7 +380,6 @@ def test_app_connection_forms_within_allowlist():
     from nextcloud_mcp_admin.routers.config import ConnectionUpdateRequest as NextcloudReq
     from odoo_mcp_admin.routers.config import ConnectionUpdateRequest as OdooReq
     from opendesign_mcp_admin.routers.config import ConnectionUpdateRequest as OdReq
-    from vk_mcp_admin.routers.config import ConnectionUpdateRequest as VkReq
 
     policies = _policies()
     forms = {
@@ -395,7 +390,6 @@ def test_app_connection_forms_within_allowlist():
         "nextcloud": set(NextcloudReq.model_fields),
         "odoo": set(OdooReq.model_fields),
         "opendesign": set(OdReq.model_fields),
-        "vk": set(VkReq.model_fields),
     }
     for name, fields in forms.items():
         fields.discard("restart")

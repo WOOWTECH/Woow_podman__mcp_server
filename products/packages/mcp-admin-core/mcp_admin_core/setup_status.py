@@ -36,10 +36,10 @@ port）時照樣回佔位答案，免得用戶端 404 → 重新 initialize → 
 不涵蓋：legacy SSE（``/sse``、``/messages``）與其他路徑照舊 503；子行程在跑但連不上（啟動窗口）、必要欄位也都有時照舊 502。
 
 ``/healthz`` 另有 ``backend`` 欄位（:func:`health_fields`，2026-10-27 第五輪）：子行程沒有連線也會啟動、只是沒接上後端的
-產品（odoo、litellm、hermes、n8n 文件模式、vk、opendesign）宣告 ``LaunchPolicy.backend_connection``，欄位沒填完是
+產品（odoo、litellm、hermes、n8n 文件模式、opendesign）宣告 ``LaunchPolicy.backend_connection``，欄位沒填完是
 ``missing``、都填了是 ``configured``，給平台顯示較輕的「尚未設定後端連線」提示。後端沒設定本身不改變閘道的行為：子行程在跑
 就照常轉發（子行程當掉時照舊是上面的佔位答案），也不改子行程的 ``initialize`` 回應——不在 ``instructions`` 補說明：
-instructions 只在連線時讀一次、會進到模型的系統提示，存好連線之後沒有重新連線的對話（opendesign、vk 的子行程是 stateless，
+instructions 只在連線時讀一次、會進到模型的系統提示，存好連線之後沒有重新連線的對話（opendesign 的子行程是 stateless，
 重啟後不會回 404）會一直留著「還沒設定」，反而誤導。hermes、odoo、litellm 子行程自己的工具錯誤說得出原因；opendesign 的錯誤
 （Name or service not known）與 n8n 文件模式（沒有錯誤、只是沒有管理工具）靠平台提示補上。
 """

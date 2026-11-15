@@ -57,9 +57,15 @@ def register(mcp: FastMCP, gate: ToolGate) -> None:
             topic: Annotated[str | None, Field(
                 description="Exact subscription filter to match.")] = None,
             match_topic: Annotated[str | None, Field(
-                description="Find subscriptions whose filter would match this "
-                            "concrete topic — use this to answer 'who receives "
-                            "messages published here?'.")] = None,
+                description="Wildcard SEARCH over the stored subscription filters, "
+                            "not a delivery lookup. The value is used as a topic "
+                            "filter ('+' and '#' allowed) and compared with the "
+                            "filters clients subscribed with: a subscription is "
+                            "returned when its stored filter is matched by yours "
+                            "(a stored 'sensors/#' is found with 'sensors/#'). A "
+                            "concrete topic such as 'sensors/a/temp' does NOT find "
+                            "a wildcard subscription like 'sensors/#', so an empty "
+                            "result does not mean nobody would receive that topic.")] = None,
             qos: Annotated[int | None, Field(
                 description="Filter by QoS level.", ge=0, le=2)] = None,
             page: Annotated[int, Field(description="1-based page number.", ge=1)] = 1,
@@ -67,10 +73,18 @@ def register(mcp: FastMCP, gate: ToolGate) -> None:
                 description="Rows per page.", ge=1, le=200)] = settings.default_limit,
             emqx: httpx.AsyncClient = Depends(emqx_client),
         ) -> dict[str, Any]:
-            """Every subscription in the cluster, with filters.
+            """Every subscription in the cluster, with the filter each was stored under.
 
-            `match_topic` is the powerful one: given a concrete topic, it tells
-            you exactly which subscribers would receive a message on it.
+            Narrow with `clientid` (one device's subscriptions), `topic` (an exact
+            stored filter) or `match_topic` (a wildcard search over the stored
+            filters, see its description; it is not a delivery lookup).
+
+            To answer "who receives messages published to topic T?", do not use
+            `match_topic`: list the subscriptions (use `clientid` when you know the
+            device, `page` for more) and compare each row's stored `topic` with T
+            yourself, by the MQTT wildcard rules ('+' = exactly one level, '#' = all
+            remaining levels). An empty `match_topic` result never proves that
+            nobody is subscribed.
             """
             params: dict[str, Any] = {
                 "page": page, "limit": min(limit, settings.max_limit)

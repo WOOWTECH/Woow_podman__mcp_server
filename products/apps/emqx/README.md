@@ -41,6 +41,15 @@ responses and responses over 4 MiB are refused. Broker HTTP failures are generic
 errors without reflected bodies or credentials. A failed delete is never retried as
 a publish. The retained read listing fallback is used only for a direct 404.
 
+Requests ask for JSON (`Accept: application/json`); only `emqx_prometheus_stats` asks
+for `text/plain`, which is how EMQX returns the Prometheus exposition text that tool
+promises. A URL the HTTP library cannot build (an identifier whose URL-encoded form
+is 65,536 or more characters, or a value with a lone surrogate) is refused before any
+request with the fixed code `EMQX_DESTINATION_DENIED`, never echoed back and never a stack trace.
+`emqx_list_subscriptions`'s `match_topic` is the broker's wildcard search over the
+stored subscription filters, not a "who receives this topic" lookup; its description
+says so.
+
 Install and test from the repository root (CI uses uv 0.6.4 and Python 3.12):
 
 ```bash

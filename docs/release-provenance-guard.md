@@ -153,11 +153,13 @@ separate rollout gates.
 
 ## Current release state
 
-The multi-profile hardening (Gitea #140-#146) and the gateway queue fixes
-(Gitea #147, #148, #150) are in canonical Gitea
-`5a06d533eb433ad511bba8e2db946a0de922925d`. The Podman catalog pins
-that exact commit, and both direct parity checks passed against a clean
-checkout of it. The Headscale product version is `0.1.5-podman.1`.
+The multi-profile hardening (Gitea #140-#146), the gateway queue fixes
+(Gitea #147, #148, #150), the query-credential log redaction (Gitea #149),
+the VK removal (Gitea #151) and the Nextcloud and EMQX fixes (Gitea
+#152-#154) are in canonical Gitea `5b84b5d0fc70ab96a580629f1377ab65159ea96d`. The
+Podman catalog pins that exact commit, and both direct parity checks passed
+against a clean checkout of it. The Headscale product version is
+`0.1.6-podman.1`.
 
 The signing key, reviewed image identity, signed manifest, and live Quadlet
 upgrade are separate release artifacts. This source branch does not include
@@ -166,7 +168,8 @@ is outside the Headscale release and must be reviewed before an EMQX image is
 signed. Existing running Quadlets are not evidence that the release guard has
 passed.
 
-On 2026-11-14 the owner released Podman `bd6ba26`, which carries this pin,
-without a signed manifest. The images, the checks run before the rollout and
+On 2026-11-14 the owner released Podman `bd6ba26`, which carries the
+previous pin `5a06d533eb433ad511bba8e2db946a0de922925d`, without a signed
+manifest. The current pin is not released yet. The images, the checks run before the rollout and
 the rollout itself are recorded in
 `products/deploy/releases/2026-11-14-multi-profile-rollout.md`.

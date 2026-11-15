@@ -1090,7 +1090,6 @@ def _connections(volume: Volume) -> dict:
         "opendesign": ({"od_api_base": f"https://od-user:{s()}@od.example.invalid", "od_basic_user": "od-user",
                         "od_basic_password": s(), "od_chat_timeout": "120"},
                        {"od_api_base": "https://***@od.example.invalid", "od_basic_user": "od-user"}),
-        "vk": ({"vibe_backend_url": "https://vk.example.invalid"}, {"vibe_backend_url": "https://vk.example.invalid"}),
         "k8s": ({"kubeconfig": "apiVersion: v1\nusers:\n- user:\n    token: " + s(), "in_cluster": "false"},
                 {"in_cluster": "false"}),
     }

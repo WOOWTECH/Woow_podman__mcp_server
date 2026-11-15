@@ -100,7 +100,7 @@ USES_THE_RESERVED_LANE = {
     "response with an error": b'{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"x"}}',
     "batch of a notification and a response": _json([_NOTIFICATION, _RESPONSE]),
     # id 是 null（或沒有 id）的 tools/call 不是請求：JSON-RPC 通知沒有 id，MCP Python SDK 2.3.0 的子行程對這類內容回 202、
-    # 不執行工具（2026-11-14 審查 N5 以真的子行程實測；TS SDK 1.31.0 的 schema 解析不接受 id:null）。k8s（Go）與 vk（Rust）的
+    # 不執行工具（2026-11-14 審查 N5 以真的子行程實測；TS SDK 1.31.0 的 schema 解析不接受 id:null）。k8s（Go）的
     # 子行程沒有驗證過。最後一個 id 才算：{"id":7,"id":null} 與 SDK 一樣取最後一個。
     "tools/call with id null": f'{{"jsonrpc":"2.0","id":null,{_CALL}}}'.encode(),
     "tools/call without an id": f'{{"jsonrpc":"2.0",{_CALL}}}'.encode(),

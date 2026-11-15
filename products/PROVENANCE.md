@@ -2,21 +2,34 @@
 
 The nine active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`5a06d533eb433ad511bba8e2db946a0de922925d` (Gitea, 2026-11-14). Since the
-previous pin `443e95a942c7ef0484d963631382aab94d0e0567`, Gitea merged #147
+`5b84b5d0fc70ab96a580629f1377ab65159ea96d` (Gitea, 2026-11-15). Since the
+previous pin `7d111b175fbbcdf692ff579cc5793bf8c7de3a7b`, Gitea merged #151
+(VK removed from the workspace, its tests and the uv and npm locks), #152
+(Nextcloud: the connection URL passes the core SSRF check when it is saved,
+on Test connection and in the health probe, and masked log lines keep their
+argument shape), #153 (EMQX: the `match_topic` description follows the
+broker, Prometheus stats are requested as text, and over-long identifiers
+return a fixed error code) and #154 (Nextcloud: changing the user or the URL
+revokes the old MCP URL and issues a new token, as Odoo does). The pin
+before, `5a06d533eb433ad511bba8e2db946a0de922925d`, was followed by #149
+(log redaction: credential values in URL query parameters, such as `?token=`
+between encoded separators and keys like `api_key`, `key`, `secret`,
+`password` and `sig`, no longer reach container stdout or the Logs page, and
+lines with many such segments are masked faster). The pin before,
+`443e95a942c7ef0484d963631382aab94d0e0567`, was followed by #147
 (restore runbook follow-ups), #148 (gateway queue: a queued write no longer
 runs after its client disconnects, queue limits, notifications are not
 turned into 503, `-32004` names its cause, redirect `Location` rewriting keeps
 clients under their `/private_` path, and an over-long child output line no
 longer stalls the log reader) and #150 (documentation and test follow-ups to
-#148). The pin before, `0e432c3ebd7a481b8994105a187f29837d941fd6`, was
+#148). The first pin, `0e432c3ebd7a481b8994105a187f29837d941fd6`, was
 followed by #140 (security release: Origin report-only default, restore
 without old tokens, child identity checks), #141 (Logs buffer per profile),
 #142 (profile management and startup robustness), #143 and #146 (restore
 runbook and Headscale restore), #144 (redaction of encoded `/private_` paths)
 and #145 (per-profile gateway connection quota, clean errors when a child
-exits or a token changes mid-response). Neither refresh changes a tool
-registry, lock file, Dockerfile or package manifest. The Headscale app
+exits or a token changes mid-response). None of these refreshes changes a
+tool registry, lock file, Dockerfile or package manifest. The Headscale app
 implements the Headscale v0.29.4 29-operation native contract, its dedicated
 management GUI, operation policy, Origin checks, session revocation, and the
 optional PaaS binding. The HA Add-on's Headscale child came from the same
@@ -38,10 +51,9 @@ The shared Quadlet installer, first-boot credential seeding, and rootless
 volume ownership live in `products/deploy/shared` and do not change any MCP
 operation or GUI code. The archived `odoo-manage` frontend directory is present
 only to satisfy the PaaS npm workspace lock and is not a deployed product.
-VK was retired from the Podman products on 2026-11-14. `apps/vk` stays
-vendored with the same edits as the other apps, because the uv and npm
-workspace locks include it and the shared core tests iterate every app; no
-VK image is built or installed.
+VK was retired from the Podman products on 2026-11-14. PaaS removed `apps/vk`
+and its lock entries in #151, so the refresh to `5b84b5d` removed the vendored
+copy as well.
 `docs/paas-config-restore-runbook.md` is the PaaS Kubernetes restore runbook,
 vendored unchanged only because the shared core tests read it; it does not
 describe a Podman procedure.

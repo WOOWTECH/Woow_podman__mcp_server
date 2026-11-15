@@ -175,7 +175,7 @@ def test_omitted_connection_key_retains_parent_semantics(policy, monkeypatch):
     ('odoo', 'odoo_password'), ('litellm', 'master_key'),
     ('n8n', 'n8n_api_key'), ('nextcloud', 'app_password'),
     ('hermes', 'gateway_api_key'), ('k8s', 'kubeconfig'),
-    ('opendesign', 'od_basic_password'), ('vk', 'vibe_backend_url'),
+    ('opendesign', 'od_basic_password'),
     ('emqx', 'api_key'), ('emqx', 'api_secret'),
 ])
 def test_current_product_policy_null_overrides_inherited_value(product, key, monkeypatch):

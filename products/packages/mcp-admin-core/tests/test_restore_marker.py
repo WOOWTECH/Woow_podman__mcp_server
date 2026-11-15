@@ -24,7 +24,7 @@ import pytest
 from mcp_admin_core.config.store import ConfigStore, ConfigUnavailable
 from mcp_admin_core.restore_marker import MARKER_NAME, RestoreInProgress, marker_path, restore_in_progress
 
-PRODUCT_APPS = ["emqx", "headscale", "hermes", "k8s", "litellm", "n8n", "nextcloud", "odoo", "opendesign", "vk"]
+PRODUCT_APPS = ["emqx", "headscale", "hermes", "k8s", "litellm", "n8n", "nextcloud", "odoo", "opendesign"]
 
 
 def legacy_config(port: int = 18999) -> dict:

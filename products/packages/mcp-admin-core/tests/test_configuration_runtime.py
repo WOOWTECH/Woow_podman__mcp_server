@@ -14,7 +14,7 @@ import httpx
 
 from mcp_admin_core.routers import settings
 
-PRODUCTS = ['hermes', 'n8n', 'odoo', 'k8s', 'vk', 'opendesign', 'litellm', 'nextcloud']
+PRODUCTS = ['hermes', 'n8n', 'odoo', 'k8s', 'opendesign', 'litellm', 'nextcloud']
 
 
 def listening_child():

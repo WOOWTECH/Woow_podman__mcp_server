@@ -74,7 +74,7 @@ def test_redact_masks_percent_encoded_path_prefix(raw):
 
 @pytest.mark.parametrize(
     "text",
-    ["", "/api/settings", "/private", "GET /healthz", "/x?session_token=abc", "token rotated", "/x?q=token"],
+    ["", "/api/settings", "/private", "GET /healthz", "/x?mytoken=abc", "token rotated", "/x?q=token"],
 )
 def test_redact_leaves_other_text_untouched(text):
     assert log_redaction.redact(text) == text
@@ -159,11 +159,11 @@ def test_create_app_installs_redaction(make_app):
 
 
 # ---------------------------------------------------------------------------
-# 端到端：九個 app 各起真的 uvicorn（與映像 CMD 相同），檢查 stdout／stderr 與 Logs ring buffer
+# 端到端：七個 app 各起真的 uvicorn（與映像 CMD 相同），檢查 stdout／stderr 與 Logs ring buffer
 # ---------------------------------------------------------------------------
 
 # apps/odoo-manage 已封存且移出 uv workspace（#78：它的 mcp-server-odoo 0.7.1 要求 mcp<2），不再測試。
-APPS = ("hermes", "n8n", "odoo", "k8s", "vk", "opendesign", "nextcloud", "litellm")
+APPS = ("hermes", "n8n", "odoo", "k8s", "opendesign", "nextcloud", "litellm")
 
 
 def _free_port() -> int:

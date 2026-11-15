@@ -14,6 +14,7 @@ os.environ.setdefault("JWT_EXPIRY_HOURS", "24")
 
 import base64
 import json
+import socket
 import sys
 
 import httpx
@@ -21,13 +22,21 @@ import pytest
 
 from .fake_nextcloud import BASE_URL, LOGIN, PASSWORD, FakeNextcloud
 
+#: 沒登記的主機名在測試裡解析成這個位址（文件用網段 203.0.113.0/24：核心的 SSRF 規則視為公開位址）。
+PUBLIC_TEST_ADDRESS = "203.0.113.10"
+
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch, tmp_path):
-    """不讓外部 NEXTCLOUD_MCP_* env、.env 檔或 backend_policy 模組滲入（vendored Settings 會讀 env／.env）。"""
+    """不讓外部 NEXTCLOUD_MCP_* env、.env 檔、backend_policy 模組或 WEBHOOK_SECURITY_MODE 滲入（vendored Settings 會讀 env／.env）。
+
+    ``WEBHOOK_SECURITY_MODE``（核心 SSRF 檢查的模式，部署端 chart 才能設）一律拿掉＝預設 strict；要測 moderate／permissive
+    或需要 loopback 假後端的測試自己明確設定。
+    """
     for key in list(os.environ):
         if key.upper().startswith("NEXTCLOUD_MCP_"):
             monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("WEBHOOK_SECURITY_MODE", raising=False)
     monkeypatch.chdir(tmp_path)
     monkeypatch.delitem(sys.modules, "backend_policy", raising=False)
     # vendored client 的 401／429 鎖存是整個 process 共用（依帳密分鍵）；測試間清掉，免得前一個測試的錯密碼影響下一個。
@@ -36,6 +45,40 @@ def _isolated_env(monkeypatch, tmp_path):
     reset_auth_latch()
     yield
     reset_auth_latch()
+
+
+class FakeDns:
+    """測試用的 DNS 解析器替身：測試不查真的 DNS，也不依賴 CI 的網路。
+
+    核心的 SSRF 檢查（``mcp_admin_core.util.ssrf.check_url``）對主機名會先解析、每個位址都要是公開位址；解析走
+    ``loop.getaddrinfo``。沒登記的主機名解析成 :data:`PUBLIC_TEST_ADDRESS`；``add()`` 登記特定主機名的位址
+    （例如叢集內 Service 名稱解析成私網位址）。``lookups`` 記下被查過的主機名（IP 字面值不查 DNS）。
+    """
+
+    def __init__(self) -> None:
+        self.hosts: dict[str, list[str]] = {}
+        self.lookups: list[str] = []
+
+    def add(self, host: str, *addresses: str) -> None:
+        self.hosts[host.lower()] = list(addresses)
+
+    async def getaddrinfo(self, host, port, **_kwargs):
+        self.lookups.append(host)
+        addresses = self.hosts.get(host.lower(), [PUBLIC_TEST_ADDRESS])
+        return [(socket.AF_INET6 if ":" in address else socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))
+                for address in addresses]
+
+
+@pytest.fixture(autouse=True)
+def fake_dns(monkeypatch) -> FakeDns:
+    """所有 Nextcloud 測試都不查真的 DNS（連線存檔與測試連線現在會過核心的 SSRF 檢查，見 test_base_url_ssrf.py）。"""
+    dns = FakeDns()
+
+    async def getaddrinfo(self, host, port, **kwargs):
+        return await dns.getaddrinfo(host, port, **kwargs)
+
+    monkeypatch.setattr("asyncio.base_events.BaseEventLoop.getaddrinfo", getaddrinfo)
+    return dns
 
 
 @pytest.fixture

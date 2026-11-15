@@ -8,6 +8,10 @@
   所以網址、帳號、app password、反向代理轉址任何一項有錯，這裡就會紅燈，訊息也和工具錯誤一致。
   不會寫入任何東西，也不需要子行程在跑。
 - ``/status.php``（免認證）只拿來補 Nextcloud 版本，永遠不決定成敗、永不 raise；每個網址快取 10 分鐘。
+- **連出去之前先過核心的 SSRF 檢查**（``mcp_admin_core.util.ssrf.check_url``，與連線存檔同一套，模式讀部署端的
+  ``WEBHOOK_SECURITY_MODE``）：私網、loopback、雲端 metadata、解析到這些位址的主機名一個請求都不送（2026-11-14 實測 F-1：
+  修正前 Test connection 會連過去，用訊息區分「埠關閉」與「有 HTTP 服務」，是探測叢集內網的跳板）。Test connection、
+  ``/api/health`` 的 ``probe_target``／``fetch_info`` 都經過 :func:`check_nextcloud`，所以只在這裡檢查。
 
 回傳 dict 不含 app password；錯誤訊息來自 vendored 錯誤模型（保證不含憑證、header 或長段伺服器回應）。
 """
@@ -21,6 +25,7 @@ from typing import Any
 import httpx
 from fastmcp.exceptions import ToolError
 
+from mcp_admin_core.util.ssrf import check_url
 from nextcloud_mcp_server.client import NextcloudClient
 from nextcloud_mcp_server.errors import AUTH_MESSAGE
 from nextcloud_mcp_server.settings import SettingsError, load_settings
@@ -50,6 +55,25 @@ def connection_target(conn: dict | None) -> tuple[str, str, str]:
     user = str(conn.get("username") or "").strip()
     password = str(conn.get("app_password") or "").strip()
     return base, user, password
+
+
+async def ssrf_block_reason(url: str) -> str | None:
+    """核心 SSRF 檢查擋下 *url* 的原因（不含目標網址或位址）；可放行時回 None。
+
+    檢查本身出錯（解析器處理不了的網址）也視為擋下，與核心的 ``refuse_blocked_urls`` 一致。
+    """
+    try:
+        verdict = await check_url(url)
+    except Exception:  # noqa: BLE001
+        return "Invalid URL format"
+    return None if verdict.ok else verdict.reason
+
+
+def ssrf_error(reason: str) -> str:
+    """Test connection／健康探測顯示的訊息：只有原因，不含目標網址、位址或目標回應。"""
+    return (f"Blocked by SSRF protection: {reason}. Private, loopback and cloud metadata addresses are never contacted; "
+            "use the public URL of your Nextcloud. "
+            "（被 SSRF 防護擋下，未連線：不連私有網段、本機與雲端 metadata；請改用 Nextcloud 的對外網址。）")
 
 
 async def server_version(base: str, *, transport: httpx.AsyncBaseTransport | None = None) -> str | None:
@@ -117,6 +141,12 @@ async def check_nextcloud(
         )
     except SettingsError as exc:  # 訊息只含變數名與原因，不含值
         result["error"] = f"設定不正確：{exc}"
+        return result
+
+    # 設定驗證之後、建立任何連線之前（與存檔同一套 SSRF 規則；DNS 解析也在這裡，不會送出 HTTP 請求）。
+    blocked = await ssrf_block_reason(settings.base_url)
+    if blocked is not None:
+        result["error"] = ssrf_error(blocked)
         return result
 
     nc = NextcloudClient(settings, transport=transport)

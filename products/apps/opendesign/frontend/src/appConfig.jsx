@@ -14,12 +14,12 @@ export const appConfig = {
       { to: '/config', label: 'Connection', icon: Link },
       { to: '/tokens', label: 'Tokens', icon: KeyRound },
       { to: '/logs', label: 'Logs', icon: ScrollText },
-      // 刻意不放權限管理頁：opendesign 15 支工具 operations=[]，該頁無內容可管（比照 vk）。
+      // 刻意不放權限管理頁：opendesign 15 支工具 operations=[]，該頁無內容可管。
       { to: '/settings', label: 'Settings', icon: Settings },
     ] },
   ],
   // Sidebar 硬性依賴：Sidebar.jsx 無條件解構 healthBadges 並呼叫 healthBadges.length，
-  // 缺此鍵登入後所有受保護頁會 TypeError 白屏。opendesign 無 badge 需求故給空陣列（比照 vk / odoo-manage）。
+  // 缺此鍵登入後所有受保護頁會 TypeError 白屏。opendesign 無 badge 需求故給空陣列（比照 odoo-manage）。
   healthBadges: [],
   connection: {
     description: 'Configure the connection to the Open Design daemon (od MCP server)',
