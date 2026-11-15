@@ -1,6 +1,6 @@
 """opendesign health probes 契約測試：/api/health 端點、URL 組合、錯誤降級、fetch_info 形狀守衛。
 
-clone 自 test_vk_health_probes.py，換連線鍵 od_api_base、健康端點常數 OD_HEALTH_PATH。
+連線鍵是 od_api_base、健康端點常數是 OD_HEALTH_PATH。
 Open Design daemon 無 db/模組概念，db_name/item_count 恆 None。
 """
 from __future__ import annotations

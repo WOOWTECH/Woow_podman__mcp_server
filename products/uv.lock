@@ -22,7 +22,6 @@ members = [
     "woow-nextcloud-mcp-server",
     "woow-odoo-mcp-server",
     "woow-opendesign-mcp-server",
-    "woow-vk-mcp-server",
 ]
 constraints = [
     { name = "anyio", specifier = ">=4.14.2" },
@@ -2201,32 +2200,6 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "httpx", marker = "extra == 'dev'" },
     { name = "mcp", specifier = ">=2.3,<3" },
-    { name = "mcp-admin-core", editable = "packages/mcp-admin-core" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'" },
-    { name = "ruff", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "woow-vk-mcp-server"
-version = "1.0.0"
-source = { editable = "apps/vk" }
-dependencies = [
-    { name = "mcp-admin-core" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", marker = "extra == 'dev'" },
     { name = "mcp-admin-core", editable = "packages/mcp-admin-core" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },

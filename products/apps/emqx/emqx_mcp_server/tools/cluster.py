@@ -11,7 +11,7 @@ from fastmcp.dependencies import Depends
 from pydantic import Field
 
 from ..deps import emqx_client
-from ..errors import EmqxApiError, emqx_request, json_body
+from ..errors import EmqxApiError, emqx_request, json_body, text_body
 from ..gating import ToolGate
 from ..models import BrokerStats
 from ._common import path_segment, read_only
@@ -190,6 +190,7 @@ def register(mcp: FastMCP, gate: ToolGate) -> None:
             emqx: httpx.AsyncClient = Depends(emqx_client),
         ) -> dict[str, Any]:
             """Raw Prometheus exposition text. Large — prefer emqx_broker_stats."""
-            resp = await emqx_request(emqx, "GET", "/prometheus/stats")
-            text = resp.text
+            # EMQX answers the exposition text only to Accept: text/plain; with JSON it returns JSON statistics.
+            resp = await emqx_request(emqx, "GET", "/prometheus/stats", accept="text/plain")
+            text = text_body(resp)
             return {"truncated": len(text) > max_bytes, "text": text[:max_bytes]}

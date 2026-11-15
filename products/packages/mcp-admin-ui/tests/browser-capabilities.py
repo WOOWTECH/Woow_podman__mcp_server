@@ -1,4 +1,4 @@
-"""已建置九產品的瀏覽器驗證；API 使用隔離 fixture，不接觸部署設定。
+"""已建置八產品的瀏覽器驗證；API 使用隔離 fixture，不接觸部署設定。
 
 Run: uv run --no-project --with playwright python packages/mcp-admin-ui/tests/browser-capabilities.py
 """
@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright, expect
 ROOT = Path(__file__).resolve().parents[3]
 OUT = Path('/tmp/paas-parity-browser')
 OUT.mkdir(exist_ok=True)
-APPS = ['hermes', 'k8s', 'litellm', 'n8n', 'nextcloud', 'odoo', 'odoo-manage', 'opendesign', 'vk']
+APPS = ['hermes', 'k8s', 'litellm', 'n8n', 'nextcloud', 'odoo', 'odoo-manage', 'opendesign']
 state = {'product': APPS[0], 'unknown': False, 'fixed': False, 'disabled': ['disabled', 'absent_saved_deny']}
 
 class Handler(SimpleHTTPRequestHandler):
@@ -96,7 +96,7 @@ try:
                     page.screenshot(path=str(OUT / f'tools-{width}.png'), full_page=True)
             page.goto(base + '/', wait_until='networkidle')
             expect(page.get_by_role('region', name='MCP availability')).to_be_visible()
-            if app == 'vk':
+            if app == 'opendesign':
                 page.screenshot(path=str(OUT / 'dashboard-320.png'), full_page=True)
         # Runtime-only control retains denies for tools absent from the visible catalog.
         page.goto(base + '/tools', wait_until='networkidle')
@@ -115,7 +115,7 @@ try:
         assert page.locator('textarea').count() == 0
         assert not errors, errors
         (OUT / 'results.json').write_text(json.dumps({'viewports': results, 'errors': errors, 'interactive_checks': 'passed'}, indent=2))
-        print(f'PASS: {len(results)} tool viewports, nine dashboards, runtime toggle, unknown count, fixed backend, unsupported permissions. Evidence: {OUT}')
+        print(f'PASS: {len(results)} tool viewports, eight dashboards, runtime toggle, unknown count, fixed backend, unsupported permissions. Evidence: {OUT}')
         browser.close()
 finally:
     server.shutdown()

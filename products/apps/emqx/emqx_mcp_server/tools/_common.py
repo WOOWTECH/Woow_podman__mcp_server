@@ -8,6 +8,8 @@ from urllib.parse import quote
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from ..errors import EmqxApiError
+
 
 def read_only(title: str) -> ToolAnnotations:
     return ToolAnnotations(
@@ -48,7 +50,11 @@ def path_segment(value: str, field: str, safe: str = "") -> str:
     """
     if value in ("", ".", ".."):
         raise ToolError(f"{field} must not be empty, '.' or '..'.")
-    return quote(value, safe=safe)
+    try:
+        return quote(value, safe=safe)
+    except UnicodeError:
+        # A lone surrogate cannot be encoded: the same fixed refusal as any other path the transport will not send.
+        raise EmqxApiError("EMQX_DESTINATION_DENIED") from None
 
 
 def page_of(body: Any) -> tuple[list[dict], dict]:

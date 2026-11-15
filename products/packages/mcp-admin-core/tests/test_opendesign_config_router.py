@@ -7,8 +7,7 @@ POST /api/config/test 走 G2-A 定案的 k8s 式誠實分流（讀存檔值、�
 - 子行程 running → 本地 MCP ``tools/call health`` 打通 supergateway→daemon 全鏈；
 - 子行程未 running → 降級直打 daemon ``/api/health``，success 但誠實標「未端到端驗證」。
 
-形比照 apps/vk 的 test_vk_config_router.py（bare FastAPI + store_env）＋ apps/k8s 的
-test_config_router.py（分流語意）。
+形比照 apps/k8s 的 test_config_router.py（分流語意），以 bare FastAPI + store_env 組裝。
 """
 from __future__ import annotations
 
@@ -97,7 +96,7 @@ def test_put_strips_whitespace(store_env):
 
 
 def test_put_blank_url_clears_saved_value(store_env):
-    # od_api_base 非 secret → 不受 drop_blank_secrets 保護，可被有意清空（比照 vk）
+    # od_api_base 非 secret → 不受 drop_blank_secrets 保護，可被有意清空
     c = _client()
     c.put("/api/config/connection", json={"od_api_base": "http://od:7457", "restart": False}, headers=revision_headers(c, None, read_path='/api/config'))
     c.put("/api/config/connection", json={"od_api_base": "", "restart": False}, headers=revision_headers(c, None, read_path='/api/config'))
@@ -328,7 +327,7 @@ def test_test_running_malformed(store_env, monkeypatch):
 # ---------------------------------------------------------------------------
 # POST /api/config/test —— 路徑二（子行程未 running → 降級 daemon 可達性）
 #
-# 沿用 vk 的 _FakeAsyncClient 模式。reachability 走 health_probes.probe_target（其內
+# 以 _FakeAsyncClient 取代 httpx.AsyncClient。reachability 走 health_probes.probe_target（其內
 # 部用 OD_HEALTH_PATH 單一常數）；patch health_probes.httpx.AsyncClient 即攔截其 GET。
 # ---------------------------------------------------------------------------
 

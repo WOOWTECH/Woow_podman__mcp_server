@@ -2,8 +2,16 @@
 
 The nine active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`7d111b175fbbcdf692ff579cc5793bf8c7de3a7b` (Gitea, 2026-11-14). Since the
-previous pin `5a06d533eb433ad511bba8e2db946a0de922925d`, Gitea merged #149
+`5b84b5d0fc70ab96a580629f1377ab65159ea96d` (Gitea, 2026-11-15). Since the
+previous pin `7d111b175fbbcdf692ff579cc5793bf8c7de3a7b`, Gitea merged #151
+(VK removed from the workspace, its tests and the uv and npm locks), #152
+(Nextcloud: the connection URL passes the core SSRF check when it is saved,
+on Test connection and in the health probe, and masked log lines keep their
+argument shape), #153 (EMQX: the `match_topic` description follows the
+broker, Prometheus stats are requested as text, and over-long identifiers
+return a fixed error code) and #154 (Nextcloud: changing the user or the URL
+revokes the old MCP URL and issues a new token, as Odoo does). The pin
+before, `5a06d533eb433ad511bba8e2db946a0de922925d`, was followed by #149
 (log redaction: credential values in URL query parameters, such as `?token=`
 between encoded separators and keys like `api_key`, `key`, `secret`,
 `password` and `sig`, no longer reach container stdout or the Logs page, and
@@ -43,10 +51,9 @@ The shared Quadlet installer, first-boot credential seeding, and rootless
 volume ownership live in `products/deploy/shared` and do not change any MCP
 operation or GUI code. The archived `odoo-manage` frontend directory is present
 only to satisfy the PaaS npm workspace lock and is not a deployed product.
-VK was retired from the Podman products on 2026-11-14. `apps/vk` stays
-vendored with the same edits as the other apps, because the uv and npm
-workspace locks include it and the shared core tests iterate every app; no
-VK image is built or installed.
+VK was retired from the Podman products on 2026-11-14. PaaS removed `apps/vk`
+and its lock entries in #151, so the refresh to `5b84b5d` removed the vendored
+copy as well.
 `docs/paas-config-restore-runbook.md` is the PaaS Kubernetes restore runbook,
 vendored unchanged only because the shared core tests read it; it does not
 describe a Podman procedure.

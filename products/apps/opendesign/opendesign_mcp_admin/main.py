@@ -1,7 +1,7 @@
 """Open Design MCP Admin —— FastAPI 應用進入點。
 
 包 vendored od_mcp_server＋原生 launcher（15 工具、包 Open Design daemon REST API）。與
-apps/vk 同分層：共用 mcp_admin_core 的 app factory + hoisted routers（tools / health / logs），
+其他 app 同分層：共用 mcp_admin_core 的 app factory + hoisted routers（tools / health / logs），
 只保留 app-specific 的 connection config、tool registry、health probes。
 
 Run with:

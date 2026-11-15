@@ -222,25 +222,6 @@ def test_k8s_real_registry_serves_canon():
     }
 
 
-def test_vk_real_registry_serves_canon():
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from mcp_admin_core.routers.tools import create_tools_router
-    from vk_mcp_admin import tool_registry as vk_reg
-
-    app = FastAPI()
-    app.include_router(create_tools_router(registry=vk_reg, mcp_label="vibe-kanban-mcp"))
-    body = TestClient(app).get("/api/tools").json()
-    assert body["total"] == 34
-    assert body["enabled"] == 34          # 全部 enabled_by_default → 預設全啟用
-    assert len(body["categories"]) == 4   # A - Execution / B - Repo / C - Issue / Kanban / D - Context
-    # vk 工具無 per-op 維度
-    assert all(t["operations"] == [] for t in body["tools"])
-    # 3 個 dangerous（UI 紅標；停用另由 core proxy 強制，見 README）
-    dangerous_names = {t["name"] for t in body["tools"] if t["dangerous"]}
-    assert dangerous_names == {"start_workspace", "delete_workspace", "delete_issue"}
-
-
 def test_opendesign_real_registry_serves_canon():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

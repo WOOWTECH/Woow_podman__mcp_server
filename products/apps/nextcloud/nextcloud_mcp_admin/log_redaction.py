@@ -11,6 +11,13 @@
    stdout）只要格式化後的訊息含有它，就整段改寫成 ``***``。做法是包一層 ``logging`` 的 record factory，
    所以不受 logger 階層、handler 安裝順序影響。
 
+   **遮罩後 ``record.args`` 的形狀不變**（2026-11-14 實測 F-2）：uvicorn 的 ``AccessFormatter`` 不看 ``record.msg``，
+   直接 ``client_addr, method, full_path, http_version, status_code = record.args`` 拆 5 個引數；舊版遮罩後把 args 設成
+   ``None``，請求網址含已登記的 app password（``?api_token=<密碼>``、``?credential=<Basic base64>``）時那一行 access log
+   整行消失、stderr 印出 ``--- Logging error ---`` 與 ``TypeError``。現在 tuple／dict 的 args 維持原本的容器、長度與
+   key，字串元素逐一遮罩、數字等型別不動（``%d`` 要用），遮罩後的整句文字與舊版逐字相同；秘密剛好被拆在兩個引數之間、
+   逐一遮罩遮不到時才退回整句遮罩（``uvicorn.access`` 的 5 元組仍維持形狀，字串引數全換成 ``***``）。
+
 只處理本行程內的 log；PaaS 前面的 ingress／tunnel 若記錄完整 URL，仍要視為持有 path token。
 """
 from __future__ import annotations
@@ -18,7 +25,8 @@ from __future__ import annotations
 import base64
 import logging
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from mcp_admin_core import log_redaction as _core
 from mcp_admin_core.log_redaction import PathTokenRedactionFilter, redact
@@ -83,6 +91,62 @@ def registered_secret_count() -> int:
     return len(_secrets)
 
 
+def _mask_value(value: Any) -> Any:
+    """一個 args 元素的遮罩：字串直接遮；None／bool／int／float 不動（``%d``、``%f`` 需要原本的型別）；其他物件
+    （例外、bytes…）只有 ``str()`` 真的含秘密時才換成遮好的字串，否則維持原物件。"""
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    try:
+        text = str(value)
+    except Exception:  # noqa: BLE001 — 轉字串失敗就交給 logging 自己處理
+        return value
+    cleaned = redact_secrets(text)
+    return value if cleaned == text else cleaned
+
+
+def _mask_args(args: Any) -> Any:
+    """tuple 維持 tuple、dict 維持 key；長度與各元素的位置不變。"""
+    if isinstance(args, tuple):
+        return tuple(_mask_value(item) for item in args)
+    if isinstance(args, Mapping):
+        return {key: _mask_value(item) for key, item in args.items()}
+    return args
+
+
+def _render(msg: Any, args: Any) -> str | None:
+    """與 ``LogRecord.getMessage()`` 相同的格式化；失敗回 None。"""
+    try:
+        text = str(msg)
+        return text % args if args else text
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _is_access_shape(record: logging.LogRecord) -> bool:
+    """uvicorn 的 AccessFormatter 只看 args（5 個引數），不看 msg：這種 record 的 args 形狀不可以改。"""
+    return record.name == "uvicorn.access" and isinstance(record.args, tuple) and len(record.args) == 5
+
+
+def _apply_masked_message(record: logging.LogRecord, cleaned: str) -> None:
+    """把「整句遮罩後的文字」*cleaned* 套回 *record*，同時保留 ``record.args`` 的形狀。
+
+    先逐一遮罩 msg 與 args 的元素，再確認格式化後的文字與整句遮罩（舊版的作法）逐字相同；多數情況（秘密完整地出現在
+    某個引數或樣板裡）就是這樣。秘密被拆在相鄰引數之間、或是以非字串物件的形式出現而逐一遮罩遮不到時：
+    ``uvicorn.access`` 的 5 元組把字串引數全換成 ``***``（形狀不變、不洩漏）；其他 record 沿用舊版的整句取代。
+    """
+    msg = redact_secrets(record.msg) if isinstance(record.msg, str) else redact_secrets(str(record.msg))
+    args = _mask_args(record.args) if record.args else record.args
+    if _render(msg, args) == cleaned:
+        record.msg, record.args = msg, args
+    elif _is_access_shape(record):
+        record.msg = msg
+        record.args = tuple(SECRET_MASK if isinstance(item, str) else item for item in record.args)
+    else:
+        record.msg, record.args = cleaned, ()
+
+
 def _scrub_record(record: logging.LogRecord) -> None:
     if not _secrets:
         return
@@ -92,8 +156,7 @@ def _scrub_record(record: logging.LogRecord) -> None:
         return
     cleaned = redact_secrets(message)
     if cleaned != message:
-        record.msg = cleaned
-        record.args = None
+        _apply_masked_message(record, cleaned)
     if record.exc_info and not record.exc_text:
         # Formatter 只在 exc_text 為空時才自己格式化 traceback；先格式化並遮好，handler 就會沿用。
         try:

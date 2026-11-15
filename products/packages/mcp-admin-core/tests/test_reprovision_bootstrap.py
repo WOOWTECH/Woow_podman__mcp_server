@@ -26,7 +26,7 @@ from mcp_admin_core.owner_defaults import DECISION, MARKER
 
 FIXTURE = Path(__file__).parent / "fixtures" / "reprovision"
 # apps/odoo-manage 已封存且移出 uv workspace（#78：它的 mcp-server-odoo 0.7.1 要求 mcp<2），不再測試。
-PRODUCTS = ("hermes", "n8n", "odoo", "k8s", "vk", "opendesign", "nextcloud", "litellm")
+PRODUCTS = ("hermes", "n8n", "odoo", "k8s", "opendesign", "nextcloud", "litellm")
 INITIAL = "fixture-initial-token"
 CHANGED = "fixture-changed-token"
 REISSUED = "fixture-reissued-token"

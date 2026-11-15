@@ -114,7 +114,6 @@ echo "還原 Job：$RJOB；前置檢查 Job：$PJOB_IMAGE、$PJOB_SOURCE；Confi
 | EMQX | `base_url` | API key／secret |
 | Headscale | `base_url`、`paas_base_url`、`workspace_id`、`headscale_service_id` | Headscale API key、PaaS token |
 | Open Design | `od_api_base`、`od_basic_user` | — |
-| VK | `vibe_backend_url` | — |
 | k8s | `in_cluster` | kubeconfig |
 
 欄位清單以各產品 `LaunchPolicy` 宣告的身分、必要與後端連線欄位為準，另外加上幾個選填的帳號欄位（Open Design 的 Basic Auth 帳號、Headscale 綁定的 PaaS 服務、k8s 的 `in_cluster`）。`tests/test_restore_runbook.py` 會比對各 app 的政策：產品新增連線欄位時，要歸類為要記的後端欄位或不記（例如 Headscale 顯示用的 `enrollment_url`、n8n 的 session 上限與逾時），沒有歸類測試就失敗。
@@ -143,10 +142,10 @@ IDENTITY = ("odoo_url", "odoo_db", "odoo_username",                       # Odoo
             "gateway_url", "dashboard_url", "dashboard_username",          # Hermes
             "base_url", "username",                                        # LiteLLM、EMQX、Headscale、Nextcloud
             "paas_base_url", "workspace_id", "headscale_service_id",       # Headscale 綁定的 PaaS 服務
-            "od_api_base", "od_basic_user", "vibe_backend_url",            # Open Design、VK
+            "od_api_base", "od_basic_user",                                # Open Design
             "in_cluster")                                                  # k8s（用叢集內 ServiceAccount 或 kubeconfig）
-URLS = ("odoo_url", "n8n_api_url", "gateway_url", "dashboard_url", "base_url", "paas_base_url", "od_api_base",
-        "vibe_backend_url")   # 網址欄位：記錄前遮掉帳密、query 與 fragment（url()）
+URLS = ("odoo_url", "n8n_api_url", "gateway_url", "dashboard_url", "base_url", "paas_base_url",
+        "od_api_base")   # 網址欄位：記錄前遮掉帳密、query 與 fragment（url()）
 # (欄位, 差異標記, 到哪裡改)。store.patch 寫進 mcp_server／tools 的每帳號政策都要在這裡（tests 比對）。
 FIELDS = (("label", "名稱", "Profile 選單用 Rename "), ("tools_disabled", "工具", "Tools 頁"),
           ("tools_disabled_operations", "操作", "Permissions 頁"), ("switches", "開關", "Settings 頁"),
@@ -826,7 +825,7 @@ restore guard 只處理 MCP 閘道自己的憑證，**不會撤銷後端帳密**
 
 - 如果後端資料（例如 Odoo 資料庫）也一起還原了，舊的後端密碼可能重新有效。請依後端的身分系統輪替。
 - Odoo 請用正常的介面或 RPC 改密碼或 API key：隔離實驗顯示正常 RPC 修改後，所有 worker 都拒絕舊密碼。不要直接改資料庫，否則 worker 的憑證快取可能還接受舊密碼。
-- 輪替後，在 MCP 管理頁的 Connection 頁更新各 profile 的後端密碼。只換密碼、後端帳號不變時，Odoo 的 MCP 網址照舊有效（換了後端帳號才會換 token）。
+- 輪替後，在 MCP 管理頁的 Connection 頁更新各 profile 的後端密碼。只換密碼、後端帳號不變時，Odoo 與 Nextcloud 的 MCP 網址照舊有效；換了後端帳號（Odoo 是網址、資料庫、使用者名稱，Nextcloud 是網址、使用者名稱）才會撤銷舊網址、換新 token（token 歷史多一筆 `backend_identity_change`），之後到 Tokens 頁複製新網址。
 
 ### 12. 驗證
 
@@ -940,7 +939,7 @@ $K delete configmap/$PCM --ignore-not-found --timeout=120s   # 步驟 1 前置�
 - 步驟 2、3（Longhorn）、真的 operator reset-config（以等價程式代替）、真的 Odoo 與 LiteLLM 後端（用 `.invalid` 假後端）、管理頁的實際點擊。
 - `wait_job` 遇到 API 暫時失敗時繼續輪詢、`new_job` 查不到舊 Job 與 Pod 時停下：只有單元測試（假 kubectl）。
 - `rname` 的雜湊規則（過長或有其他字元的 REL）：只有單元測試；平台的 REL 都很短，叢集上只走到直接帶 REL 的寫法。
-- `url()` 各種帳密、query 寫法，以及 n8n、Hermes、Nextcloud、EMQX、Headscale、Open Design、VK、k8s 的後端欄位：只有單元測試（合成設定卷）。
+- `url()` 各種帳密、query 寫法，以及 n8n、Hermes、Nextcloud、EMQX、Headscale、Open Design、k8s 的後端欄位：只有單元測試（合成設定卷）。
 - 守門測試的掃描：單元測試加變異實驗（`fix3-restore-20261113` 的 `mutation/`）。
 
 ### M1（2026-11-13，多帳號核對與步驟 5 舊 Job，修改後的手冊字面重跑）

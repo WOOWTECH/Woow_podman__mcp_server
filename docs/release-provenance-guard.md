@@ -154,8 +154,9 @@ separate rollout gates.
 ## Current release state
 
 The multi-profile hardening (Gitea #140-#146), the gateway queue fixes
-(Gitea #147, #148, #150) and the query-credential log redaction (Gitea #149)
-are in canonical Gitea `7d111b175fbbcdf692ff579cc5793bf8c7de3a7b`. The
+(Gitea #147, #148, #150), the query-credential log redaction (Gitea #149),
+the VK removal (Gitea #151) and the Nextcloud and EMQX fixes (Gitea
+#152-#154) are in canonical Gitea `5b84b5d0fc70ab96a580629f1377ab65159ea96d`. The
 Podman catalog pins that exact commit, and both direct parity checks passed
 against a clean checkout of it. The Headscale product version is
 `0.1.6-podman.1`.

@@ -1,7 +1,7 @@
 version: "3.8"
 
 # Open Design MCP Admin 本機開發用 compose。
-# 與 apps/vk/docker-compose.yml 同型：目標服務 Open Design daemon（/api/*）由「外部」提供，
+# 目標服務 Open Design daemon（/api/*）由「外部」提供，
 # 故此處只保留 mcp-admin 一段。
 #
 # 使用方式：

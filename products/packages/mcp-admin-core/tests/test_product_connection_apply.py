@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 # apps/odoo-manage 已封存且移出 uv workspace（#78：它的 mcp-server-odoo 0.7.1 要求 mcp<2），不再測試。
-APPS = ['hermes','n8n','odoo','k8s','vk','opendesign','litellm','nextcloud']
+APPS = ['hermes','n8n','odoo','k8s','opendesign','litellm','nextcloud']
 
 @pytest.mark.parametrize('app', APPS)
 @pytest.mark.parametrize('outcome', [False, True, RuntimeError('not a public error')])
@@ -14,7 +14,7 @@ async def test_real_connection_handler_apply_result(app, outcome, monkeypatch, s
     model = next(getattr(module, name) for name in ('ConnectionUpdateRequest', 'ConnectionUpdate', 'DualConnectionUpdate') if hasattr(module, name))
     supplied = {'restart': True, 'in_cluster': 'false', 'dashboard_username': 'parity',
                 'odoo_username': 'parity', 'n8n_api_url': '', 'odoo_url': '',
-                'base_url': '', 'od_api_base': '', 'vk_api_base': ''}
+                'base_url': '', 'od_api_base': ''}
     values = {name: supplied[name] if name in supplied else '' for name, field in model.model_fields.items()
               if name in supplied or field.is_required()}
     request = model(**values)

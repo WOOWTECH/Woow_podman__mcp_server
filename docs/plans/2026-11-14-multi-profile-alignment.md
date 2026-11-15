@@ -28,9 +28,10 @@ separate explicit OK.
    conditions; whichever of #26 and the Phase 1 refresh merges second
    regenerates the source snapshot.
 5. VK is retired from the Podman products; the owner no longer uses it.
-   Its source stays vendored unchanged for the PaaS workspace locks, and no
-   VK image is built or installed. Removing the running VK service from a
-   host is a separate, explicitly approved step.
+   Its source stayed vendored for the PaaS workspace locks until PaaS
+   removed it in #151; the refresh to `5b84b5d` removes the copy. No VK image
+   is built or installed. Removing the running VK service from a host is a
+   separate, explicitly approved step.
 6. Before the Phase 3 release, `products/` is refreshed again to PaaS
    `5a06d53` (#147, #148, #150), so the first rollout already carries the
    gateway queue fixes. It merges only after the owner confirms the review
@@ -40,9 +41,10 @@ separate explicit OK.
    repository and stays in the git tag `archive/podman-host-mcp-20261114`,
    and its stopped units are removed from the host. The products are not
    affected.
-8. After the first rollout, `products/` is refreshed to PaaS `7d111b1`
-   (#149, query credentials masked in logs) and released the same way. It
-   merges only after the owner accepts the review of #149.
+8. After the first rollout, `products/` is refreshed to PaaS `5b84b5d`
+   (#149, query credentials masked in logs; #151, VK removed upstream;
+   #152-#154, Nextcloud and EMQX fixes) and released the same way. It merges
+   only after the owner accepts the review of #149 and #151-#154.
 
 ## Starting point
 
@@ -75,7 +77,7 @@ Products track:
 1. Refresh `products/` to the approved PaaS commit: vendored source,
    provenance and source snapshot. No host change. A second refresh (1b)
    moves the pin to `5a06d53` before the release (decision 6), and a third
-   (1c) moves it to `7d111b1` after the release (decision 8).
+   (1c) moves it to `5b84b5d` after the release (decision 8).
 2. Podman deploy layer for several profiles: a container memory ceiling so
    the core's capacity check applies, a restore that leaves every profile
    token revoked, validated Origin and gateway settings, a second-profile

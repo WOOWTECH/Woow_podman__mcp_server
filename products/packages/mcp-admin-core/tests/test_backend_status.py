@@ -246,7 +246,7 @@ def test_backend_field_has_no_field_names_labels_or_values(healthz):
 
 
 # ---------------------------------------------------------------------------
-# 真的產品 app（vk、opendesign 沒有自己的 app 測試，在這裡一起驗）
+# 真的產品 app（opendesign 沒有自己的 app 測試，在這裡一起驗）
 # ---------------------------------------------------------------------------
 
 
@@ -263,7 +263,6 @@ _FILLED = {
     "hermes": {"gateway_url": "https://h.example.com/gateway", "gateway_api_key": "g", "dashboard_url": "https://h.example.com",
                "dashboard_username": "admin", "dashboard_password": "p"},
     "n8n": {"n8n_api_url": "https://n8n.example.com", "n8n_api_key": "n"},
-    "vk": {"vibe_backend_url": "http://vk-host:3000"},
     "opendesign": {"od_api_base": "http://svc-x:7457"},
 }
 

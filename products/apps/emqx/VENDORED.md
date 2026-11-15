@@ -35,3 +35,24 @@ are PaaS integration work. Tests exercise the pinned APIs with installed Python
 3.12.14, FastMCP 4.1.3, MCP 2.3.0, HTTPX 0.28.1 and httpcore 1.0.9. Root locks remain
 main's responsibility. Do not update the HTTP dependencies or copy an HA stub to
 bypass source-hash failures; review the changed transport and rerun socket tests.
+
+## PR95 之後在這個副本上的改寫
+
+下面幾項是 PR95 之後才改的（這個副本本來就不是 byte-identical 的 vendor）。路徑段規則與 `%` 規則的修正
+（`tools/_common.py`、`http_policy.py`）當時沒有更新本檔；2026-11-15 的 EMQX 實測小修一併補在這裡：
+
+- `http_policy.py`：`path_value` 的路徑段與 `%` 規則（與 HA add-on 同一套）；`BrokerClient.request` 多一個固定集合的
+  關鍵字 `accept`（預設 `application/json`，只有 `emqx_prometheus_stats` 用 `text/plain`；其他值、`headers` 與其他請求選項
+  一律照舊拒絕）；httpx 組不出來的網址（超過 65,536 字元，或值含單獨的 surrogate 而無法編碼）在送出前以
+  `DestinationDenied`（`EMQX_DESTINATION_DENIED`）拒絕。傳輸層的來源雜湊檢查與相依套件版本沒有動。
+- `errors.py`：新增 `text_body`（`json_body` 的文字版：空內容不算成功）。
+- `tools/_common.py`：`path_segment` 拒收空字串、`.`、`..`，並對無法編碼的值回 `EMQX_DESTINATION_DENIED`。
+- `tools/cluster.py`：`emqx_prometheus_stats` 送 `Accept: text/plain`，才會拿到說明所寫的 Prometheus 文字
+  （EMQX 對 JSON 的 Accept 回的是 JSON 統計）。
+- `tools/topics.py`：`emqx_list_subscriptions` 的工具說明與 `match_topic` 參數說明改成 EMQX 5.8.9 實測的語意
+  （你給的字串當過濾器、去比對已儲存的訂閱主題；用具體主題查不到萬用字元訂閱）。
+
+這些改動的測試在 `tests/test_subscription_match_topic.py`、`tests/test_prometheus_accept.py`、
+`tests/test_long_identifiers.py`。`docs/source-manifest.json` 的 `adapted_sha256` 與 `changed_from_ha` 在 2026-11-15 依目前
+檔案重算（先前的修正沒有更新它，重算前有 8 個檔案與記錄不符）；沒有任何測試或腳本比對它。
+`docs/validation-source.json` 是 PR95 當時的來源階段驗證紀錄，沒有改。

@@ -174,7 +174,7 @@ def test_is_legacy_supergateway_seed():
 
     assert is_legacy_supergateway_seed(LEGACY_SEED) is True
     assert is_legacy_supergateway_seed({"command": "opendesign-mcp-server", "args": []}) is False
-    # 別的 supergateway 橋（例如有人手動接 vk 類 binary）不動
+    # 別的 supergateway 橋（例如有人手動接其他 binary）不動
     assert is_legacy_supergateway_seed({"command": "supergateway", "args": ["--stdio", "other"]}) is False
     assert is_legacy_supergateway_seed({}) is False
 

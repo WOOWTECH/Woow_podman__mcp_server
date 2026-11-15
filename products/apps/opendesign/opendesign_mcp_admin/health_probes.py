@@ -1,6 +1,6 @@
 """opendesign 專屬 health 探測（供 mcp_admin_core make_health_router 使用）。
 
-形比照 apps/vk/vk_mcp_admin/health_probes.py，但換成 Open Design daemon 語意：
+形比照各產品的 health_probes，但換成 Open Design daemon 語意：
 單一連線鍵 od_api_base、健康端點走 OD_HEALTH_PATH（/api/health）。
 Open Design daemon 無 db/模組概念，db_name/item_count 恆 None，故不照抄 Odoo 那套
 XML-RPC 版本／模組數探測殘骸。

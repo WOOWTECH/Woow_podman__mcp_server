@@ -12,12 +12,14 @@ def synthetic_environment(monkeypatch):
 import base64
 import json
 import threading
+from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 @pytest.fixture
 def broker(monkeypatch):
-    state = SimpleNamespace(calls=[], status=200, response=None, headers={}, body=None, delay=0, routes={})
+    state = SimpleNamespace(calls=[], status=200, response=None, headers={}, body=None, delay=0, routes={},
+                            requests=[], text_routes={}, content_type='application/json')
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
         def log_message(self, *args):
@@ -34,6 +36,8 @@ def broker(monkeypatch):
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length) if length else b''
             state.calls.append((self.command, self.path, body, self.headers.get('Authorization')))
+            state.requests.append({'method': self.command, 'path': self.path,
+                                   'headers': {k.lower(): v for k, v in self.headers.items()}})
             if state.delay:
                 import time
                 time.sleep(state.delay)
@@ -41,15 +45,18 @@ def broker(monkeypatch):
                 status, value = 401, {'error': 'bad credentials'}
             else:
                 status = state.status
-                from urllib.parse import urlsplit
                 value = state.routes.get(urlsplit(self.path).path, state.response)
                 if value is None:
                     value = ([{'node': 'emqx@owned', 'version': '5.8.9'}] if self.path.endswith('/nodes') else
                              [{'connections.count': 7}] if self.path.endswith('/stats') else
                              {'data': [], 'meta': {'count': 0}})
             data = state.body if state.body is not None else json.dumps(value).encode()
+            content_type = state.content_type
+            text = state.text_routes.get(urlsplit(self.path).path)
+            if status == 200 and text is not None and state.body is None and 'text/plain' in (self.headers.get('Accept') or ''):
+                data, content_type = text.encode(), 'text/plain; version=0.0.4; charset=utf-8'
             self.send_response(status)
-            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(data)))
             for k, v in state.headers.items():self.send_header(k, v)
             self.end_headers()

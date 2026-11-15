@@ -3,16 +3,16 @@
 # build context = monorepo ROOT（Dockerfile 依賴 root 的 npm / uv workspace）：
 #   docker build -t woow-opendesign-mcp-server -f apps/opendesign/Dockerfile .
 #
-# 分層與關鍵決策（照 apps/vk 前例，但少一個 binary 下載 stage）：
+# 分層與關鍵決策（分層照 apps/n8n 的 Node＋Python 混合 image 做法，沒有 binary 下載 stage）：
 #   - 共用核心 mcp-admin-core 提供 app factory / auth / config store / process manager / proxy。
 #   - MCP server 是 vendored python（opendesign_mcp_server），隨 app 一併 COPY 進 image，
-#     故不需 vk 那樣的 binary 下載＋sha256 驗證 stage；子行程為 venv console script
+#     故不需要另設「下載 binary＋sha256 驗證」的 stage；子行程為 venv console script
 #     `opendesign-mcp-server`（原生 Streamable HTTP＋SSE 單一行程，#1369；seed 契約見 k8s-deploy.yaml）。
 #   - MCP 子行程「不在」image 啟動時拉起：全交 McpProcessManager 依 config.json 的
 #     mcp_server.command 於執行期 spawn，設定變更（Save & Restart）才會真正生效。CMD 只跑 uvicorn
 #     admin（零設定啟動時 command="" → pm 跳過、admin 照聽 8080，CI /healthz smoke 因此成立）。
 
-# ── Stage 1：frontend（Vite，workspace-aware，照 n8n / odoo-manage / vk 前例） ─────────
+# ── Stage 1：frontend（Vite，workspace-aware，照 n8n / odoo-manage 前例） ─────────
 FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS frontend-builder
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -25,7 +25,7 @@ RUN npm run build -w apps/opendesign/frontend
 # ── Node.js 執行環境來源：官方映像，以多架構 index digest 固定（與 n8n 同一個 digest） ──────────
 FROM node:26.12.1-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS node-runtime
 
-# ── Stage 2：python + node runtime（照 apps/vk/Dockerfile 混合 image 前例） ────────────
+# ── Stage 2：python + node runtime（照 apps/n8n/Dockerfile 混合 image 前例） ────────────
 FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:0.6.4 /uv /uvx /bin/
 

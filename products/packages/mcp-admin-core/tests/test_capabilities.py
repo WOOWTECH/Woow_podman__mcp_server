@@ -116,7 +116,7 @@ def test_concurrent_policy_change_invalidates_observation(monkeypatch, store_env
 
 
 # apps/odoo-manage 已封存且移出 uv workspace（#78：它的 mcp-server-odoo 0.7.1 要求 mcp<2），不再測試。
-@pytest.mark.parametrize("product", ["hermes", "k8s", "litellm", "n8n", "nextcloud", "odoo", "opendesign", "vk"])
+@pytest.mark.parametrize("product", ["hermes", "k8s", "litellm", "n8n", "nextcloud", "odoo", "opendesign"])
 def test_all_apps_explicit_identity_and_capabilities(product, monkeypatch, store_env):
     monkeypatch.setattr(cap, "get_process_manager", lambda: PM(False))
     app = importlib.import_module(product.replace("-", "_") + "_mcp_admin.main").app
