@@ -170,6 +170,8 @@ passed.
 
 On 2026-11-14 the owner released Podman `bd6ba26`, which carries the
 previous pin `5a06d533eb433ad511bba8e2db946a0de922925d`, without a signed
-manifest. The current pin is not released yet. The images, the checks run before the rollout and
-the rollout itself are recorded in
-`products/deploy/releases/2026-11-14-multi-profile-rollout.md`.
+manifest. On 2026-11-16 the owner released Podman `d27cef6`, which carries the
+current pin, the same way. The images, the checks run before each rollout and
+the rollouts themselves are recorded in
+`products/deploy/releases/2026-11-14-multi-profile-rollout.md` and
+`products/deploy/releases/2026-11-16-paas-5b84b5d-rollout.md`.
