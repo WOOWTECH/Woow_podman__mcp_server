@@ -51,7 +51,7 @@ products/deploy/manage.sh odoo install --backend-network odoo18-network \
   --release-manifest /path/to/reviewed-release.json --source-checkout /path/to/merged-canonical-checkout
 ```
 
-`--backend-network` 僅接受已存在的 Podman network 名稱。連線頁可填該網路內的容器 DNS 名稱與內部 port；各產品仍保有自己的獨立網路。Hermes、n8n、EMQX 等對私網 URL 有 SSRF 檢查；本機私網服務需由部署者明確指定 `--ssrf-mode permissive`，這會放行私有位址但仍封鎖雲端 metadata 位址。預設維持 `strict`。需要對外提供 GUI 時可用 `--bind <單一 LAN IPv4> --port <port>`，不接受 `0.0.0.0`。
+`--backend-network` 僅接受已存在的 Podman network 名稱。連線頁可填該網路內的容器 DNS 名稱與內部 port；各產品仍保有自己的獨立網路。Hermes、n8n、EMQX、Nextcloud 等對私網 URL 有 SSRF 檢查（Nextcloud 自 PaaS #152 起在存檔、Test connection 與健康檢查都會檢查）；本機私網服務需由部署者明確指定 `--ssrf-mode permissive`，這會放行私有位址但仍封鎖雲端 metadata 位址。預設維持 `strict`。已安裝的產品升級時沿用 env 檔裡的 `WEBHOOK_SECURITY_MODE`，`upgrade` 不接受 `--ssrf-mode`。需要對外提供 GUI 時可用 `--bind <單一 LAN IPv4> --port <port>`，不接受 `0.0.0.0`。
 
 每個產品容器都有記憶體上限（`--memory`，預設 `1g`，至少 `512m`，寫在 env 檔的 `MCP_MEMORY_LIMIT`）。共用核心依這個上限計算還能新增幾個帳號（設定檔）：放不下另一個子行程時，新增帳號會回 409，並說明需要的記憶體。請在建立額外帳號之前就設好上限；之後調低，排在後面的帳號可能因容量不足而無法啟動。`--origins`（`MCP_ADMIN_ALLOWED_ORIGINS`，逗號分隔的精確 http(s) 來源）與 `--origin-mode report-only|enforce`（`MCP_ADMIN_ORIGIN_MODE`，預設 report-only）控制 MCP 請求的 Origin 檢查；`--gateway-connections`、`--gateway-streams`、`--gateway-timeout` 調整每個帳號的閘道連線名額。安裝與升級時會先驗證這些值，不合法就不寫入，避免核心啟動失敗。
 
