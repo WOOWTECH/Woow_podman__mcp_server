@@ -50,6 +50,10 @@
 - ``MCP_GATEWAY_POOL_TIMEOUT_SECONDS``：等名額的上限（秒），預設 10，範圍大於 0、最多 300。
 - ``MCP_GATEWAY_MAX_QUEUE_PER_PROFILE``：每個佇列（一般名額、通知保留名額各一個）同時排隊等名額的請求數上限，預設 32，範圍 0～1024
   （0＝不排隊，名額滿就拒絕）。
+
+請求內容的位元組預算（全域＋每帳號，``MCP_GATEWAY_MAX_BUFFERED_BYTES``、``MCP_GATEWAY_MAX_BUFFERED_BYTES_PER_PROFILE``）在
+``request_budget.py``：這裡的個數上限算不出記憶體，預算補上位元組這一維；transport 只負責在請求送出期間 ``attach``、回應結束或失敗時
+``detach``（``GatewayHints.reservation``），與連線名額同一個歸還時機。
 """
 
 from __future__ import annotations
@@ -232,6 +236,9 @@ class GatewayHints:
     queued: bool = False
     queued_at: float = 0.0
     limits: GatewayLimits | None = None
+    #: 這個請求在位元組預算裡的登記（``request_budget.Reservation``）：transport 在請求送往子行程期間 attach，
+    #: 回應關閉或任何失敗時 detach，與連線名額同一個時機歸還。
+    reservation: object | None = None
 
     def attach(self, request: httpx.Request) -> None:
         extensions = getattr(request, "extensions", None)
@@ -368,12 +375,17 @@ class ProfileLimitedTransport(httpx.AsyncBaseTransport):
             slots.streams += 1
         acquired = False
         released = False
+        reservation = hints.reservation if hints is not None else None
+        if reservation is not None:
+            reservation.attach()
 
         def release() -> None:
             nonlocal released
             if released:
                 return
             released = True
+            if reservation is not None:
+                reservation.detach()
             if acquired:
                 lane.connections -= 1
                 lane.semaphore.release()

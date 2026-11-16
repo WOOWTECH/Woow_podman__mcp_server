@@ -155,23 +155,26 @@ separate rollout gates.
 
 The multi-profile hardening (Gitea #140-#146), the gateway queue fixes
 (Gitea #147, #148, #150), the query-credential log redaction (Gitea #149),
-the VK removal (Gitea #151) and the Nextcloud and EMQX fixes (Gitea
-#152-#154) are in canonical Gitea `5b84b5d0fc70ab96a580629f1377ab65159ea96d`. The
-Podman catalog pins that exact commit, and both direct parity checks passed
+the VK removal (Gitea #151), the Nextcloud and EMQX fixes (Gitea
+#152-#154), the gateway request-bytes budget (Gitea #155), the EMQX and
+LiteLLM reconnect fixes (Gitea #135, #139) and the Hermes cron fix (Gitea
+#138, #156) are in canonical Gitea `48f394d6fbce3c38a22b75f06e51ec208f230d91`.
+The Podman catalog pins that exact commit, and both direct parity checks passed
 against a clean checkout of it. The Headscale product version is
-`0.1.6-podman.1`.
+`0.1.7-podman.1`.
 
 The signing key, reviewed image identity, signed manifest, and live Quadlet
 upgrade are separate release artifacts. This source branch does not include
-them. The EMQX [Draft #135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135)
-is outside the Headscale release and must be reviewed before an EMQX image is
-signed. Existing running Quadlets are not evidence that the release guard has
-passed.
+them. The EMQX [#135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135),
+which this section used to list as an unreviewed draft, is merged in Gitea and
+part of this pin. Existing running Quadlets are not evidence that the release
+guard has passed.
 
-On 2026-11-14 the owner released Podman `bd6ba26`, which carries the
-previous pin `5a06d533eb433ad511bba8e2db946a0de922925d`, without a signed
-manifest. On 2026-11-16 the owner released Podman `d27cef6`, which carries the
-current pin, the same way. The images, the checks run before each rollout and
-the rollouts themselves are recorded in
+On 2026-11-14 the owner released Podman `bd6ba26`, which carries the pin
+`5a06d533eb433ad511bba8e2db946a0de922925d`, without a signed manifest. On
+2026-11-16 the owner released Podman `d27cef6`, which carries the pin
+`5b84b5d0fc70ab96a580629f1377ab65159ea96d`, the same way. The current pin is
+not released yet. The images, the checks run before each rollout and the
+rollouts themselves are recorded in
 `products/deploy/releases/2026-11-14-multi-profile-rollout.md` and
 `products/deploy/releases/2026-11-16-paas-5b84b5d-rollout.md`.

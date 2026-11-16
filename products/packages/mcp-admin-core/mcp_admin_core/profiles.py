@@ -33,7 +33,7 @@ from starlette.responses import JSONResponse
 from . import child_identity
 from .config.store import ConfigStore, ConfigUnavailable, _active_store, fresh_config, get_default_config_store
 from .configuration import OperationRefused
-from .launch_policy import coerce_port, get_launch_policy
+from .launch_policy import LaunchPolicy, coerce_port, get_launch_policy
 from .log_redaction import PathTokenRedactionFilter
 from .owner_defaults import _StdoutHandler
 from .process import McpProcessManager, _active_process, get_default_process_manager
@@ -186,6 +186,24 @@ class ProfileCapacity:
                 f"profile(s) at {self.child_memory_mib} MiB per child plus {PROFILE_MEMORY_RESERVE_MIB} MiB reserve")
 
 
+def current_profile_capacity(memory_limit_mib: int | None = ..., policy: "LaunchPolicy | None" = ...) -> ProfileCapacity:
+    """How many additional profiles this product may run now (policy limit and, under a cgroup limit, memory).
+
+    Pure function of the launch policy and the container memory ceiling (no config store, no I/O beyond the cgroup
+    files), so the request budget can derive its defaults from it at startup. *memory_limit_mib* and *policy* default
+    to the real ones; tests pass their own."""
+    if policy is ...:
+        policy = get_launch_policy()
+    if policy is None:
+        return ProfileCapacity(MAX_EXTRA_PROFILES)
+    policy_limit = min(MAX_EXTRA_PROFILES, policy.max_extra_profiles)
+    ceiling = _memory_limit_mib() if memory_limit_mib is ... else memory_limit_mib
+    if ceiling is None:
+        return ProfileCapacity(policy_limit, child_memory_mib=policy.profile_child_memory_mib)
+    children = max(1, (ceiling - PROFILE_MEMORY_RESERVE_MIB) // policy.profile_child_memory_mib)
+    return ProfileCapacity(policy_limit, ceiling, policy.profile_child_memory_mib, max(0, children - 1))
+
+
 class ProfileRegistry:
     def __init__(self, default_store: ConfigStore):
         self.default_store = default_store
@@ -303,15 +321,7 @@ class ProfileRegistry:
         return rows
 
     def capacity(self) -> ProfileCapacity:
-        policy = get_launch_policy()
-        if policy is None:
-            return ProfileCapacity(MAX_EXTRA_PROFILES)
-        policy_limit = min(MAX_EXTRA_PROFILES, policy.max_extra_profiles)
-        ceiling = _memory_limit_mib()
-        if ceiling is None:
-            return ProfileCapacity(policy_limit, child_memory_mib=policy.profile_child_memory_mib)
-        children = max(1, (ceiling - PROFILE_MEMORY_RESERVE_MIB) // policy.profile_child_memory_mib)
-        return ProfileCapacity(policy_limit, ceiling, policy.profile_child_memory_mib, max(0, children - 1))
+        return current_profile_capacity()
 
     def profile_limit(self) -> int:
         return self.capacity().limit

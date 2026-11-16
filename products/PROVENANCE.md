@@ -2,8 +2,19 @@
 
 The nine active `products/apps/*` and `products/packages/mcp-admin-core` and
 `mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`5b84b5d0fc70ab96a580629f1377ab65159ea96d` (Gitea, 2026-11-15). Since the
-previous pin `7d111b175fbbcdf692ff579cc5793bf8c7de3a7b`, Gitea merged #151
+`48f394d6fbce3c38a22b75f06e51ec208f230d91` (Gitea, 2026-11-16). Since the
+previous pin `5b84b5d0fc70ab96a580629f1377ab65159ea96d`, Gitea merged #155
+(gateway request-bytes budget: request bodies over 64 KiB count against a
+gateway-wide and a per-profile byte budget derived from the container memory
+limit, uploads have idle and total deadlines, every product gets a JSON
+structure guard that refuses bodies nested too deeply or with too many
+elements before they are parsed, and non-UTF-8 bodies are refused), #135 (EMQX: no
+idle keep-alive connections, so the first request after a network recovery no
+longer waits for a stale socket), #139 (LiteLLM: the same for the gateway
+client), #138 (Hermes: a cron job created with `enabled=false` is created
+paused) and #156 (Hermes: the cron tool description says so, and that
+Hermes v0.22.x resumes a paused job when it is triggered). The pin before,
+`7d111b175fbbcdf692ff579cc5793bf8c7de3a7b`, was followed by #151
 (VK removed from the workspace, its tests and the uv and npm locks), #152
 (Nextcloud: the connection URL passes the core SSRF check when it is saved,
 on Test connection and in the health probe, and masked log lines keep their

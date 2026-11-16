@@ -80,8 +80,37 @@ that file. The results therefore apply to the release images.
   login on the backend. A separate retry passed once the login had refreshed.
 - **Credentials in logs.** For every product, no credential the test used
   appeared in the container output or on any profile's Logs page.
-- **Not covered.** n8n and K8s had no real-backend test this round: n8n is
-  waiting for a test API key, and the host has no Kubernetes cluster.
+- **Hermes cron.** Gitea #138 has since fixed the cron issue upstream. The
+  refresh to PaaS `48f394d` brings the fix to Podman.
+- **Not covered before the rollout.** n8n and K8s had no real-backend test
+  before the rollout: n8n was waiting for a test API key, and the host has no
+  Kubernetes cluster. n8n was tested after the rollout, see below. K8s still
+  has no cluster to test against.
+
+### n8n, after the rollout
+
+Later on 2026-11-16, n8n was tested the same way on the release image itself
+(`8ccf2811d6ab`). Both profiles ran in a separate test admin started from that
+image, so the live n8n admin was not changed. Profile A connected to the
+deployed n8n with an API key created for the test and deleted afterwards.
+Profile B connected to a throwaway n8n with its own owner and key, removed
+afterwards.
+
+| Product | Calls | Checks | Also verified |
+|---|---|---|---|
+| n8n | 66/66 | 30/30 | With a key, a profile lists 28 tools; without one, the 7 documentation tools. Each profile sees only its own n8n's workflows. A disabled tool, a revoked or rotated token URL and a wrong key affect only the profile they were set on. |
+
+Eight of the 66 calls passed by returning the expected error:
+
+- Four tools need n8n's optional instance-level MCP access, which the deployed
+  n8n does not enable: native version history, node resource exploration, the
+  agents reference and adding a data-table column.
+- Folders need an n8n license, and the community edition has no projects API.
+- Two were negative tests on profile B: profile A's workflow ID, and a wrong
+  key.
+
+No credential the test used appeared in the container output or on either
+profile's Logs page, and no test workflow was left on the deployed n8n.
 
 ## Configuration change: Nextcloud SSRF mode
 

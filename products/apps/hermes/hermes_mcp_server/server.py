@@ -975,10 +975,13 @@ async def hermes_cron(
 
     Actions: list, create, update, delete, trigger, pause, resume
     - list: show all cron jobs
-    - create: new job (requires name, schedule, prompt)
+    - create: new job (requires name, schedule, prompt); enabled=false creates
+      it paused, so it does not run until resumed
     - update: modify job (requires job_id, plus fields to change)
     - delete: remove job (requires job_id)
-    - trigger: run job now (requires job_id)
+    - trigger: run job now (requires job_id). Hermes v0.22.x also resumes a
+      paused job when it is triggered; call pause afterwards if it should
+      stay paused
     - pause / resume: toggle job state (requires job_id)
 
     schedule uses cron syntax: '0 9 * * 1-5' = weekdays at 9am
@@ -1016,8 +1019,10 @@ async def hermes_cron(
             if not name or not schedule or not prompt:
                 return json.dumps({"error": "name, schedule, and prompt are all required"})
             try:
+                # Current Hermes uses paused; retain enabled for older APIs.
                 resp = await client.post("/api/cron/jobs", json={
-                    "name": name, "schedule": schedule, "prompt": prompt, "enabled": enabled,
+                    "name": name, "schedule": schedule, "prompt": prompt,
+                    "paused": not enabled, "enabled": enabled,
                 }, extensions={"hermes_no_auth_retry": True})
             except httpx.HTTPError:
                 raise _cron_create_unknown() from None
