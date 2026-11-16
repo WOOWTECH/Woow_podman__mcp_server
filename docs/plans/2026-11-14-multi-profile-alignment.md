@@ -86,8 +86,9 @@ Products track:
    chose an unsigned release (2026-11-14): `--skip-release-signature` with
    images built from merged `main`. Done on 2026-11-14: all nine products run
    `bd6ba26`, see `products/deploy/releases/2026-11-14-multi-profile-rollout.md`.
-   Refresh 1c ships through a second rollout of the same kind, which again
-   needs a separate OK.
+   Refresh 1c shipped through a second rollout of the same kind, with its own
+   OK: all nine products run `d27cef6` (PaaS `5b84b5d`) since 2026-11-16, see
+   `products/deploy/releases/2026-11-16-paas-5b84b5d-rollout.md`.
 
 Podman host MCP track, cancelled on 2026-11-14 (decision 7):
 
