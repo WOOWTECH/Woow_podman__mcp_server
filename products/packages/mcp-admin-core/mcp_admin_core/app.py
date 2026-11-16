@@ -22,11 +22,12 @@ from .config.store import ConfigAvailabilityMiddleware
 from .launch_policy import LaunchPolicy, set_launch_policy
 from .initial_token import ensure_initial_mcp_token
 from .owner_defaults import apply_owner_defaults
-from .request_limits import McpRequestLimits
+from . import request_body
+from .request_limits import DEFAULT_MAX_TOTAL_ELEMENTS, McpRequestLimits
 from .process import get_process_manager
 from .profiles import ProfileContextMiddleware, get_profile_registry
 from .session_reclaim import SessionReclaimer
-from .proxy import router as proxy_router
+from .proxy import init_budget, router as proxy_router
 from .routers.settings import router as settings_router
 from .routers.tokens import router as tokens_router
 from .routers.operations import router as operations_router
@@ -99,6 +100,8 @@ def create_app(
         private config volume. Existing JWTs without a session ID require login.
     """
     set_launch_policy(launch_policy)
+    # 請求內容位元組預算在啟動時建（LaunchPolicy 已設好）：環境變數寫錯的 WARNING 在這裡就進 stdout 與 Logs 頁。
+    init_budget()
     origin_env = "HEADSCALE_MCP_ALLOWED_ORIGINS" if product_id == "headscale" else "MCP_ADMIN_ALLOWED_ORIGINS"
     # #1614：URL 裡的憑證（/private_<token>、Logs 頁 EventSource 的 ?token=<JWT>）不進 log。
     # 每個 app 都經 create_app 組裝，所以在這裡統一安裝（idempotent）。
@@ -141,6 +144,10 @@ def create_app(
     # Per-app registry: proxy operation selectors must not leak across products.
     app.state.tool_registry = tool_registry
     app.state.mcp_request_limits = mcp_request_limits
+    # 結構守門：沒有自己宣告 McpRequestLimits 的產品也限制 JSON 的巢狀深度與元素個數（見 request_limits.structure_violation）。
+    # 位元組上限維持 request_body 的 16 MiB（read_body 不用這個物件讀內容，只用它的結構上限）。
+    app.state.mcp_structure_limits = mcp_request_limits or McpRequestLimits(
+        max_bytes=request_body.MAX_REQUEST_BODY_BYTES, max_argument_elements=DEFAULT_MAX_TOTAL_ELEMENTS)
     app.state.session_reclaimer = session_reclaimer
     app.state.admin_session_policy = admin_session_policy if admin_session_policy is not None else ConfigAdminSessions()
     # 422 不回顯送出的值（連線設定帶密碼／API key；見 validation_errors）。

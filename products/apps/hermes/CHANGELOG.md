@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-11-17
+
+### Changed（排程說明，只改文字、行為不變）
+- `hermes_cron` 的工具說明補上兩件事：
+  - `enabled=false` 會建成停用的排程。#138 起，建立時同時送 `paused`；目前的 Hermes 只認這個欄位。
+  - Hermes v0.22.x 對停用的排程執行 `trigger` 時，會一併把它改回啟用；要維持停用，需要之後再呼叫 `pause`。
+- 第二點是 2026-11-16 用真 Hermes Agent v0.22.5（和正式站同一個映像）實測確認的。不經 MCP、直接呼叫 Agent API 也一樣，屬於上游行為。
+- README 的安裝前提標明正式站使用 v0.22.5。
+
 ## [Unreleased] - 2026-11-02
 
 ### Changed（與 HA add-on 的 Hermes 錯誤文字對齊）

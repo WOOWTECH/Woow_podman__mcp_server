@@ -55,6 +55,8 @@ products/deploy/manage.sh odoo install --backend-network odoo18-network \
 
 每個產品容器都有記憶體上限（`--memory`，預設 `1g`，至少 `512m`，寫在 env 檔的 `MCP_MEMORY_LIMIT`）。共用核心依這個上限計算還能新增幾個帳號（設定檔）：放不下另一個子行程時，新增帳號會回 409，並說明需要的記憶體。請在建立額外帳號之前就設好上限；之後調低，排在後面的帳號可能因容量不足而無法啟動。`--origins`（`MCP_ADMIN_ALLOWED_ORIGINS`，逗號分隔的精確 http(s) 來源）與 `--origin-mode report-only|enforce`（`MCP_ADMIN_ORIGIN_MODE`，預設 report-only）控制 MCP 請求的 Origin 檢查；`--gateway-connections`、`--gateway-streams`、`--gateway-timeout` 調整每個帳號的閘道連線名額。安裝與升級時會先驗證這些值，不合法就不寫入，避免核心啟動失敗。
 
+大於 64 KiB 的請求內容另有位元組預算（PaaS #155），一樣依這個記憶體上限推導。1 GiB 時，全域和每個帳號的預算都是 16 MiB，剛好放得下一筆最大的請求。正在處理的大請求加上新的一筆超過預算時，新的那筆會收到 `-32003`，要等前面的處理完再重送；64 KiB 以下的一般請求不受影響。需要同時處理多筆大請求時，請調高 `--memory`：2g 時約 46～61 MiB，依產品而定。
+
 Headscale 沿用其專用安裝、Origin 與 cookie 檢查。若本機 18081 已被其他服務使用，指定另一個 port 與相同 Origin：
 
 ```bash

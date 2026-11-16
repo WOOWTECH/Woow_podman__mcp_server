@@ -19,7 +19,8 @@ CRON_UNKNOWN = (
 SENTINEL = "synthetic-body-sentinel"
 
 
-def _install(monkeypatch, *, body, status=200, path, method="GET", transport_error=False):
+def _install(monkeypatch, *, body, status=200, path, method="GET", transport_error=False,
+             post_bodies=None):
     requests = []
     effects = []
     monkeypatch.setenv(
@@ -32,6 +33,8 @@ def _install(monkeypatch, *, body, status=200, path, method="GET", transport_err
     def respond(request):
         requests.append((request.method, request.url.path))
         assert (request.method, request.url.path) == (method, path)
+        if post_bodies is not None and request.method == "POST":
+            post_bodies.append(json.loads(request.content))
         if request.method == "POST" and (status < 300 or status >= 500):
             effects.append("synthetic-cron-created")
         if transport_error:
@@ -193,6 +196,70 @@ async def test_cron_create_success_keeps_existing_result(monkeypatch):
     }
     assert requests == [("POST", "/api/cron/jobs")]
     assert effects == ["synthetic-cron-created"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("enabled_arg", "expected_enabled"),
+    [(False, False), (True, True), (None, True)],
+)
+async def test_cron_create_sends_consistent_pause_flags(monkeypatch, enabled_arg, expected_enabled):
+    post_bodies = []
+    requests, effects = _install(
+        monkeypatch,
+        body={"id": "cron-1", "name": "daily", "schedule": {"expr": "0 9 * * *"}},
+        path="/api/cron/jobs", method="POST", post_bodies=post_bodies,
+    )
+    arguments = {
+        "action": "create", "name": "daily", "schedule": "0 9 * * *", "prompt": "hello",
+    }
+    if enabled_arg is not None:
+        arguments["enabled"] = enabled_arg
+    async with Client(hermes.mcp, mode="legacy") as client:
+        result = await client.call_tool("hermes_cron", arguments)
+    assert not result.is_error
+    assert json.loads(result.content[0].text)["id"] == "cron-1"
+    assert requests == [("POST", "/api/cron/jobs")]
+    assert effects == ["synthetic-cron-created"]
+    assert post_bodies == [{
+        "name": "daily", "schedule": "0 9 * * *", "prompt": "hello",
+        "paused": not expected_enabled, "enabled": expected_enabled,
+    }]
+
+
+@pytest.mark.asyncio
+async def test_cron_create_strict_legacy_schema_rejects_without_unsafe_retry(monkeypatch):
+    # If an older endpoint rejects the new field, do not fall back to a
+    # second POST that could briefly create an active job.
+    posted = []
+    monkeypatch.setenv("HERMES_DASHBOARD_URL", "http://dashboard.synthetic.invalid")
+    monkeypatch.setenv("HERMES_DASHBOARD_USERNAME", "synthetic-user")
+    monkeypatch.setenv("HERMES_DASHBOARD_PASSWORD", "synthetic-password")
+
+    def respond(request):
+        posted.append(json.loads(request.content))
+        if "paused" in posted[-1]:
+            return httpx.Response(422, json={"detail": "extra_forbidden"}, request=request)
+        return httpx.Response(200, json={"id": "legacy-created"}, request=request)
+
+    async def fake_client(_connection):
+        return httpx.AsyncClient(
+            base_url="http://dashboard.synthetic.invalid",
+            transport=httpx.MockTransport(respond),
+        )
+
+    monkeypatch.setattr(hermes, "_get_dashboard_client", fake_client)
+    async with Client(hermes.mcp, mode="legacy") as client:
+        result = await client.call_tool("hermes_cron", {
+            "action": "create", "name": "daily", "schedule": "0 9 * * *",
+            "prompt": "hello", "enabled": False,
+        })
+    assert result.is_error
+    assert "status=422" in result.content[0].text
+    assert posted == [{
+        "name": "daily", "schedule": "0 9 * * *", "prompt": "hello",
+        "paused": True, "enabled": False,
+    }]
 
 
 @pytest.mark.asyncio

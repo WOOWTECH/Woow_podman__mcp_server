@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import time
 from urllib.parse import urlsplit
 
 import httpx
@@ -21,11 +22,12 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette._utils import get_route_path
 from starlette.requests import ClientDisconnect
 
-from . import gateway_pool, protocol_era, request_body, session_reclaim, setup_status, tool_filter, operation_policy
+from . import gateway_pool, protocol_era, request_body, request_budget, session_reclaim, setup_status, tool_filter, operation_policy
 from .mcp_access import AccessChanged, AccessLease, LeasedResponse, LeasedStreamingResponse
 from .config import get_config_store
 from .launch_policy import coerce_port
 from .process import get_process_manager
+from .profiles import DEFAULT_PROFILE, current_profile_id
 from .request_limits import RequestLimitError
 
 logger = logging.getLogger(__name__)
@@ -629,6 +631,159 @@ def _get_client(timeout: float = 86400) -> httpx.AsyncClient:
     return _client
 
 
+_budget: request_budget.RequestBudget | None = None
+
+
+def init_budget() -> request_budget.RequestBudget:
+    """建立全帳號共用的請求內容位元組預算（request_budget.py）。
+
+    ``create_app`` 在啟動時呼叫（LaunchPolicy 已設好）：環境變數與帳號數、子行程記憶體在這時讀，不合法的環境變數的 WARNING
+    也在啟動時出現（容器 stdout 與 Logs 頁），不是等到第一個請求（第二輪 P2-C）。"""
+    global _budget  # noqa: PLW0603
+    _budget = request_budget.RequestBudget()
+    return _budget
+
+
+def _get_budget() -> request_budget.RequestBudget:
+    """目前的預算；``create_app`` 之外（測試、自行組裝）第一次用到才建。"""
+    return _budget if _budget is not None else init_budget()
+
+
+def _parse_unlimited(request: Request, body: bytes, guard, *, legacy_sse: bool):
+    """沒有自己宣告 ``McpRequestLimits`` 的產品（n8n、Headscale 以外）解析 JSON-RPC。
+
+    解析前先過結構守門（``create_app`` 設的 ``app.state.mcp_structure_limits``：容器深度與元素個數）：位元組預算只算 body 的
+    位元組，16 MiB 的 ``[[],[],…]`` 解析後會多出數百 MiB；守門只掃描、不建立物件。超過就拒收（不轉發、不含內容），
+    其餘行為與原本的 ``tool_filter.parse_jsonrpc`` 完全相同（不是 JSON 就是 None，照樣轉給子行程）。"""
+    if request.method != "POST":
+        return None
+    if guard is not None and body:
+        reason = guard.structure_reason(body)
+        if reason is not None:
+            raise request_body.too_complex(body, reason, legacy_sse=legacy_sse)
+    return tool_filter.parse_jsonrpc(body)
+
+
+_ID_WINDOW = 4096
+
+
+def _declared_length(request: Request) -> int | None:
+    """``Content-Length``（不合法或沒有就是 None，改成邊讀邊計）。"""
+    try:
+        value = int(request.headers.get("content-length", ""))
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+def _count_stream(request: Request, reservation: request_budget.Reservation, cap: int) -> None:
+    """沒有 ``Content-Length``（chunked）的請求：每讀一段就向預算登記，超過就停止讀取（拋 :class:`BudgetExceeded`）。
+
+    只換這個請求自己的 ``stream``，讀取內容的函式（``read_body``）不必知道預算的存在。"""
+    original = request.stream
+
+    async def stream():
+        total = 0
+        head = b""
+        async for chunk in original():
+            total += len(chunk)
+            if len(head) < _ID_WINDOW:
+                head += chunk[:_ID_WINDOW - len(head)]
+            try:
+                reservation.grow(total, cap=cap)
+            except request_budget.BudgetExceeded as exc:
+                exc.head = head
+                raise
+            yield chunk
+
+    request.stream = stream  # type: ignore[method-assign]
+
+
+def _watch_idle(request: Request, seconds: float, total_seconds: float | None = None) -> None:
+    """已登記預算的請求讀取內容時，連續 *seconds* 秒沒有新位元組、或整個上傳超過 *total_seconds* 秒，就拋 :class:`BodyIdleTimeout`
+    （由 ``mcp_proxy`` 歸還預算並回覆）。
+
+    只換這個請求自己的 ``stream``。閒置逾時是「兩段內容之間」的空檔；整體期限（第二輪審查 F5）擋住「每隔不到閒置上限就送 1 位元組」
+    的涓流：沒有它，一個登記 16 MiB 的涓流連線可以永遠占著全域預算，讓其他帳號超過約 7 MiB 的請求持續被拒。正常上傳（15 MiB 在
+    預設 300 秒內，約 400 kbps 以上）不受影響。"""
+    original = request.stream
+
+    async def stream():
+        chunks = original().__aiter__()
+        deadline = None if total_seconds is None else time.monotonic() + total_seconds
+        try:
+            while True:
+                wait, by_total = seconds, False
+                if deadline is not None:
+                    remaining = max(0.0, deadline - time.monotonic())
+                    wait, by_total = (remaining, True) if remaining < seconds else (seconds, False)
+                try:
+                    chunk = await asyncio.wait_for(chunks.__anext__(), wait)
+                except StopAsyncIteration:
+                    return
+                except asyncio.TimeoutError:
+                    raise request_budget.BodyIdleTimeout(total_seconds if by_total else seconds, total=by_total) from None
+                yield chunk
+        finally:
+            aclose = getattr(chunks, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+    request.stream = stream  # type: ignore[method-assign]
+
+
+def _idle_timeout_response(exc: request_budget.BodyIdleTimeout, *, rpc=None) -> JSONResponse:
+    if exc.total:
+        message = (f"The request body was not fully received within {exc.seconds:g} seconds, so this request was dropped and its "
+                   "share of the request body budget was released. Retry on a faster connection or send smaller requests. "
+                   f"(請求內容在 {exc.seconds:g} 秒內沒有收完，這個請求已放棄，佔用的請求內容預算已歸還，請在較快的連線重試或改送較小的請求。)")
+    else:
+        message = (f"No request body data arrived for {exc.seconds:g} seconds, so this request was dropped and its share of the "
+                   "request body budget was released. Retry. "
+                   f"(請求內容連續 {exc.seconds:g} 秒沒有收到任何資料，這個請求已放棄，佔用的請求內容預算已歸還，請重試。)")
+    response = _gateway_error(rpc, status=408, code=GATEWAY_BUSY_ERROR_CODE, message=message, retry_after=BUSY_RETRY_AFTER_SECONDS)
+    response.headers["Connection"] = "close"
+    return response
+
+
+def _budget_message(exc: request_budget.BudgetExceeded) -> str:
+    mib = f"{exc.limit / (1024 * 1024):g}"
+    if exc.scope == "profile":
+        english, chinese = "this MCP URL", "這個 MCP 網址"
+    else:
+        english, chinese = "this MCP server (all of its URLs together)", "這台 MCP 伺服器（所有網址合計）"
+    return (f"{english} is already holding {mib} MiB of request bodies, the limit, so this request was not read or sent. "
+            f"Retry shortly, or send smaller requests. ({chinese}目前處理中的請求內容已達上限 {mib} MiB，"
+            "這個請求沒有讀取也沒有送出，請稍後再試，或改送較小的請求。)")
+
+
+async def _refuse_over_budget(request: Request, exc: request_budget.BudgetExceeded, *, declared: int | None,
+                              legacy_sse: bool, profile_id: str) -> Response:
+    """預算放不下這個請求：與「佇列已滿」一致的忙碌回應（POST 帶得出 id 就 200＋-32003＋id＋Retry-After，否則 503＋Retry-After）。
+
+    宣告大小（``Content-Length``）的請求在讀取之前就拒絕，但先把內容讀掉丟棄（不保留，只留頭尾找 id；最多一個單筆上限，
+    見 request_body.read_body 同樣的理由：先回應並關連線，送完才讀回應的用戶端會看到連線重設）。chunked 的請求已經停止讀取。"""
+    head, tail = exc.head, b""
+    if declared is not None:
+        try:
+            async for chunk in request.stream():
+                if len(head) < _ID_WINDOW:
+                    head += chunk[:_ID_WINDOW - len(head)]
+                tail = (tail + chunk[-_ID_WINDOW:])[-_ID_WINDOW:]
+        except ClientDisconnect:
+            return Response(status_code=CLIENT_CLOSED_REQUEST)
+        except request_budget.BodyIdleTimeout:
+            pass  # 拒絕的請求內容送到一半停了：不再等，照樣回拒絕
+    ident = request_body._request_id(head, tail) if request.method == "POST" else None
+    rpc = None if ident is None else {"jsonrpc": "2.0", "id": ident, "method": "unread"}
+    gateway_pool._report(profile_id, "bytes",
+                         "請求內容位元組預算已用完（%s 上限 %d 位元組），新的大請求不讀取、直接拒絕（%s、%s）",
+                         "每帳號" if exc.scope == "profile" else "全域", exc.limit,
+                         request_budget.PER_PROFILE_ENV, request_budget.TOTAL_ENV)
+    return _gateway_error(rpc, status=503, code=GATEWAY_BUSY_ERROR_CODE, message=_budget_message(exc),
+                          retry_after=BUSY_RETRY_AFTER_SECONDS, ok_with_ids=not legacy_sse)
+
+
 async def _read_stream_disabled(store):
     disabled, _ = operation_policy.read_policy(await store.get("tools", {}))
     return disabled
@@ -722,7 +877,18 @@ async def _reclaim_and_retry(upstream_resp, send_upstream, *, lease, store, sess
     include_in_schema=False,
 )
 async def mcp_proxy(token: str, path: str, request: Request) -> StreamingResponse:
-    """Validate the URL-path token and reverse-proxy to the MCP server."""
+    """Validate the URL-path token and reverse-proxy to the MCP server.
+
+    請求內容的位元組預算（request_budget.py）在這裡開、在這裡結：任何路徑（回應、拒絕、例外、取消）離開時都 ``finish``；
+    已經送往子行程的請求，預算再等到子行程的回應結束（transport detach）才真正歸還。"""
+    reservation = _get_budget().open(current_profile_id() or DEFAULT_PROFILE)
+    try:
+        return await _mcp_proxy(token, path, request, reservation)
+    finally:
+        reservation.finish()
+
+
+async def _mcp_proxy(token: str, path: str, request: Request, reservation: request_budget.Reservation) -> StreamingResponse:
     store = get_config_store()
     try:
         lease = await AccessLease.acquire(store, token)
@@ -772,13 +938,36 @@ async def mcp_proxy(token: str, path: str, request: Request) -> StreamingRespons
     # 200＋帶 id，client 只有這次呼叫失敗；否則 413）。legacy SSE 的 POST（/messages/）只看狀態碼。
     legacy_sse = path.startswith("messages")
     limits = getattr(request.app.state, "mcp_request_limits", None)
+    declared = _declared_length(request)
+    cap = limits.max_bytes if limits else request_body.MAX_REQUEST_BODY_BYTES
     try:
+        if declared is None or declared > request_budget.SMALL_REQUEST_BYTES:
+            _watch_idle(request, _get_budget().limits.body_idle_seconds, _get_budget().limits.body_total_seconds)
+        if declared is None:
+            _count_stream(request, reservation, cap)
+        elif declared > 0:
+            reservation.grow(declared, cap=cap)  # 讀取之前就向預算登記；放不下就不讀
         body = await lease.run(limits.read_body(request) if limits else
                                request_body.read_body(request, legacy_sse=legacy_sse))
-        rpc = limits.parse_and_check(body) if limits else (
-            tool_filter.parse_jsonrpc(body) if request.method == "POST" else None
-        )
+        rpc = limits.parse_and_check(body, legacy_sse=legacy_sse) if limits else _parse_unlimited(
+            request, body, getattr(request.app.state, "mcp_structure_limits", None), legacy_sse=legacy_sse)
+    except request_budget.BudgetExceeded as exc:
+        return await _refuse_over_budget(request, exc, declared=declared, legacy_sse=legacy_sse,
+                                         profile_id=reservation.profile_id)
+    except request_budget.BodyIdleTimeout as exc:
+        if exc.total:
+            gateway_pool._report(reservation.profile_id, "body-total",
+                                 "請求內容 %g 秒內沒有收完，放棄這個請求並歸還預算（%s）", exc.seconds, request_budget.BODY_TOTAL_ENV)
+        else:
+            gateway_pool._report(reservation.profile_id, "body-idle",
+                                 "請求內容連續 %g 秒沒有收到資料，放棄這個請求並歸還預算（%s）",
+                                 exc.seconds, request_budget.BODY_IDLE_ENV)
+        return _idle_timeout_response(exc)
     except RequestLimitError as exc:
+        # 結構守門／編碼拒收／超過單筆上限都記一行節流 WARNING（每帳號每情況每 60 秒一行，其餘計入 suppressed），維運才看得到
+        # 哪個帳號一直送病態內容；只有情況與不含內容的短原因，不含請求內容或 token（P2-D，沙盒發現 3）。
+        gateway_pool._report(reservation.profile_id, "body-" + exc.kind, "拒收請求內容（%s，HTTP %d）：%s",
+                             exc.kind, exc.status, exc.log_reason)
         return JSONResponse(exc.payload, status_code=exc.status)
     except AccessChanged:
         raise HTTPException(403, detail="MCP access changed; reconnect using the current shared token")
@@ -820,6 +1009,7 @@ async def mcp_proxy(token: str, path: str, request: Request) -> StreamingRespons
             limits=limits, forward_headers=forward_headers, upstream_url=upstream_url, proxy_cfg=proxy_cfg,
             sessions=sessions, session_id=session_id, generation=generation, pm=pm,
             managed_generation=managed_generation, routable=routable, child_port=coerce_port(mcp_port),
+            reservation=reservation,
         )
     except BaseException:
         if finish is not None:
@@ -835,7 +1025,7 @@ async def mcp_proxy(token: str, path: str, request: Request) -> StreamingRespons
 
 async def _relay(request: Request, path: str, token: str, *, store, lease, body, rpc, legacy_sse, limits,
                  forward_headers, upstream_url, proxy_cfg, sessions, session_id, generation, pm, managed_generation,
-                 routable=None, child_port=None):
+                 routable=None, child_port=None, reservation=None):
     """token 已驗、請求已讀完之後：協定世代、停用的工具／操作、轉發上游與回應處理。
 
     *routable*（``McpProcessManager.forward_generation``）在每次上游送出之前同步檢查：只有通過 OS 身分檢查、
@@ -934,6 +1124,7 @@ async def _relay(request: Request, path: str, token: str, *, store, lease, body,
         # 自己已經在 _bounded_initialize_send 監看斷線，不重複。
         hints = gateway_pool.GatewayHints(
             notification=_carries_no_request(request.method, rpc),
+            reservation=reservation,
             gone=None if startup_generation is not None else (lambda: _client_disconnect(request)),
         )
 

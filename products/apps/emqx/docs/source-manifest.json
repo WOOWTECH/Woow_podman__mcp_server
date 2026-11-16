@@ -33,7 +33,7 @@
     {
       "path": "emqx_mcp_server/http_policy.py",
       "ha_baseline_sha256": null,
-      "adapted_sha256": "1ce7c1f7c3e4c7fd9d942ecaf6aee1ff512cfdbba2c314e253770c7dc6a76e6b",
+      "adapted_sha256": "ab42281de24c251b3f0526311d5a9849c5c15940613d8a2541ee953db7c0927b",
       "changed_from_ha": true
     },
     {

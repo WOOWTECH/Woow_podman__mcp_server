@@ -45,6 +45,7 @@ bypass source-hash failures; review the changed transport and rerun socket tests
   關鍵字 `accept`（預設 `application/json`，只有 `emqx_prometheus_stats` 用 `text/plain`；其他值、`headers` 與其他請求選項
   一律照舊拒絕）；httpx 組不出來的網址（超過 65,536 字元，或值含單獨的 surrogate 而無法編碼）在送出前以
   `DestinationDenied`（`EMQX_DESTINATION_DENIED`）拒絕。傳輸層的來源雜湊檢查與相依套件版本沒有動。
+- `http_policy.py`（2026-11-16，#135）：`BrokerTransport` 的連線池不再保留閒置連線（`max_keepalive_connections` 4 → 0），每個 broker 請求都開一條新的、釘住位址的 TCP 連線，並重新解析、重新檢查目的地位址。原因是網路短暫中斷再恢復後，池裡看起來還活著的舊連線會讓恢復後的第一個請求等到 30 秒逾時。沒有加任何重送（不明確的寫入不會被送兩次）；`retries=0`、`trust_env=False`、來源雜湊檢查與相依套件版本都沒有動。測試在 `tests/test_transport.py`（`test_each_request_resolves_and_uses_fresh_pinned_socket`）。
 - `errors.py`：新增 `text_body`（`json_body` 的文字版：空內容不算成功）。
 - `tools/_common.py`：`path_segment` 拒收空字串、`.`、`..`，並對無法編碼的值回 `EMQX_DESTINATION_DENIED`。
 - `tools/cluster.py`：`emqx_prometheus_stats` 送 `Accept: text/plain`，才會拿到說明所寫的 Prometheus 文字
@@ -54,5 +55,5 @@ bypass source-hash failures; review the changed transport and rerun socket tests
 
 這些改動的測試在 `tests/test_subscription_match_topic.py`、`tests/test_prometheus_accept.py`、
 `tests/test_long_identifiers.py`。`docs/source-manifest.json` 的 `adapted_sha256` 與 `changed_from_ha` 在 2026-11-15 依目前
-檔案重算（先前的修正沒有更新它，重算前有 8 個檔案與記錄不符）；沒有任何測試或腳本比對它。
+檔案重算（先前的修正沒有更新它，重算前有 8 個檔案與記錄不符），2026-11-16 #135 又重算了 `http_policy.py` 一筆；沒有任何測試或腳本比對它。
 `docs/validation-source.json` 是 PR95 當時的來源階段驗證紀錄，沒有改。

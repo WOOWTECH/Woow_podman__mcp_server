@@ -368,7 +368,7 @@ Fully responsive dark-theme layout with collapsible sidebar for mobile devices.
 ### Prerequisites
 
 - **Docker** or **Podman** (for containerized deployment)
-- **Hermes Agent v0.17.0** running with Gateway API (:8642) and Dashboard API (:9119) accessible
+- **Hermes Agent v0.17.0 or v0.22.x** (production runs v0.22.5) running with Gateway API (:8642) and Dashboard API (:9119) accessible
 - **Python 3.12+** (for development only)
 - **Node 26+** (for frontend development only; CI and images use 26.12.1)
 

@@ -43,7 +43,7 @@ from typing import Any
 
 from fastapi import Request
 
-from .request_limits import DRAIN_BYTES, RequestLimitError
+from .request_limits import DRAIN_BYTES, NOT_UTF8_REASON, RequestLimitError
 
 #: 每個 Python MCP 子行程與 admin 閘道（n8n 除外）接受的最大請求內容（位元組）。
 MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024
@@ -176,7 +176,27 @@ def too_large(head: bytes = b"", tail: bytes = b"", *, legacy_sse: bool,
                f"{_ADVICE[0]} (MCP 請求內容超過本伺服器 {size} 上限，未處理；{_ADVICE[1]})")
     ident = _request_id(head, tail)
     content, status = _refusal(message, [] if ident is None else [ident], batch=False, legacy_sse=legacy_sse)
-    return RequestLimitError(message, status=status, code=ERROR_CODE, rpc_id=content["id"])
+    return RequestLimitError(message, status=status, code=ERROR_CODE, rpc_id=content["id"],
+                             kind="too-large", log_reason=f"body exceeds {size}")
+
+
+def too_complex(body: bytes, reason: str, *, legacy_sse: bool) -> RequestLimitError:
+    """閘道拒收結構過深或元素過多的請求（``McpRequestLimits.structure_reason``）：與 :func:`too_large` 同一種回應
+    （知道 id 就 200＋帶該 id 的 JSON-RPC 錯誤；否則 413），id 從頭尾找。訊息只含上限與處理方式，不含內容。
+    編碼不是 UTF-8（UTF-16/32，``reason == NOT_UTF8_REASON``）用編碼專用訊息，不說「結構太複雜」。"""
+    if reason == NOT_UTF8_REASON:
+        message = ("MCP request body was refused because it is not UTF-8 text (UTF-16 and UTF-32 are not accepted) and was "
+                   "not processed. Send the request as UTF-8. (MCP 請求內容不是 UTF-8 文字（不接受 UTF-16、UTF-32），未處理；"
+                   "請改用 UTF-8 傳送。)")
+    else:
+        message = (f"MCP request body was refused because its JSON structure is too complex ({reason}) and was not processed. "
+                   "Send fewer or flatter items per call: split the work into several calls, and send file contents as one "
+                   "string. (MCP 請求內容的 JSON 結構過於複雜，未處理；請減少每次呼叫的項目數或巢狀層數，拆成多次呼叫，"
+                   "檔案內容請以單一字串傳送。)")
+    ident = _request_id(body[:_WINDOW], body[-_WINDOW:])
+    content, status = _refusal(message, [] if ident is None else [ident], batch=False, legacy_sse=legacy_sse)
+    return RequestLimitError(message, status=status, code=ERROR_CODE, rpc_id=content["id"],
+                             kind="encoding" if reason == NOT_UTF8_REASON else "structure", log_reason=reason)
 
 
 async def read_body(request: Request, *, legacy_sse: bool, limit: int = MAX_REQUEST_BODY_BYTES) -> bytes:

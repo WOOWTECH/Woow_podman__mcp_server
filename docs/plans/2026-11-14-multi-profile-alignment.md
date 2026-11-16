@@ -45,6 +45,13 @@ separate explicit OK.
    (#149, query credentials masked in logs; #151, VK removed upstream;
    #152-#154, Nextcloud and EMQX fixes) and released the same way. It merges
    only after the owner accepts the review of #149 and #151-#154.
+9. After the second rollout, `products/` is refreshed to PaaS `48f394d`
+   (#155, gateway request-bytes budget and JSON structure guard; #135 and
+   #139, EMQX and LiteLLM reconnect fixes; #138 and #156, Hermes cron jobs
+   created disabled stay paused) and released the same way. It merges only
+   after the owner accepts the review of #135, #138, #139, #155 and #156.
+   The Hermes cron follow-up (verify the created state, `update` with
+   `enabled`) is still under Gitea review and comes in a later refresh.
 
 ## Starting point
 
@@ -77,7 +84,8 @@ Products track:
 1. Refresh `products/` to the approved PaaS commit: vendored source,
    provenance and source snapshot. No host change. A second refresh (1b)
    moves the pin to `5a06d53` before the release (decision 6), and a third
-   (1c) moves it to `5b84b5d` after the release (decision 8).
+   (1c) moves it to `5b84b5d` after the release (decision 8), and a fourth
+   (1d) moves it to `48f394d` (decision 9).
 2. Podman deploy layer for several profiles: a container memory ceiling so
    the core's capacity check applies, a restore that leaves every profile
    token revoked, validated Origin and gateway settings, a second-profile
