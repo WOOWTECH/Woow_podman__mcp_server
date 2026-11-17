@@ -97,6 +97,9 @@ def dashboard_json(response: httpx.Response, *, require_object: bool = False) ->
 #   CHAT_TURN_FAILED                 the Gateway finished the chat turn as failed / incomplete / cancelled
 #   SESSION_DELETE_OUTCOME_UNKNOWN   (existing) a session delete may or may not have been committed
 #   CRON_CREATE_OUTCOME_UNKNOWN      (existing) a cron create may or may not have been committed
+#   CRON_CREATE_NOT_DISABLED         a job created with enabled=false came back enabled and could not be
+#                                    paused, so it was deleted; nothing is scheduled
+#   CRON_CREATE_LEFT_ENABLED         as above, but deleting it failed too: the job exists and is enabled
 # ---------------------------------------------------------------------------
 
 INVALID_INPUT = "INVALID_INPUT"
@@ -105,6 +108,8 @@ CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"
 CONFIG_NOT_APPLIED = "CONFIG_NOT_APPLIED"
 CHAT_TURN_FAILED = "CHAT_TURN_FAILED"
 BACKEND_UNEXPECTED_RESPONSE = "BACKEND_UNEXPECTED_RESPONSE"
+CRON_CREATE_NOT_DISABLED = "CRON_CREATE_NOT_DISABLED"
+CRON_CREATE_LEFT_ENABLED = "CRON_CREATE_LEFT_ENABLED"
 
 
 def coded(code: str, text: str) -> str:

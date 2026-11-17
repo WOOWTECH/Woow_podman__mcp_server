@@ -961,6 +961,37 @@ def _cron_create_unknown() -> errors.HermesBackendError:
     )
 
 
+async def _cron_pause_or_rollback(client: httpx.AsyncClient, job_id: str) -> dict[str, Any]:
+    """A job created with ``enabled=false`` came back enabled: a Hermes that ignores ``paused`` on create.
+
+    Pause it at once. If Hermes cannot pause it, delete it, so nothing the caller wanted disabled stays
+    scheduled. Returns the paused job as Hermes reports it. The create is never sent again.
+    """
+    path = f"/api/cron/jobs/{guards.path_segment(job_id, 'job_id')}"
+    try:
+        resp = await _resource_request(client, "POST", f"{path}/pause", "cron job", job_id)
+        paused = errors.dashboard_json(resp, require_object=True)
+        if paused.get("enabled") is False:
+            return paused
+    except (httpx.HTTPError, HermesNotFoundError,
+            errors.DashboardResponseDecodeError, errors.DashboardResponseShapeError):
+        pass
+    try:
+        await _resource_request(client, "DELETE", path, "cron job", job_id)
+    except HermesNotFoundError:
+        pass  # already gone
+    except httpx.HTTPError:
+        raise errors.coded_error(errors.CRON_CREATE_LEFT_ENABLED, (
+            f"Hermes created cron job {job_id!r} enabled although enabled=false was asked, and the job "
+            "could not be paused or deleted. Pause or delete it now; it can run on its schedule."
+        )) from None
+    raise errors.coded_error(errors.CRON_CREATE_NOT_DISABLED, (
+        "Hermes created the cron job enabled although enabled=false was asked, and could not pause it, "
+        "so the job was deleted; nothing is scheduled. This Hermes ignores paused on create: create the "
+        "job enabled and pause it, or update Hermes."
+    ))
+
+
 @mcp.tool()
 @_backend_errors("dashboard")
 async def hermes_cron(
@@ -968,7 +999,7 @@ async def hermes_cron(
     name: str | None = None,
     schedule: str | None = None,
     prompt: str | None = None,
-    enabled: bool = True,
+    enabled: bool | None = None,
     job_id: str | None = None,
 ) -> str:
     """Manage Hermes cron/scheduled jobs.
@@ -977,7 +1008,8 @@ async def hermes_cron(
     - list: show all cron jobs
     - create: new job (requires name, schedule, prompt); enabled=false creates
       it paused, so it does not run until resumed
-    - update: modify job (requires job_id, plus fields to change)
+    - update: modify job (requires job_id, plus fields to change: prompt, schedule,
+      name, enabled); enabled=false pauses the job, enabled=true resumes it
     - delete: remove job (requires job_id)
     - trigger: run job now (requires job_id). Hermes v0.22.x also resumes a
       paused job when it is triggered; call pause afterwards if it should
@@ -1018,11 +1050,12 @@ async def hermes_cron(
         if action == "create":
             if not name or not schedule or not prompt:
                 return json.dumps({"error": "name, schedule, and prompt are all required"})
+            wanted = enabled is not False
             try:
-                # Current Hermes uses paused; retain enabled for older APIs.
+                # Current Hermes uses paused (stored paused in one write); retain enabled for older APIs.
                 resp = await client.post("/api/cron/jobs", json={
                     "name": name, "schedule": schedule, "prompt": prompt,
-                    "paused": not enabled, "enabled": enabled,
+                    "paused": not wanted, "enabled": wanted,
                 }, extensions={"hermes_no_auth_retry": True})
             except httpx.HTTPError:
                 raise _cron_create_unknown() from None
@@ -1051,12 +1084,19 @@ async def hermes_cron(
                     data.get("next_run_at") is None
                     or type(data["next_run_at"]) in (str, int)
                 )
+                errors.dashboard_shape(data.get("enabled") is None or type(data["enabled"]) is bool)
             except (errors.DashboardResponseDecodeError, errors.DashboardResponseShapeError):
                 raise _cron_create_unknown() from None
+            created_enabled, next_run = data.get("enabled"), data.get("next_run_at")
+            if enabled is False and created_enabled is not False:
+                paused = await _cron_pause_or_rollback(client, str(data["id"]))
+                created_enabled = False
+                next_run = paused.get("next_run_at") if type(paused.get("next_run_at")) in (str, int) else None
             return json.dumps({
                 "ok": True, "id": data.get("id"), "name": data.get("name"),
                 "schedule": data.get("schedule", {}).get("expr") if isinstance(data.get("schedule"), dict) else schedule,
-                "next_run": data.get("next_run_at"),
+                "enabled": created_enabled,
+                "next_run": next_run,
             }, indent=2, default=str)
 
         if action == "update":
@@ -1069,11 +1109,22 @@ async def hermes_cron(
                 updates["schedule"] = schedule
             if name is not None:
                 updates["name"] = name
-            if not updates:
-                return json.dumps({"error": "provide at least one field to update (prompt, schedule, name)"})
-            await _resource_request(client, "PUT", f"/api/cron/jobs/{guards.path_segment(job_id, 'job_id')}", "cron job", job_id,
-                                    json={"updates": updates})
-            return json.dumps({"ok": True, "updated": job_id}, indent=2)
+            if not updates and enabled is None:
+                return json.dumps({"error": "provide at least one field to update (prompt, schedule, name, enabled)"})
+            path = f"/api/cron/jobs/{guards.path_segment(job_id, 'job_id')}"
+            # Hermes keeps a job's run state in several fields, so enabled goes through pause/resume and
+            # never through PUT, which merges fields as given. Pausing comes first and resuming last, so
+            # the job never runs with half-applied changes.
+            if enabled is False:
+                await _resource_request(client, "POST", f"{path}/pause", "cron job", job_id)
+            if updates:
+                await _resource_request(client, "PUT", path, "cron job", job_id, json={"updates": updates})
+            if enabled is True:
+                await _resource_request(client, "POST", f"{path}/resume", "cron job", job_id)
+            result: dict[str, Any] = {"ok": True, "updated": job_id}
+            if enabled is not None:
+                result["enabled"] = enabled
+            return json.dumps(result, indent=2)
 
         if action == "delete":
             if not job_id:

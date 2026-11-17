@@ -192,7 +192,7 @@ async def test_cron_create_success_keeps_existing_result(monkeypatch):
         )
     assert not result.is_error
     assert json.loads(result.content[0].text) == {
-        "ok": True, "id": "cron-1", "name": "daily", "schedule": "0 9 * * *", "next_run": None,
+        "ok": True, "id": "cron-1", "name": "daily", "schedule": "0 9 * * *", "enabled": None, "next_run": None,
     }
     assert requests == [("POST", "/api/cron/jobs")]
     assert effects == ["synthetic-cron-created"]
@@ -205,9 +205,10 @@ async def test_cron_create_success_keeps_existing_result(monkeypatch):
 )
 async def test_cron_create_sends_consistent_pause_flags(monkeypatch, enabled_arg, expected_enabled):
     post_bodies = []
+    # Hermes reports the stored state; a job not reported disabled is paused (test_cron_enabled.py).
     requests, effects = _install(
         monkeypatch,
-        body={"id": "cron-1", "name": "daily", "schedule": {"expr": "0 9 * * *"}},
+        body={"id": "cron-1", "name": "daily", "schedule": {"expr": "0 9 * * *"}, "enabled": expected_enabled},
         path="/api/cron/jobs", method="POST", post_bodies=post_bodies,
     )
     arguments = {
@@ -296,7 +297,7 @@ async def test_cron_create_keeps_valid_integer_id_and_next_run(monkeypatch):
         )
     assert not result.is_error
     assert json.loads(result.content[0].text) == {
-        "ok": True, "id": 0, "name": None, "schedule": "0 9 * * *", "next_run": 123,
+        "ok": True, "id": 0, "name": None, "schedule": "0 9 * * *", "enabled": None, "next_run": 123,
     }
     assert requests == [("POST", "/api/cron/jobs")]
     assert effects == ["synthetic-cron-created"]
