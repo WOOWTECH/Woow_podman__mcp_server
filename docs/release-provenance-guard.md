@@ -183,8 +183,10 @@ guard has passed.
 On 2026-11-14 the owner released Podman `bd6ba26`, which carries the pin
 `5a06d533eb433ad511bba8e2db946a0de922925d`, without a signed manifest. On
 2026-11-16 the owner released Podman `d27cef6`, which carries the pin
-`5b84b5d0fc70ab96a580629f1377ab65159ea96d`, the same way. The fork base is
-not released yet. The images, the checks run before each rollout and the
-rollouts themselves are recorded in
-`products/deploy/releases/2026-11-14-multi-profile-rollout.md` and
-`products/deploy/releases/2026-11-16-paas-5b84b5d-rollout.md`.
+`5b84b5d0fc70ab96a580629f1377ab65159ea96d`, the same way. On 2026-11-17 the
+owner released Podman `07fec87`, which carries the fork base and the first
+change made here (#39), the same way. The images, the checks run before each
+rollout and the rollouts themselves are recorded in
+`products/deploy/releases/2026-11-14-multi-profile-rollout.md`,
+`products/deploy/releases/2026-11-16-paas-5b84b5d-rollout.md` and
+`products/deploy/releases/2026-11-17-podman-owned-rollout.md`.
