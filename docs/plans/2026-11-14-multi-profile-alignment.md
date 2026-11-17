@@ -104,6 +104,10 @@ Products track:
    Refresh 1c shipped through a second rollout of the same kind, with its own
    OK: all nine products run `d27cef6` (PaaS `5b84b5d`) since 2026-11-16, see
    `products/deploy/releases/2026-11-16-paas-5b84b5d-rollout.md`.
+   Refresh 1d and the first change made here after decision 10 (#39, Hermes
+   cron) shipped through a third rollout, which the owner approved in advance:
+   all nine products run `07fec87` since 2026-11-17, see
+   `products/deploy/releases/2026-11-17-podman-owned-rollout.md`.
 
 Podman host MCP track, cancelled on 2026-11-14 (decision 7):
 
