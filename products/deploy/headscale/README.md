@@ -1,7 +1,8 @@
 # Headscale MCP for Podman
 
-此產品使用與 PaaS Headscale MCP 相同的專用管理 GUI、29 項 Headscale v0.29.4 原生 API
-操作與共用核心。`products/PROVENANCE.md` 記錄固定來源版本及唯一的應用層部署識別差異。
+此產品的專用管理 GUI、29 項 Headscale v0.29.4 原生 API 操作與共用核心，是從 PaaS
+Headscale MCP 複製過來的，2026-11-17 起由這個 repo 維護。`products/PROVENANCE.md` 記錄複製時的
+PaaS 版本，以及當時唯一的應用層部署識別差異。
 管理 GUI 可建立多個設定檔，各自保存 Headscale API 連線、MCP 權杖及工具政策；切換
 設定檔前會清除畫面上舊設定檔的快取狀態，避免跨設定檔操作。
 Headscale 容器沒有 Podman socket 權限。
@@ -98,7 +99,7 @@ MCP token 一律撤銷，管理密碼改為 `headscale-mcp-admin-password` secre
 
 ```bash
 products/deploy/headscale/scripts/smoke.sh
-python3 products/scripts/check-headscale-parity.py --source-checkout /path/to/woow-mcp-server
+python3 products/scripts/check-release-wiring.py
 cd products
 .venv/bin/pytest -q apps/headscale/tests deploy/headscale/tests
 ```

@@ -3,8 +3,10 @@
 [English](README.md) · **繁體中文**
 
 此 repo 在 [`products/`](products/README.md) 提供 9 個產品：Headscale、EMQX、Hermes、
-n8n、Odoo、LiteLLM、Nextcloud、OpenDesign 和 K8s。它們共用 PaaS 的應用、核心和前端
-原始碼。每個產品使用獨立的 rootless Podman Quadlet、port、volume 與憑證，且不掛載
+n8n、Odoo、LiteLLM、Nextcloud、OpenDesign 和 K8s。它們的應用、核心和前端原始碼在
+2026-11-17 從 PaaS 複製過來，之後由這個 repo 自行維護，不再同步（見
+[products/PROVENANCE.md](products/PROVENANCE.md)）。每個產品使用獨立的 rootless
+Podman Quadlet、port、volume 與憑證，且不掛載
 Podman socket。
 
 ```bash
@@ -45,7 +47,7 @@ Woow_quadlet_migration_plan 同步過來的，由 `.github/workflows/tests.yml` 
 ## 目錄
 
 ```
-products/                   9 個產品：vendored PaaS 原始碼、部署腳本、Quadlet
+products/                   9 個產品：產品原始碼（從 PaaS 複製）、部署腳本、Quadlet
 docs/                       計畫文件與發行證明說明
 scripts/lib/                vendored quadlet-lib（products/deploy 會載入）
 tests/                      quadlet-lib 檢查（lib-version.sh、lock-release.sh）

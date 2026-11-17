@@ -28,7 +28,7 @@ jobs:
           node-version: '26.12.1'
           cache: npm
           cache-dependency-path: products/package-lock.json
-      - name: Sync the locked PaaS workspace
+      - name: Sync the locked products workspace
         run: uv sync --directory products --all-packages --all-extras --frozen
       - name: Install locked frontend and native n8n fixtures
         run: |

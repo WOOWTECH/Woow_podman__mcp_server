@@ -52,6 +52,12 @@ separate explicit OK.
    after the owner accepts the review of #135, #138, #139, #155 and #156.
    The Hermes cron follow-up (verify the created state, `update` with
    `enabled`) is still under Gitea review and comes in a later refresh.
+10. On 2026-11-17, after the refresh to `48f394d`, the owner decoupled
+    `products/` from PaaS. This repository owns the product source from then
+    on, the refreshes end, and a PaaS change comes over only when someone
+    ports it by hand. `48f394d` stays in the catalog as the fork base.
+    Decision 4 no longer applies: product changes, including the Hermes cron
+    follow-up from decision 9, are made here.
 
 ## Starting point
 
@@ -85,7 +91,8 @@ Products track:
    provenance and source snapshot. No host change. A second refresh (1b)
    moves the pin to `5a06d53` before the release (decision 6), and a third
    (1c) moves it to `5b84b5d` after the release (decision 8), and a fourth
-   (1d) moves it to `48f394d` (decision 9).
+   (1d) moves it to `48f394d` (decision 9). Decision 10 ends the refreshes
+   after 1d.
 2. Podman deploy layer for several profiles: a container memory ceiling so
    the core's capacity check applies, a restore that leaves every profile
    token revoked, validated Origin and gateway settings, a second-profile

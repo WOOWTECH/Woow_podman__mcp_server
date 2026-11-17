@@ -6,6 +6,13 @@ upgrade without an independently reviewed release proof stops before changing
 the env file, secrets, volume, backup, or Quadlet unit. Existing running units
 are not changed by this branch.
 
+Since 2026-11-17 this repository owns the product source, and the catalog's
+`paas_source_commit` is the PaaS fork base (decision 10 in
+`docs/plans/2026-11-14-multi-profile-alignment.md`). The signed path below
+still compares the products with a canonical PaaS checkout. That comparison
+fails as soon as Podman changes product source, so the signed path needs a
+redesign before a signing key is used again. Until then, releases are unsigned.
+
 ## Release record and operator path
 
 The release authority signs the exact bytes of a JSON manifest with an
@@ -119,7 +126,9 @@ What is lost:
   who can run commands as the deployment user can release an image built from
   a merged commit without that approval.
 - The installer does not re-check the canonical archive hash or the
-  canonical-to-Podman parity. CI checks parity on every merge to `main`.
+  canonical-to-Podman parity. Since the fork, product source is reviewed in
+  this repository's pull requests instead, and CI checks the release image
+  bindings on every merge to `main`.
 - No signed record states which images were approved. A release for
   customers or an audited environment should use the signed path.
 
@@ -158,22 +167,23 @@ The multi-profile hardening (Gitea #140-#146), the gateway queue fixes
 the VK removal (Gitea #151), the Nextcloud and EMQX fixes (Gitea
 #152-#154), the gateway request-bytes budget (Gitea #155), the EMQX and
 LiteLLM reconnect fixes (Gitea #135, #139) and the Hermes cron fix (Gitea
-#138, #156) are in canonical Gitea `48f394d6fbce3c38a22b75f06e51ec208f230d91`.
-The Podman catalog pins that exact commit, and both direct parity checks passed
-against a clean checkout of it. The Headscale product version is
-`0.1.7-podman.1`.
+#138, #156) are in Gitea `48f394d6fbce3c38a22b75f06e51ec208f230d91`, the
+PaaS fork base. The Podman catalog records that commit, and both direct parity
+checks passed against a clean checkout of it when the products were copied.
+This repository has maintained the product source since 2026-11-17. The
+Headscale product version is `0.1.7-podman.1`.
 
 The signing key, reviewed image identity, signed manifest, and live Quadlet
 upgrade are separate release artifacts. This source branch does not include
 them. The EMQX [#135](https://git-prod.woowtech.io/WOOWTECH/woow-mcp-server/pulls/135),
 which this section used to list as an unreviewed draft, is merged in Gitea and
-part of this pin. Existing running Quadlets are not evidence that the release
+part of the fork base. Existing running Quadlets are not evidence that the release
 guard has passed.
 
 On 2026-11-14 the owner released Podman `bd6ba26`, which carries the pin
 `5a06d533eb433ad511bba8e2db946a0de922925d`, without a signed manifest. On
 2026-11-16 the owner released Podman `d27cef6`, which carries the pin
-`5b84b5d0fc70ab96a580629f1377ab65159ea96d`, the same way. The current pin is
+`5b84b5d0fc70ab96a580629f1377ab65159ea96d`, the same way. The fork base is
 not released yet. The images, the checks run before each rollout and the
 rollouts themselves are recorded in
 `products/deploy/releases/2026-11-14-multi-profile-rollout.md` and
