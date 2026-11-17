@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-11-17
 
+### Fixed（`hermes_cron`：確認停用建立的排程真的停用；`update` 可暫停／恢復）
+- `create` 的結果多了 `enabled`（Hermes 實際存下的狀態）。要求停用、Hermes 卻回報啟用時（`paused` 與 `enabled` 都不認的
+  Hermes），就立刻暫停；暫停不了就刪除並回 `CRON_CREATE_NOT_DISABLED`；連刪除都失敗則回 `CRON_CREATE_LEFT_ENABLED`，
+  附 job id。建立請求不會重送。
+- `update` 支援 `enabled`，也可以只給 `enabled`：`false` 先暫停再改其他欄位，`true` 改完其他欄位才恢復。
+  啟用狀態只走 pause／resume，不經過 `PUT`：Hermes 原樣合併 `PUT` 的欄位，會留下不一致的 `state`。
+- `enabled` 參數沒給時是 `None`：`create` 照舊建立成啟用（送出的內容和 #138 相同），`update` 不改啟用狀態。
+
 ### Changed（排程說明，只改文字、行為不變）
 - `hermes_cron` 的工具說明補上兩件事：
   - `enabled=false` 會建成停用的排程。#138 起，建立時同時送 `paused`；目前的 Hermes 只認這個欄位。

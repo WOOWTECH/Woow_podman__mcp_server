@@ -36,7 +36,12 @@ The GitHub mirror of PaaS keeps following Gitea, so it is a convenient source.
 
 ### Changes made here since the fork
 
-None yet.
+- 2026-11-17, Hermes cron (shared images `paas-48f394d-podman.2`): a job
+  created with `enabled=false` is checked against the state Hermes saved. If it
+  still came out enabled, it is paused, or deleted when the pause fails, and the
+  create is never resent. `update` takes `enabled` and pauses or resumes the job
+  through the pause and resume endpoints only. Taken from the PaaS mirror's PR
+  #6 (commit `f82f2aa`, on top of the fork base), which PaaS has not merged.
 
 ## History before the fork
 
