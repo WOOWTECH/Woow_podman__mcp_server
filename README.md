@@ -4,9 +4,11 @@
 
 This repository holds a [nine-product MCP workspace](products/README.md) under
 `products/`: Headscale, EMQX, Hermes, n8n, Odoo, LiteLLM, Nextcloud, OpenDesign
-and K8s. The workspace shares the PaaS application/core/frontend source and
-deploys each product with its own rootless Podman Quadlet, port, volume and
-credentials. Product containers do not mount the Podman socket.
+and K8s. Their application/core/frontend source was copied from PaaS on
+2026-11-17 and is maintained here since then, without further syncing (see
+[products/PROVENANCE.md](products/PROVENANCE.md)). Each product deploys with
+its own rootless Podman Quadlet, port, volume and credentials. Product
+containers do not mount the Podman socket.
 
 ```bash
 products/deploy/manage.sh list
@@ -50,7 +52,7 @@ source it. It is vendored from Woow_quadlet_migration_plan, and
 ## Layout
 
 ```
-products/                   the nine products: vendored PaaS source, deploy scripts, Quadlets
+products/                   the nine products: product source (copied from PaaS), deploy scripts, Quadlets
 docs/                       plans and the release provenance guard
 scripts/lib/                vendored quadlet-lib (sourced by products/deploy)
 tests/                      quadlet-lib checks (lib-version.sh, lock-release.sh)

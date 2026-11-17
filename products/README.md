@@ -1,6 +1,6 @@
 # Woow MCP 產品工作區（Podman / Quadlet）
 
-這個工作區提供與 PaaS 同一份 `mcp-admin-core`、產品 API adapter、MCP 工具政策與管理前端。各產品使用獨立的 rootless Podman 容器、網路、資料 volume、金鑰與 Quadlet；共用管理入口是 [`deploy/manage.sh`](deploy/manage.sh)。原本在 repo 根目錄的 Podman 主機 MCP 已於 2026-11-14 退役。此版同步 PaaS 的多設定檔連線：管理 GUI 可為不同後端建立獨立的連線、權杖與工具授權，切換時不共用設定檔狀態。
+這個工作區的 `mcp-admin-core`、產品 API adapter、MCP 工具政策與管理前端，是 2026-11-17 從 PaaS `48f394d` 複製過來的，之後由這個 repo 自行維護，不再與 PaaS 同步（見 [`PROVENANCE.md`](PROVENANCE.md)）。各產品使用獨立的 rootless Podman 容器、網路、資料 volume、金鑰與 Quadlet；共用管理入口是 [`deploy/manage.sh`](deploy/manage.sh)。原本在 repo 根目錄的 Podman 主機 MCP 已於 2026-11-14 退役。它沿用 PaaS 的多設定檔連線：管理 GUI 可為不同後端建立獨立的連線、權杖與工具授權，切換時不共用設定檔狀態。
 
 | 產品 | 預設本機 GUI port | 來源與發布狀態 |
 | --- | ---: | --- |
@@ -82,10 +82,10 @@ products/deploy/manage.sh emqx uninstall --dry-run
 
 ## 來源與驗證
 
-PaaS 來源固定在 [`deploy/catalog.json`](deploy/catalog.json) 的 commit。9 個新增產品的功能程式與管理前端直接取自該版本；差異限於部署識別、容器啟動、Podman 4.9 的 K8s 下載後同 SHA256 驗證，以及部署相關測試。詳細差異見 [`PROVENANCE.md`](PROVENANCE.md)。
+產品程式自 2026-11-17 起由這個 repo 維護。[`deploy/catalog.json`](deploy/catalog.json) 的 `paas_source_commit` 記錄複製時的 PaaS 版本 `48f394d`。複製當時，9 個產品的功能程式與管理前端和該版本相同，差異只在部署識別、容器啟動、Podman 4.9 的 K8s 下載後同 SHA256 驗證，以及部署相關測試。之後不再與 PaaS 同步：PaaS 的修正有需要時再手動帶過來，做法和紀錄見 [`PROVENANCE.md`](PROVENANCE.md)。
 
 ```bash
-python3 products/scripts/check-all-parity.py --source-checkout /path/to/woow-mcp-server
+python3 products/scripts/check-release-wiring.py
 products/deploy/shared/tests/quadlet-dryrun.sh
 cd products
 uv sync --all-packages --all-extras --frozen

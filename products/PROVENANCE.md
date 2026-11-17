@@ -1,8 +1,47 @@
-# MCP product source and parity
+# MCP product source
 
-The nine active `products/apps/*` and `products/packages/mcp-admin-core` and
-`mcp-admin-ui` trees come from `WOOWTECH/woow-mcp-server` `main` commit
-`48f394d6fbce3c38a22b75f06e51ec208f230d91` (Gitea, 2026-11-16). Since the
+## Ownership since 2026-11-17
+
+This repository owns the product source. The nine active `products/apps/*`
+trees and `products/packages/mcp-admin-core` and `mcp-admin-ui` were copied
+from PaaS `WOOWTECH/woow-mcp-server` `main` commit
+`48f394d6fbce3c38a22b75f06e51ec208f230d91` (Gitea, 2026-11-16), the fork base.
+On 2026-11-17 the owner stopped syncing them from PaaS (decision 10 in
+`docs/plans/2026-11-14-multi-profile-alignment.md`). Changes to the product
+source are made and reviewed in pull requests here. A PaaS change comes over
+only when someone ports it by hand.
+
+- `deploy/catalog.json` keeps the fork base in `paas_source_commit`. Release
+  images carry it in the `io.woowtech.canonical-source` label, and the shared
+  image version keeps the form `paas-48f394d-podman.N`. A release that changes
+  product source raises `N`. Headscale keeps its own `VERSION`.
+- CI runs `scripts/check-release-wiring.py`, which replaces the vendored-source
+  snapshot. It checks the release image bindings, not the source.
+- `scripts/check-all-parity.py` and `scripts/check-headscale-parity.py` compare
+  with a PaaS checkout of the fork base and list every file that differs. CI no
+  longer runs them. The signed release path, dormant while releases are
+  unsigned, still calls them, so it needs a redesign before a signing key is
+  used again.
+- The HA tool-name check described below still runs in CI. A change that adds
+  or renames a tool must update it.
+
+### Porting a PaaS change by hand
+
+The GitHub mirror of PaaS keeps following Gitea, so it is a convenient source.
+
+1. Apply the change's diff under `products/`, for example
+   `git -C /path/to/woow-mcp-server diff BEFORE AFTER -- apps packages | git apply -3 --directory=products`.
+2. Run the affected product tests, open a pull request here, and add an entry
+   to the list below.
+
+### Changes made here since the fork
+
+None yet.
+
+## History before the fork
+
+The fork base `48f394d6fbce3c38a22b75f06e51ec208f230d91` (Gitea, 2026-11-16)
+was the last PaaS pin. Since the
 previous pin `5b84b5d0fc70ab96a580629f1377ab65159ea96d`, Gitea merged #155
 (gateway request-bytes budget: request bodies over 64 KiB count against a
 gateway-wide and a per-profile byte budget derived from the container memory
@@ -47,9 +86,9 @@ optional PaaS binding. The HA Add-on's Headscale child came from the same
 source family at `d7c78aaeff001f5fcf87f69ecd3db290396a5906`, with HA-specific
 authorization and ingress adaptation.
 
-For the Headscale application/core code, the only source edit is
+At the fork base, the only Headscale application/core source edit was
 `deployment_kind="podman"` in `apps/headscale/headscale_mcp_admin/main.py`.
-For the other eight products, application and UI source is identical except:
+For the other eight products, application and UI source was identical except:
 
 - each `main.py` reports `deployment_kind="podman"`;
 - each application Dockerfile starts through the shared first-boot bootstrap;
@@ -70,27 +109,23 @@ vendored unchanged only because the shared core tests read it; it does not
 describe a Podman procedure.
 
 The root Podman host MCP, which used MCP SDK 1.x, was retired on 2026-11-14.
-MCP products use this `products/` workspace and the same shared admin core
-as the PaaS source. The Headscale product resolves the
+MCP products use this `products/` workspace and the shared admin core
+copied from PaaS. The Headscale product resolves the
 listed protocol/security dependency versions from the PaaS lock; the local
 `uv.lock` records the full Podman product graph.
 
-Run `python products/scripts/check-headscale-parity.py --source-checkout PATH`
-and `python products/scripts/check-all-parity.py --source-checkout PATH` against
-a checkout containing the pinned PaaS commit before refreshing the vendored
-source. The latter checks every tracked application, core-test and frontend file
-against the exact deployment-specific transformations listed above.
-After both pass, run `python3 products/scripts/check-source-snapshot.py
---refresh-from PATH`. GitHub CI checks this reviewed snapshot because GitHub
-Hosted Runners are redirected to Cloudflare Access when cloning Gitea.
-The snapshot detects vendored-file and image-version drift in the Podman repo;
-it does not independently prove that Gitea's live `main` still equals the pin.
+Until the fork, every refresh had to pass both parity scripts against a clean
+checkout of the new pin, and CI checked a snapshot of the vendored files
+(`source-parity-snapshot.json`), because GitHub-hosted runners cannot clone
+Gitea. The snapshot was removed at the fork.
+
+## HA tool names
 
 The HA Add-on Store includes Headscale alongside Odoo, n8n, Hermes, EMQX,
 LiteLLM and Nextcloud. OpenDesign is a source candidate; K8s and VK are absent.
 HA uses its own GUI, HA authentication and ingress adapter. These are genuine
-distribution differences; the Podman workspace follows the pinned PaaS product
-contracts and does not claim that HA already publishes all nine products.
+distribution differences; the Podman workspace keeps the PaaS product contracts
+of the fork base and does not claim that HA already publishes all nine products.
 
 At HA source commit `1b45bdfa5338170d2b397ef5940bb4c241f8b343`, the
 six published products have exactly the same tool names as PaaS/Podman:

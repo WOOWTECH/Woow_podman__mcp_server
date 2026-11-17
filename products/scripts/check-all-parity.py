@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Verify every shared Podman app against the pinned PaaS source commit."""
+"""Compare every shared Podman app with the PaaS fork base commit.
+
+Since 2026-11-17 this repository owns the product source and no longer syncs
+from PaaS (see products/PROVENANCE.md). CI no longer runs this script. It lists
+every file that differs from the fork base, which helps when a PaaS change is
+ported by hand, and the dormant signed release path still calls it.
+"""
 
 from __future__ import annotations
 
