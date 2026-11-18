@@ -108,6 +108,10 @@ Products track:
    cron) shipped through a third rollout, which the owner approved in advance:
    all nine products run `07fec87` since 2026-11-17, see
    `products/deploy/releases/2026-11-17-podman-owned-rollout.md`.
+   The fixes in #41 (K8s Helm directories, a blank Open Design timeout and the
+   setup-hint admin link) shipped through a fourth rollout, which the owner
+   approved after merging #41: all nine products run `a63ba85` since
+   2026-11-18, see `products/deploy/releases/2026-11-18-podman-fixes-rollout.md`.
 
 Podman host MCP track, cancelled on 2026-11-14 (decision 7):
 
