@@ -17,6 +17,8 @@ DropCapability=ALL
 # (Podman 4.9 Quadlet has no Memory= key).
 PodmanArgs=--memory=@@MCP_MEMORY_LIMIT@@
 Environment=MCP_ADMIN_CONFIG=/data/config.json
+# The admin page is only on this host; tell MCP clients where it is instead of the public MCP host name.
+Environment=MCP_ADMIN_URL=http://@@MCP_ADMIN_BIND@@:@@MCP_ADMIN_PORT@@/
 EnvironmentFile=@@ENV_FILE@@
 Secret=@@APP@@-jwt-secret,type=env,target=JWT_SECRET
 Secret=@@APP@@-password,type=env,target=ADMIN_PASSWORD

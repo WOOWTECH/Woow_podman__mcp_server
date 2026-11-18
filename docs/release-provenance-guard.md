@@ -171,7 +171,7 @@ LiteLLM reconnect fixes (Gitea #135, #139) and the Hermes cron fix (Gitea
 PaaS fork base. The Podman catalog records that commit, and both direct parity
 checks passed against a clean checkout of it when the products were copied.
 This repository has maintained the product source since 2026-11-17. The
-Headscale product version is `0.1.7-podman.1`.
+Headscale product version is `0.1.7-podman.2`.
 
 The signing key, reviewed image identity, signed manifest, and live Quadlet
 upgrade are separate release artifacts. This source branch does not include

@@ -16,6 +16,10 @@ vendored ``od_mcp_server.py`` 要維持 byte-faithful 不改檔，它只認 ``OD
 
 沒有帳密時完全不動（``OD_API_BASE`` 原樣、``httpx`` 不換）。
 
+空白的 ``OD_CHAT_TIMEOUT``：vendored 模組 import 時做 ``float(os.environ.get("OD_CHAT_TIMEOUT", "300"))``，變數存在但是
+空字串就丟 ValueError、子行程 exit 1。管理頁的語意是「空字串＝清除」，新加的帳號 connection 也一律是空字串，所以
+import 前先把空白值拿掉（見 :func:`drop_blank_chat_timeout`），讓它用預設的 300 秒。
+
 MCP SDK 2.x（#78）：vendored 模組寫的是 ``from mcp.server.fastmcp import FastMCP``；mcp 2.x 把 FastMCP 改名為
 ``mcp.server.mcpserver.MCPServer``，``mcp.server.fastmcp`` 一 import 就丟 ``ModuleNotFoundError``。為了不改
 vendored 檔（re-sync 上游時整檔覆蓋），import 它的那一刻暫時讓 ``mcp.server.fastmcp`` 指到只有
@@ -90,6 +94,16 @@ def install_basic_auth(module: types.ModuleType, creds: tuple[str, str] | None) 
     return True
 
 
+def drop_blank_chat_timeout(environ: dict | Any | None = None) -> bool:
+    """把空白的 ``OD_CHAT_TIMEOUT`` 當成沒設定：拿掉它，vendored 模組就用預設的 300 秒；回傳是否拿掉了。"""
+    env = os.environ if environ is None else environ
+    value = env.get("OD_CHAT_TIMEOUT")
+    if value is not None and not value.strip():
+        del env["OD_CHAT_TIMEOUT"]
+        return True
+    return False
+
+
 _FASTMCP_MODULE = "mcp.server.fastmcp"
 
 
@@ -111,6 +125,7 @@ def _import_vendored() -> types.ModuleType:
 
 
 _creds = resolve_basic_auth_env()
+drop_blank_chat_timeout()
 
 _od_mcp_server = _import_vendored()  # 必須在 OD_API_BASE 改寫之後 import
 

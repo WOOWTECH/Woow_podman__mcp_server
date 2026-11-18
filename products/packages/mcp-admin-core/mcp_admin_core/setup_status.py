@@ -49,11 +49,13 @@ from __future__ import annotations
 import asyncio
 import functools
 import ipaddress
+import os
 import re
 import secrets
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Sequence
+from urllib.parse import urlsplit
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
@@ -98,6 +100,10 @@ _EMPTY_LISTS = {
 _HOSTNAME = re.compile(r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*")
 _PORT = re.compile(r"[0-9]{1,5}")
 _ROOT_PATH = re.compile(r"(?:/[A-Za-z0-9._~-]+)*")
+#: 部署端設定的管理頁網址（Podman 版由 Quadlet 帶入 ``http://<MCP_ADMIN_BIND>:<MCP_ADMIN_PORT>/``）。MCP 網址經另一個主機名稱的
+#: 公開入口進來時，管理頁不在那個主機上，從 Host 推出來的連結打不開（回 404）；有設就一律用這個值。沒設照舊取自請求的
+#: Host（PaaS：管理頁與 MCP 同一個主機）。設成 ``none``（或任何不是 http(s) 根網址的值）就不給連結。
+ADMIN_URL_ENV = "MCP_ADMIN_URL"
 
 
 # ---------------------------------------------------------------------------
@@ -456,12 +462,34 @@ def product_label(title: str) -> str:
     return label or "MCP"
 
 
+def _configured_admin_root() -> str | None:
+    """:data:`ADMIN_URL_ENV` 正規化後的值（結尾帶 ``/``）；沒設回 None，值不能用（含 ``none``）回空字串＝不給連結。"""
+    raw = os.environ.get(ADMIN_URL_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return ""
+    if (parts.scheme.lower() not in ("http", "https") or "@" in parts.netloc or parts.query or parts.fragment
+            or _split_host(parts.netloc.lower()) is None):
+        return ""
+    path = parts.path.rstrip("/")
+    if not _ROOT_PATH.fullmatch(path):
+        return ""
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}{path}/"
+
+
 def admin_root(request: Request) -> str | None:
-    """管理頁的根網址（結尾帶 ``/``），取自這次請求的 Host；Host 不是合法的主機名稱或 IP［:port］就回 None。
+    """管理頁的根網址（結尾帶 ``/``）。部署端設了 :data:`ADMIN_URL_ENV` 就用它；否則取自這次請求的 Host，Host 不是合法的
+    主機名稱或 IP［:port］就回 None。
 
     scheme：請求本身或 ``X-Forwarded-Proto`` 是 https 就是 https；直接連容器（帶 port、IP、localhost）用請求的 scheme；
     其餘（不帶 port 的網域名稱）一律 https——PaaS 的 TLS 在 Cloudflare 終止，進到容器的是 http。
     """
+    configured = _configured_admin_root()
+    if configured is not None:
+        return configured or None
     split = _split_host((request.headers.get("host") or "").strip().lower())
     if split is None:
         return None

@@ -875,3 +875,37 @@ def test_healthz_without_a_snapshot_waits_only_briefly_for_the_config(gateway):
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "mcp": "not_running"}  # 不知道缺什麼：只看子行程
     assert setup_status.PROBE_CONFIG_WAIT_SECONDS <= elapsed < setup_status.PROBE_CONFIG_WAIT_SECONDS + 1, elapsed
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("http://127.0.0.1:18501", "http://127.0.0.1:18501/"),
+        ("http://127.0.0.1:18501/", "http://127.0.0.1:18501/"),
+        ("HTTPS://Admin.Example.com/mcp-admin/", "https://admin.example.com/mcp-admin/"),
+    ],
+)
+def test_deployment_admin_url_wins_over_the_request_host(gateway, monkeypatch, configured, expected):
+    """Podman 版：MCP 經公開主機名稱進來，管理頁只在本機；連結要指向部署設定的管理頁，不是公開主機。"""
+    monkeypatch.setenv("MCP_ADMIN_URL", configured)
+    c = gateway(base_url="https://public-mcp.example.com")
+    text = _initialize(c).json()["result"]["instructions"]
+    assert f"{expected}config" in text
+    assert "public-mcp.example.com" not in text
+
+
+@pytest.mark.parametrize("configured", ["none", "ftp://admin.example.com/", "http://user:pw@admin.example.com/",
+                                        "http://admin.example.com/?next=x", "http://admin.example.com/a b/",
+                                        "javascript:alert(1)", "http://admin.example.com:99999/"])
+def test_unusable_deployment_admin_url_gives_no_link(gateway, monkeypatch, configured):
+    monkeypatch.setenv("MCP_ADMIN_URL", configured)
+    c = gateway(base_url="https://public-mcp.example.com")
+    text = _initialize(c).json()["result"]["instructions"]
+    assert "http://" not in text and "https://" not in text
+    assert "管理頁" in text and "Connection" in text
+
+
+def test_blank_deployment_admin_url_keeps_the_request_host(gateway, monkeypatch):
+    monkeypatch.setenv("MCP_ADMIN_URL", "  ")
+    c = gateway(base_url="https://paas-cs-abc.woowtech.io")
+    assert "https://paas-cs-abc.woowtech.io/config" in _initialize(c).json()["result"]["instructions"]
