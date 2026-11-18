@@ -304,3 +304,61 @@ def test_bind_address_always_loopback(monkeypatch, data_dir, run_launcher):
 def _flag_value(argv: list[str], flag: str) -> str:
     idx = argv.index(flag)
     return argv[idx + 1]
+
+
+# ---------------------------------------------------------------------------
+# Helm 目錄：Podman 版容器 --read-only、HOME 不可寫時 helm_install 失敗（2026-11-18）
+# ---------------------------------------------------------------------------
+
+_HELM_KEYS = ("HELM_CACHE_HOME", "HELM_CONFIG_HOME", "HELM_DATA_HOME")
+
+
+@pytest.fixture
+def no_helm_env(monkeypatch):
+    for key in _HELM_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_helm_dirs_move_to_tmp_when_home_not_writable(data_dir, run_launcher, no_helm_env, monkeypatch):
+    import tempfile
+
+    from k8s_mcp_admin import launcher
+
+    monkeypatch.setattr(launcher, "_home_writable", lambda home: False)
+    env = run_launcher()["env"]
+    base = Path(tempfile.gettempdir()) / "helm"
+    assert [env[k] for k in _HELM_KEYS] == [str(base / "cache"), str(base / "config"), str(base / "data")]
+
+
+def test_helm_dirs_untouched_when_home_writable(data_dir, run_launcher, no_helm_env, monkeypatch):
+    from k8s_mcp_admin import launcher
+
+    monkeypatch.setattr(launcher, "_home_writable", lambda home: True)
+    env = run_launcher()["env"]
+    assert not any(k in env for k in _HELM_KEYS)
+
+
+def test_helm_dirs_keep_deployment_values(data_dir, run_launcher, no_helm_env, monkeypatch):
+    from k8s_mcp_admin import launcher
+
+    monkeypatch.setattr(launcher, "_home_writable", lambda home: False)
+    monkeypatch.setenv("HELM_CACHE_HOME", "/srv/helm-cache")
+    env = run_launcher()["env"]
+    assert env["HELM_CACHE_HOME"] == "/srv/helm-cache"
+    assert env["HELM_CONFIG_HOME"].endswith("/helm/config") and env["HELM_DATA_HOME"].endswith("/helm/data")
+
+
+def test_home_writable_reflects_directory_permissions(tmp_path):
+    from k8s_mcp_admin import launcher
+
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions")
+    read_only = tmp_path / "home"
+    read_only.mkdir()
+    read_only.chmod(0o500)
+    try:
+        assert launcher._home_writable(str(tmp_path)) is True
+        assert launcher._home_writable(str(read_only)) is False
+        assert launcher._home_writable("") is False
+    finally:
+        read_only.chmod(0o700)

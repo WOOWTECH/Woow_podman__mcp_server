@@ -36,6 +36,23 @@ The GitHub mirror of PaaS keeps following Gitea, so it is a convenient source.
 
 ### Changes made here since the fork
 
+- 2026-11-18, three fixes found by end-to-end tests of the Podman products
+  (shared images `paas-48f394d-podman.3`, Headscale `0.1.7-podman.2`):
+  - k8s: Helm needs writable cache, config and data directories, which default
+    to `$HOME`. The Podman container root is read-only, so `helm_install`
+    failed with "read-only file system". When `HOME` is not writable, the
+    launcher now points any unset `HELM_CACHE_HOME`, `HELM_CONFIG_HOME` and
+    `HELM_DATA_HOME` at the temporary directory.
+  - Open Design: a blank `OD_CHAT_TIMEOUT` made the child exit with code 1
+    (`float("")`). Every new profile starts with blank connection values, and
+    the Connection page treats a blank value as "clear", so the launcher now
+    drops a blank value and the upstream default of 300 seconds applies.
+  - Setup hints: the not-configured and not-running answers built the admin
+    page link from the request's Host. When MCP clients arrive through another
+    host name that does not serve the admin page, that link opened nothing. A
+    deployment can now set `MCP_ADMIN_URL`; the Quadlet templates set it to the
+    local admin address, and `none` gives no link. Without it the Host is used
+    as before.
 - 2026-11-17, Hermes cron (shared images `paas-48f394d-podman.2`): a job
   created with `enabled=false` is checked against the state Hermes saved. If it
   still came out enabled, it is paused, or deleted when the pause fails, and the

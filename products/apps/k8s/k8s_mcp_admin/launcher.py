@@ -110,6 +110,26 @@ _DEFAULT_TOOLSETS = ["core", "config", "helm"]
 # api.GroupVersionKind 的 toml 標籤 group/version/kind）。
 _DENIED_SECRET = {"group": "", "version": "v1", "kind": "Secret"}
 
+# Helm（helm_install／helm_list／helm_uninstall）要寫 cache／config／data 目錄，Helm 預設放在 $HOME 底下。Podman 版容器
+# 是 --read-only、只有 /data 與 /tmp（tmpfs）可寫，HOME 寫不進去，helm_install 就回「mkdir /home/app/.cache: read-only
+# file system」。HOME 不可寫時把沒設定的三個目錄改到暫存目錄；部署端已設定的值、HOME 可寫的環境（例如 PaaS）都不變。
+# 暫存目錄是 tmpfs：重啟後 chart 快取重新下載，不影響已安裝的 release（release 記在叢集的 Secret）。
+_HELM_DIR_ENV = (("HELM_CACHE_HOME", "cache"), ("HELM_CONFIG_HOME", "config"), ("HELM_DATA_HOME", "data"))
+
+
+def _home_writable(home: str) -> bool:
+    return bool(home) and os.access(home, os.W_OK)
+
+
+def _helm_dirs(env: dict[str, str]) -> None:
+    """HOME 不可寫時，把沒設定的 ``HELM_*_HOME`` 指到暫存目錄（就地改 *env*）。"""
+    if _home_writable(env.get("HOME") or os.path.expanduser("~")):
+        return
+    base = Path(tempfile.gettempdir()) / "helm"
+    for key, sub in _HELM_DIR_ENV:
+        if not (env.get(key) or "").strip():
+            env[key] = str(base / sub)
+
 
 def _toggle_on(value: str | None) -> bool:
     """治理旗標判定（對齊 SettingsPage 與 config router 的正規化）。"""
@@ -271,6 +291,9 @@ def main(argv: list[str] | None = None) -> None:
     # --- exec 前清掉已消化的 K8S_MCP_* env ---
     for key in _CONSUMED_ENV_KEYS:
         env.pop(key, None)
+
+    # --- Helm 目錄：HOME 不可寫（Podman 版 --read-only）時改到暫存目錄 ---
+    _helm_dirs(env)
 
     # --- (3) argv 組裝與 execvpe ---
     argv_out = [

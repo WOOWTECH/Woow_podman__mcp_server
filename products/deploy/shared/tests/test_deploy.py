@@ -88,6 +88,13 @@ def test_quadlet_templates_cap_memory_and_stop_startup_failure_loops():
         assert "MCP_MEMORY_LIMIT" in path.read_text().split()
 
 
+def test_quadlet_templates_point_setup_hints_at_the_local_admin_page():
+    # MCP clients may arrive through a public host name that does not serve the admin page.
+    for path in (SHARED / "quadlet/product.container",
+                 SHARED.parent / "headscale/quadlet/headscale-mcp-admin.container"):
+        assert "Environment=MCP_ADMIN_URL=http://@@MCP_ADMIN_BIND@@:@@MCP_ADMIN_PORT@@/" in path.read_text()
+
+
 def test_runtime_settings_follow_the_core_rules():
     validate = module("validate_env").validate_runtime
     validate({"MCP_MEMORY_LIMIT": "1g"})
